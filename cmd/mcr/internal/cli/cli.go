@@ -50,6 +50,18 @@ func Run(args []string) int {
 		runErr = cmdStatus(ctx, env)
 	case "doctor":
 		runErr = cmdDoctor(ctx, env)
+	case "contacts":
+		runErr = cmdContacts(ctx, env)
+	case "contact":
+		runErr = cmdContact(ctx, env)
+	case "inbox":
+		runErr = cmdInbox(ctx, env)
+	case "send":
+		runErr = cmdSend(ctx, env)
+	case "watch":
+		runErr = cmdWatch(ctx, env)
+	case "channel":
+		runErr = cmdChannel(ctx, env)
 	case "use":
 		runErr = cmdUse(env)
 	case "device":
@@ -93,6 +105,13 @@ Commands:
   connect [uri]      Discover or connect to a radio and save a profile
   status             Show device status
   doctor             Run connection diagnostics
+  contacts           List contacts
+  contact show <n>   Show a contact
+  inbox              Drain buffered incoming messages
+  send <to> <text>   Send a direct message (--wait for ack)
+  watch              Stream incoming messages and events
+  channel list       List channels
+  channel send <c> <text>  Send a channel message
   use <profile>      Set the default device profile
   device list        List saved profiles
   device show <name> Show a profile

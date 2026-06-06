@@ -41,6 +41,42 @@ type SendSelfAdvert struct {
 // Reboot asks the device to restart.
 type Reboot struct{}
 
+// GetContacts requests the full contact list (CONTACTS_START, CONTACT…,
+// END_OF_CONTACTS).
+type GetContacts struct{}
+
+// GetChannel requests information about a channel slot by index.
+type GetChannel struct {
+	Index byte
+}
+
+// SyncNextMessage drains the next buffered inbound message, if any.
+type SyncNextMessage struct{}
+
+// SendTextMessage sends a direct text message to a contact.
+//
+// Wire layout is firmware-derived and not yet hardware-verified — sending
+// transmits over LoRa to a live mesh, so it was not test-fired during
+// development. Cross-check against firmware before relying on it.
+type SendTextMessage struct {
+	DestPublicKey []byte // recipient public key (at least the 6-byte prefix)
+	Text          string
+	Timestamp     time.Time // defaults to now when zero
+	TxtType       byte      // 0 = plain text
+	Attempt       byte
+}
+
+// SendChannelTextMessage sends a text message to a channel slot.
+//
+// Wire layout is firmware-derived and not yet hardware-verified (see
+// SendTextMessage).
+type SendChannelTextMessage struct {
+	Channel   byte
+	Text      string
+	Timestamp time.Time
+	TxtType   byte
+}
+
 // encode serialises a command to its wire payload (without transport framing).
 func encode(cmd protocol.Command) ([]byte, error) {
 	switch c := cmd.(type) {
@@ -82,7 +118,46 @@ func encode(cmd protocol.Command) ([]byte, error) {
 	case Reboot:
 		return []byte{cmdReboot}, nil
 
+	case GetContacts:
+		return []byte{cmdGetContacts}, nil
+
+	case GetChannel:
+		return []byte{cmdGetChannel, c.Index}, nil
+
+	case SyncNextMessage:
+		return []byte{cmdSyncNextMessage}, nil
+
+	case SendTextMessage:
+		if len(c.DestPublicKey) < 6 {
+			return nil, fmt.Errorf("companion: recipient key too short (%d bytes)", len(c.DestPublicKey))
+		}
+		// [cmd][txt_type][attempt][timestamp(4 LE)][dest prefix(6)][text]
+		buf := make([]byte, 0, 13+len(c.Text))
+		buf = append(buf, cmdSendTxtMsg, c.TxtType, c.Attempt)
+		buf = appendTimestamp(buf, c.Timestamp)
+		buf = append(buf, c.DestPublicKey[:6]...)
+		buf = append(buf, []byte(c.Text)...)
+		return buf, nil
+
+	case SendChannelTextMessage:
+		// [cmd][txt_type][channel_idx][timestamp(4 LE)][text]
+		buf := make([]byte, 0, 7+len(c.Text))
+		buf = append(buf, cmdSendChannelTxt, c.TxtType, c.Channel)
+		buf = appendTimestamp(buf, c.Timestamp)
+		buf = append(buf, []byte(c.Text)...)
+		return buf, nil
+
 	default:
 		return nil, fmt.Errorf("companion: cannot encode command %T", cmd)
 	}
+}
+
+// appendTimestamp appends a little-endian uint32 Unix time, defaulting to now.
+func appendTimestamp(buf []byte, t time.Time) []byte {
+	if t.IsZero() {
+		t = time.Now()
+	}
+	var b [4]byte
+	binary.LittleEndian.PutUint32(b[:], uint32(t.Unix()))
+	return append(buf, b[:]...)
 }

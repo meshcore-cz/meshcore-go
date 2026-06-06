@@ -236,6 +236,113 @@ func TestDecodeRealSelfInfoGolden(t *testing.T) {
 	}
 }
 
+func TestEncodeMessagingCommands(t *testing.T) {
+	if got, _ := encode(GetContacts{}); !bytes.Equal(got, []byte{cmdGetContacts}) {
+		t.Errorf("GetContacts = %x", got)
+	}
+	if got, _ := encode(GetChannel{Index: 3}); !bytes.Equal(got, []byte{cmdGetChannel, 3}) {
+		t.Errorf("GetChannel = %x", got)
+	}
+	if got, _ := encode(SyncNextMessage{}); !bytes.Equal(got, []byte{cmdSyncNextMessage}) {
+		t.Errorf("SyncNextMessage = %x", got)
+	}
+
+	ts := time.Unix(1717675200, 0)
+	got, err := encode(SendTextMessage{DestPublicKey: bytes.Repeat([]byte{0xaa}, 8), Text: "hi", Timestamp: ts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append([]byte{cmdSendTxtMsg, 0, 0}, le32(uint32(ts.Unix()))...)
+	want = append(want, []byte{0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa}...)
+	want = append(want, []byte("hi")...)
+	if !bytes.Equal(got, want) {
+		t.Errorf("SendTextMessage = %x, want %x", got, want)
+	}
+
+	if _, err := encode(SendTextMessage{DestPublicKey: []byte{1, 2}, Text: "x"}); err == nil {
+		t.Error("expected error for too-short recipient key")
+	}
+
+	gotc, _ := encode(SendChannelTextMessage{Channel: 0, Text: "hi", Timestamp: ts})
+	wantc := append([]byte{cmdSendChannelTxt, 0, 0}, le32(uint32(ts.Unix()))...)
+	wantc = append(wantc, []byte("hi")...)
+	if !bytes.Equal(gotc, wantc) {
+		t.Errorf("SendChannelTextMessage = %x, want %x", gotc, wantc)
+	}
+}
+
+func TestDecodeRealContactGolden(t *testing.T) {
+	// Captured verbatim from MeshCore v1.15: the "liba.meshcore.cz" repeater.
+	pkt := mustHex(t,
+		"03 bb ab 1a ad 30 e4 5c e4 83 65 98 3d f5 87 42 e2 8f bb a2 87 a8 12 e4 af 79 1d 2e 15 df a3 3b e6 02 00 ff 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 6c 69 62 61 2e 6d 65 73 68 63 6f 72 65 2e 63 7a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5f 0a 24 6a ba d1 fc 02 60 74 ba 00 6a 0a 24 6a")
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := msg.(Contact)
+	if c.Name != "liba.meshcore.cz" {
+		t.Errorf("name = %q", c.Name)
+	}
+	if c.Type != 2 {
+		t.Errorf("type = %d, want 2 (repeater)", c.Type)
+	}
+	if c.HasPath {
+		t.Error("out_path_len 0xff should mean no path")
+	}
+	if !strings.HasPrefix(c.PublicKey, "bbab1aad30e4") {
+		t.Errorf("public key = %q", c.PublicKey)
+	}
+	if c.LastAdvert.IsZero() || c.LastMod.IsZero() {
+		t.Error("expected non-zero timestamps")
+	}
+}
+
+func TestDecodeRealChannelInfoGolden(t *testing.T) {
+	// Captured verbatim from MeshCore v1.15: the default "Public" channel.
+	pkt := mustHex(t,
+		"12 00 50 75 62 6c 69 63 00 51 53 25 25 a0 25 a1 b1 9c 35 f9 d8 bb ee ac 74 44 03 2d f3 14 f4 52 de b5 8b 33 87 e9 c5 cd ea 6a c9 e5 ed ba a1 15 cd 72")
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ci := msg.(ChannelInfo)
+	if ci.Index != 0 || ci.Name != "Public" {
+		t.Errorf("channel = %d/%q", ci.Index, ci.Name)
+	}
+	if hex.EncodeToString(ci.Secret) != "8b3387e9c5cdea6ac9e5edbaa115cd72" {
+		t.Errorf("secret = %x", ci.Secret)
+	}
+}
+
+func TestDecodeMessageFrames(t *testing.T) {
+	// Sent response (firmware-derived layout).
+	sent := mustHex(t, "06 00 78 56 34 12 e8 03 00 00")
+	if m := mustDecode(t, sent).(Sent); m.ExpectedAck != 0x12345678 {
+		t.Errorf("sent ack = %08x", m.ExpectedAck)
+	}
+
+	// NO_MORE_MESSAGES.
+	if _, ok := mustDecode(t, []byte{respNoMoreMessages}).(NoMoreMessages); !ok {
+		t.Error("expected NoMoreMessages")
+	}
+
+	// CONTACT_MSG_RECV: prefix(6) path txt ts(4) "hello".
+	cm := mustHex(t, "07 aabbccddeeff 00 00 80 a1 24 6a 68 65 6c 6c 6f")
+	m := mustDecode(t, cm).(ContactMessage)
+	if m.Text != "hello" || m.SenderPrefix != "aabbccddeeff" {
+		t.Errorf("contact msg = %+v", m)
+	}
+}
+
+func mustDecode(t *testing.T, pkt []byte) protocol.Message {
+	t.Helper()
+	m, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
 func TestDecodeRealDeviceInfoGolden(t *testing.T) {
 	pkt := mustHex(t,
 		"0d 0b af 28 00 00 00 00 31 39 2d 41 70 72 2d 32 30 32 36 00 48 65 6c 74 65 63 20 56 33 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 76 31 2e 31 35 2e 30 2d 64 65 65 33 65 32 36 00 00 00 00 00 00 00")

@@ -43,23 +43,25 @@ const (
 // Response codes sent device -> host in reply to a command. The code is the
 // first byte of the packet.
 const (
-	respOK             byte = 0
-	respErr            byte = 1
-	respContactsStart  byte = 2
-	respContact        byte = 3
-	respEndOfContacts  byte = 4
-	respSelfInfo       byte = 5
-	respSent           byte = 6
-	respContactMsgRecv byte = 7
-	respChannelMsgRecv byte = 8
-	respCurrTime       byte = 9
-	respNoMoreMessages byte = 10
-	respExportContact  byte = 11
-	respBatteryVoltage byte = 12
-	respDeviceInfo     byte = 13
-	respPrivateKey     byte = 14
-	respDisabled       byte = 15
-	respChannelInfo    byte = 18
+	respOK               byte = 0
+	respErr              byte = 1
+	respContactsStart    byte = 2
+	respContact          byte = 3
+	respEndOfContacts    byte = 4
+	respSelfInfo         byte = 5
+	respSent             byte = 6
+	respContactMsgRecv   byte = 7
+	respChannelMsgRecv   byte = 8
+	respCurrTime         byte = 9
+	respNoMoreMessages   byte = 10
+	respExportContact    byte = 11
+	respBatteryVoltage   byte = 12
+	respDeviceInfo       byte = 13
+	respPrivateKey       byte = 14
+	respDisabled         byte = 15
+	respContactMsgRecvV3 byte = 16
+	respChannelMsgRecvV3 byte = 17
+	respChannelInfo      byte = 18
 )
 
 // Push (asynchronous notification) codes. These have the high bit set, which

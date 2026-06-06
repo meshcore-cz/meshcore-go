@@ -79,3 +79,83 @@ func (SendConfirmed) Async() bool { return true }
 type MsgWaiting struct{}
 
 func (MsgWaiting) Async() bool { return true }
+
+// ContactsStart is RESP_CODE_CONTACTS_START, sent before a run of Contact
+// records. Count is the number of records that follow.
+type ContactsStart struct {
+	Count uint32
+}
+
+func (ContactsStart) Async() bool { return false }
+
+// Contact is RESP_CODE_CONTACT, one entry of the contact list.
+type Contact struct {
+	PublicKey  string // hex-encoded 32-byte key
+	Type       byte
+	Flags      byte
+	HasPath    bool
+	Name       string
+	LastAdvert time.Time
+	Latitude   float64
+	Longitude  float64
+	LastMod    time.Time
+}
+
+func (Contact) Async() bool { return false }
+
+// EndOfContacts is RESP_CODE_END_OF_CONTACTS, terminating a contact list.
+type EndOfContacts struct{}
+
+func (EndOfContacts) Async() bool { return false }
+
+// ChannelInfo is RESP_CODE_CHANNEL_INFO, describing one channel slot.
+type ChannelInfo struct {
+	Index  byte
+	Name   string
+	Secret []byte // 16-byte pre-shared key
+}
+
+func (ChannelInfo) Async() bool { return false }
+
+// NoMoreMessages is RESP_CODE_NO_MORE_MESSAGES, signalling the inbound buffer
+// is drained.
+type NoMoreMessages struct{}
+
+func (NoMoreMessages) Async() bool { return false }
+
+// Sent is RESP_CODE_SENT, returned after queuing an outbound message. The
+// ExpectedAck code is later echoed by a SendConfirmed push. (Firmware-derived
+// layout, not hardware-verified.)
+type Sent struct {
+	Result           byte
+	ExpectedAck      uint32
+	SuggestedTimeout time.Duration
+}
+
+func (Sent) Async() bool { return false }
+
+// ContactMessage is RESP_CODE_CONTACT_MSG_RECV[_V3], a direct message drained
+// from the device buffer. (Firmware-derived layout, not hardware-verified.)
+type ContactMessage struct {
+	SenderPrefix string // hex-encoded 6-byte sender public-key prefix
+	PathLen      byte
+	TxtType      byte
+	Timestamp    time.Time
+	SNR          float64
+	Text         string
+}
+
+func (ContactMessage) Async() bool { return false }
+
+// ChannelMessage is RESP_CODE_CHANNEL_MSG_RECV[_V3], a channel message drained
+// from the device buffer. (Firmware-derived layout, not hardware-verified.)
+type ChannelMessage struct {
+	Channel   byte
+	PathLen   byte
+	TxtType   byte
+	Timestamp time.Time
+	SNR       float64
+	Text      string
+}
+
+func (ChannelMessage) Async() bool { return false }

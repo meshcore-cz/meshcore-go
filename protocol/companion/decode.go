@@ -50,6 +50,34 @@ func decode(packet []byte) (protocol.Message, error) {
 		}
 		return BatteryVoltage{Millivolts: binary.LittleEndian.Uint16(body)}, nil
 
+	case respContactsStart:
+		var c ContactsStart
+		if len(body) >= 4 {
+			c.Count = binary.LittleEndian.Uint32(body)
+		}
+		return c, nil
+
+	case respContact:
+		return decodeContact(body), nil
+
+	case respEndOfContacts:
+		return EndOfContacts{}, nil
+
+	case respChannelInfo:
+		return decodeChannelInfo(body), nil
+
+	case respNoMoreMessages:
+		return NoMoreMessages{}, nil
+
+	case respSent:
+		return decodeSent(body), nil
+
+	case respContactMsgRecv, respContactMsgRecvV3:
+		return decodeContactMessage(body, code == respContactMsgRecvV3), nil
+
+	case respChannelMsgRecv, respChannelMsgRecvV3:
+		return decodeChannelMessage(body, code == respChannelMsgRecvV3), nil
+
 	case pushAdvert, pushNewAdvert:
 		return decodeAdvert(body), nil
 
@@ -170,6 +198,166 @@ func decodeSendConfirmed(b []byte) SendConfirmed {
 		s.RoundTrip = time.Duration(binary.LittleEndian.Uint32(b[4:8])) * time.Millisecond
 	}
 	return s
+}
+
+// decodeContact parses RESP_CODE_CONTACT.
+//
+// Layout (verified against MeshCore v1.15, body length 147):
+//
+//	[0:32]    public_key
+//	[32]      type (1=chat, 2=repeater, 3=room, 4=sensor)
+//	[33]      flags
+//	[34]      out_path_len (int8; -1/0xff = no path)
+//	[35:99]   out_path (64 bytes)
+//	[99:131]  adv_name (32 bytes, NUL-terminated)
+//	[131:135] last_advert (uint32 LE)
+//	[135:139] adv_lat (int32 LE, 1e-6 deg)
+//	[139:143] adv_lon (int32 LE, 1e-6 deg)
+//	[143:147] lastmod (uint32 LE)
+func decodeContact(b []byte) Contact {
+	var c Contact
+	u32 := func(i int) uint32 {
+		if i+4 <= len(b) {
+			return binary.LittleEndian.Uint32(b[i : i+4])
+		}
+		return 0
+	}
+	if len(b) >= 32 {
+		c.PublicKey = hex.EncodeToString(b[:32])
+	}
+	if len(b) > 32 {
+		c.Type = b[32]
+	}
+	if len(b) > 33 {
+		c.Flags = b[33]
+	}
+	if len(b) > 34 {
+		c.HasPath = int8(b[34]) >= 0
+	}
+	if len(b) >= 131 {
+		c.Name = trimString(b[99:131])
+	}
+	if t := u32(131); t != 0 {
+		c.LastAdvert = time.Unix(int64(t), 0)
+	}
+	c.Latitude = float64(int32(u32(135))) / 1e6
+	c.Longitude = float64(int32(u32(139))) / 1e6
+	if t := u32(143); t != 0 {
+		c.LastMod = time.Unix(int64(t), 0)
+	}
+	return c
+}
+
+// decodeChannelInfo parses RESP_CODE_CHANNEL_INFO.
+//
+// Layout (verified against MeshCore v1.15, body length 49):
+//
+//	[0]      channel index
+//	[1:33]   name (32 bytes, NUL-terminated)
+//	[33:49]  secret/PSK (16 bytes)
+func decodeChannelInfo(b []byte) ChannelInfo {
+	var ci ChannelInfo
+	if len(b) > 0 {
+		ci.Index = b[0]
+	}
+	if len(b) >= 33 {
+		ci.Name = trimString(b[1:33])
+	}
+	if len(b) >= 49 {
+		ci.Secret = append([]byte(nil), b[33:49]...)
+	}
+	return ci
+}
+
+// decodeSent parses RESP_CODE_SENT. Firmware-derived layout:
+//
+//	[0]     result
+//	[1:5]   expected ack code (uint32 LE)
+//	[5:9]   suggested timeout (uint32 LE, ms)
+func decodeSent(b []byte) Sent {
+	var s Sent
+	if len(b) > 0 {
+		s.Result = b[0]
+	}
+	if len(b) >= 5 {
+		s.ExpectedAck = binary.LittleEndian.Uint32(b[1:5])
+	}
+	if len(b) >= 9 {
+		s.SuggestedTimeout = time.Duration(binary.LittleEndian.Uint32(b[5:9])) * time.Millisecond
+	}
+	return s
+}
+
+// decodeContactMessage parses RESP_CODE_CONTACT_MSG_RECV[_V3]. Firmware-derived
+// layout:
+//
+//	[0:6]   sender public-key prefix
+//	[6]     path_len
+//	[7]     txt_type
+//	[8:12]  sender_timestamp (uint32 LE)
+//	[12]    SNR (int8, 0.25 dB units) — V3 only
+//	[12|13:] text
+func decodeContactMessage(b []byte, v3 bool) ContactMessage {
+	var m ContactMessage
+	if len(b) >= 6 {
+		m.SenderPrefix = hex.EncodeToString(b[:6])
+	}
+	if len(b) > 6 {
+		m.PathLen = b[6]
+	}
+	if len(b) > 7 {
+		m.TxtType = b[7]
+	}
+	if len(b) >= 12 {
+		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[8:12])), 0)
+	}
+	off := 12
+	if v3 {
+		if len(b) > 12 {
+			m.SNR = float64(int8(b[12])) / 4
+		}
+		off = 13
+	}
+	if len(b) > off {
+		m.Text = trimString(b[off:])
+	}
+	return m
+}
+
+// decodeChannelMessage parses RESP_CODE_CHANNEL_MSG_RECV[_V3]. Firmware-derived
+// layout:
+//
+//	[0]     channel index
+//	[1]     path_len
+//	[2]     txt_type
+//	[3:7]   sender_timestamp (uint32 LE)
+//	[7]     SNR (int8, 0.25 dB units) — V3 only
+//	[7|8:]  text
+func decodeChannelMessage(b []byte, v3 bool) ChannelMessage {
+	var m ChannelMessage
+	if len(b) > 0 {
+		m.Channel = b[0]
+	}
+	if len(b) > 1 {
+		m.PathLen = b[1]
+	}
+	if len(b) > 2 {
+		m.TxtType = b[2]
+	}
+	if len(b) >= 7 {
+		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[3:7])), 0)
+	}
+	off := 7
+	if v3 {
+		if len(b) > 7 {
+			m.SNR = float64(int8(b[7])) / 4
+		}
+		off = 8
+	}
+	if len(b) > off {
+		m.Text = trimString(b[off:])
+	}
+	return m
 }
 
 // trimString decodes bytes as UTF-8 up to the first NUL.

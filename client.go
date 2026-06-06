@@ -39,6 +39,10 @@ type Client struct {
 	timeout time.Duration
 	log     *slog.Logger
 
+	acks     chan uint32   // SendConfirmed ack codes, for WaitForAcknowledgement
+	autoSync bool          // drain inbound messages on MSG_WAITING
+	syncReq  chan struct{} // signals the sync loop
+
 	mu      sync.RWMutex
 	session protocol.SessionInfo
 
@@ -70,6 +74,14 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+// WithMessageSync makes the client automatically drain inbound messages when
+// the device signals MSG_WAITING, emitting MessageReceived events. Leave it
+// off for one-shot commands so messages are not consumed unexpectedly; enable
+// it for long-running consumers such as `mcr watch`.
+func WithMessageSync() Option {
+	return func(c *Client) { c.autoSync = true }
+}
+
 // New builds a Client over an already-constructed transport. The caller is
 // responsible for calling Connect.
 func New(conn transport.PacketConn, opts ...Option) *Client {
@@ -80,6 +92,8 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 		events:  dispatcher.New[Event](64),
 		timeout: DefaultTimeout,
 		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		acks:    make(chan uint32, 16),
+		syncReq: make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -126,6 +140,9 @@ func (c *Client) Connect(ctx context.Context) error {
 	loopCtx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	go c.readLoop(loopCtx)
+	if c.autoSync {
+		go c.syncLoop(loopCtx)
+	}
 	return nil
 }
 
@@ -148,11 +165,53 @@ func (c *Client) readLoop(ctx context.Context) {
 		}
 		if msg.Async() {
 			c.log.Debug("event", "type", msgType(msg))
-			c.events.Emit(translate(msg))
+			c.handleAsync(msg)
 			continue
 		}
 		if !c.queue.Deliver(msg) {
 			c.log.Debug("unmatched response", "type", msgType(msg))
+		}
+	}
+}
+
+// handleAsync routes a push notification: acks feed WaitForAcknowledgement,
+// MSG_WAITING triggers the optional sync loop, and everything becomes an event.
+func (c *Client) handleAsync(msg protocol.Message) {
+	switch m := msg.(type) {
+	case companion.SendConfirmed:
+		select {
+		case c.acks <- m.Code:
+		default:
+		}
+	case companion.MsgWaiting:
+		if c.autoSync {
+			select {
+			case c.syncReq <- struct{}{}:
+			default:
+			}
+		}
+	}
+	if ev := translate(msg); ev != nil {
+		c.events.Emit(ev)
+	}
+}
+
+// syncLoop drains buffered messages when signalled, emitting MessageReceived
+// events. It runs only when message sync is enabled.
+func (c *Client) syncLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.syncReq:
+			msgs, err := c.SyncMessages(ctx)
+			if err != nil {
+				c.log.Debug("sync failed", "error", err)
+				continue
+			}
+			for _, m := range msgs {
+				c.events.Emit(messageEvent(m))
+			}
 		}
 	}
 }
@@ -188,6 +247,31 @@ func (c *Client) request(ctx context.Context, cmd protocol.Command) (protocol.Me
 		return msg, &DeviceError{Code: e.Code}
 	}
 	return msg, nil
+}
+
+// requestStream sends a pre-encoded command and feeds each response to collect
+// until it reports the stream is complete. A device error frame aborts the
+// stream.
+func (c *Client) requestStream(ctx context.Context, raw []byte, collect func(protocol.Message) bool) error {
+	tctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	c.log.Debug("request stream", "bytes", len(raw))
+	var streamErr error
+	err := c.queue.DoStream(tctx, func() error {
+		return c.conn.WritePacket(tctx, raw)
+	}, func(v any) bool {
+		msg := v.(protocol.Message)
+		if e, ok := msg.(companion.Err); ok {
+			streamErr = &DeviceError{Code: e.Code}
+			return true
+		}
+		return collect(msg)
+	})
+	if err != nil {
+		return err
+	}
+	return streamErr
 }
 
 // Events returns the asynchronous event stream. The channel is closed when the

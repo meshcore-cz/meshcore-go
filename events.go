@@ -13,9 +13,10 @@ type Event interface {
 	isMeshCoreEvent()
 }
 
-// MessageReceived is emitted when a direct text message arrives.
+// MessageReceived is emitted when a text message arrives (direct or channel).
 type MessageReceived struct {
 	From      Contact
+	Channel   string // non-empty for channel messages
 	Text      string
 	Timestamp time.Time
 }
@@ -61,17 +62,31 @@ type Telemetry struct {
 	Fields map[string]any
 }
 
-// translate maps a decoded protocol push message to a typed SDK event.
+// translate maps a decoded protocol push message to a typed SDK event. It
+// returns nil for pushes that carry no user-facing event of their own.
 func translate(msg protocol.Message) Event {
 	switch m := msg.(type) {
 	case companion.Advert:
 		return AdvertisementReceived{Contact: Contact{Name: m.Name, PublicKey: m.PublicKey}}
 	case companion.SendConfirmed:
 		return MessageAcknowledged{Code: hex32(m.Code), RTT: m.RoundTrip}
+	case companion.MsgWaiting:
+		// Surfaced via the sync loop as MessageReceived, not on its own.
+		return nil
 	case protocol.RawMessage:
 		return RawEvent{Type: m.Type, Payload: m.Payload}
 	default:
-		return RawEvent{Type: 0, Payload: nil}
+		return nil
+	}
+}
+
+// messageEvent maps a drained Message to a MessageReceived event.
+func messageEvent(m Message) Event {
+	return MessageReceived{
+		From:      Contact{Name: m.From},
+		Text:      m.Text,
+		Timestamp: m.Timestamp,
+		Channel:   m.Channel,
 	}
 }
 
