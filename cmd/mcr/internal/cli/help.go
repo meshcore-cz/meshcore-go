@@ -11,6 +11,7 @@ Global flags:
   --json           Machine-readable JSON output
   --uri <uri>      Use an explicit endpoint for this command only
   --device <name>  Use a saved profile for this command only
+  --direct         Do not use the local backend for this command
   --debug          Verbose logging to stderr
 `
 
@@ -46,6 +47,19 @@ Run connection diagnostics: configuration, endpoint reachability, handshake,
 firmware and clock difference.
 ` + globalFlags,
 
+	"backend": `Usage: mcr backend <start|restart|stop|status> [flags]
+
+Manage the local backend process. When it is running, ordinary commands use it
+automatically; when it is not running, commands dial the radio directly.
+
+  mcr backend start             start the backend for the selected profile
+  mcr backend restart           restart using the current backend endpoint
+  mcr backend restart --uri ... restart onto an explicit endpoint
+  mcr backend start --uri ...   start the backend for an explicit endpoint
+  mcr backend status            show backend socket, pid and endpoint
+  mcr backend stop              stop the running backend
+` + globalFlags,
+
 	"contacts": `Usage: mcr contacts [flags]
 
 List the contacts stored on the device.
@@ -78,6 +92,23 @@ Flags:
 
 Stream incoming messages and events until interrupted (Ctrl-C). With --json,
 each event is emitted as a newline-delimited JSON object.
+` + globalFlags,
+
+	"shell": `Usage: mcr shell [flags]
+
+Open an interactive foreground session that keeps one radio connection alive.
+
+Available shell commands:
+  status
+  contacts
+  contact show <name>
+  inbox
+  send <recipient> <text> [--wait]
+  trace <target>
+  channel list|show|send
+  watch
+  help
+  exit
 ` + globalFlags,
 
 	"trace": `Usage: mcr trace <target> [flags]

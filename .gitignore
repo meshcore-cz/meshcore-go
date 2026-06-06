@@ -5,4 +5,4 @@ coverage.out
 # Editor/OS noise
 *.swp
 .DS_Store
-mcr
+/mcr

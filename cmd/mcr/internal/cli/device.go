@@ -31,7 +31,7 @@ func cmdUse(e *env) error {
 func cmdDevice(ctx context.Context, e *env) error {
 	switch e.restArg(0) {
 	case "", "list":
-		return deviceList(e)
+		return deviceList(ctx, e)
 	case "show":
 		return deviceShow(e)
 	case "remove":
@@ -41,11 +41,12 @@ func cmdDevice(ctx context.Context, e *env) error {
 	}
 }
 
-func deviceList(e *env) error {
+func deviceList(ctx context.Context, e *env) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+	st, backendRunning := backendStatus(ctx)
 	names := make([]string, 0, len(cfg.Devices))
 	for n := range cfg.Devices {
 		names = append(names, n)
@@ -58,11 +59,13 @@ func deviceList(e *env) error {
 			Transport string `json:"transport"`
 			Endpoint  string `json:"endpoint"`
 			Default   bool   `json:"default"`
+			Backend   bool   `json:"backend"`
 		}
 		rows := make([]row, 0, len(names))
 		for _, n := range names {
 			d := cfg.Devices[n]
-			rows = append(rows, row{n, d.PreferredTransport, d.PrimaryURI(), n == cfg.Current})
+			uri := d.PrimaryURI()
+			rows = append(rows, row{n, d.PreferredTransport, uri, n == cfg.Current, backendRunning && uri == st.URI})
 		}
 		return e.out.JSONValue(rows)
 	}
@@ -71,14 +74,19 @@ func deviceList(e *env) error {
 		e.out.Human("No saved profiles. Run `mcr connect`.\n")
 		return nil
 	}
-	e.out.Human("%-16s %-10s %-34s %s\n", "NAME", "TRANSPORT", "ENDPOINT", "DEFAULT")
+	e.out.Human("%-16s %-10s %-34s %-7s %s\n", "NAME", "TRANSPORT", "ENDPOINT", "BACKEND", "DEFAULT")
 	for _, n := range names {
 		d := cfg.Devices[n]
 		def := ""
 		if n == cfg.Current {
 			def = "*"
 		}
-		e.out.Human("%-16s %-10s %-34s %s\n", n, d.PreferredTransport, d.PrimaryURI(), def)
+		uri := d.PrimaryURI()
+		active := ""
+		if backendRunning && uri == st.URI {
+			active = "running"
+		}
+		e.out.Human("%-16s %-10s %-34s %-7s %s\n", n, d.PreferredTransport, uri, active, def)
 	}
 	return nil
 }

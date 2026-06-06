@@ -66,6 +66,8 @@ func Run(args []string) int {
 		runErr = cmdStatus(ctx, env)
 	case "doctor":
 		runErr = cmdDoctor(ctx, env)
+	case "backend":
+		runErr = cmdBackend(ctx, env)
 	case "contacts":
 		runErr = cmdContacts(ctx, env)
 	case "contact":
@@ -76,6 +78,8 @@ func Run(args []string) int {
 		runErr = cmdSend(ctx, env)
 	case "watch":
 		runErr = cmdWatch(ctx, env)
+	case "shell":
+		runErr = cmdShell(ctx, env)
 	case "trace":
 		runErr = cmdTrace(ctx, env)
 	case "channel":
@@ -129,11 +133,13 @@ Commands:
   connect [uri]      Discover or connect to a radio and save a profile
   status             Show device status
   doctor             Run connection diagnostics
+  backend start      Start/restart/stop/inspect the local backend
   contacts           List contacts
   contact show <n>   Show a contact
   inbox              Drain buffered incoming messages
   send <to> <text>   Send a direct message (--wait for ack)
   watch              Stream incoming messages and events
+  shell              Open an interactive persistent session
   trace <target>     Trace the route to a node
   channel list       List channels
   channel send <c> <text>  Send a channel message

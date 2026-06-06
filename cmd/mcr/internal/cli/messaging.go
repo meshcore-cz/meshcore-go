@@ -8,17 +8,18 @@ import (
 	"strings"
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
+	localbackend "github.com/meshcore-dev/meshcore-go/backend"
 )
 
 // cmdContacts implements `mcr contacts`.
 func cmdContacts(ctx context.Context, e *env) error {
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	contacts, err := client.Contacts(ctx)
+	contacts, err := backend.Contacts(ctx)
 	if err != nil {
 		return err
 	}
@@ -50,13 +51,13 @@ func cmdContact(ctx context.Context, e *env) error {
 		return fmt.Errorf("usage: mcr contact show <name>")
 	}
 
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	ct, err := client.Contact(ctx, name)
+	ct, err := backend.Contact(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -78,13 +79,13 @@ func cmdContact(ctx context.Context, e *env) error {
 
 // cmdInbox implements `mcr inbox`: drain buffered messages.
 func cmdInbox(ctx context.Context, e *env) error {
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	msgs, err := client.SyncMessages(ctx)
+	msgs, err := backend.Inbox(ctx)
 	if err != nil {
 		return err
 	}
@@ -95,7 +96,7 @@ func cmdInbox(ctx context.Context, e *env) error {
 		e.out.Human("No new messages.\n")
 		return nil
 	}
-	names := contactNames(ctx, client)
+	names := backendContactNames(ctx, backend)
 	for _, m := range msgs {
 		ts := m.Timestamp.Format("15:04:05")
 		e.out.Human("[%s] %s: %s\n", ts, resolveName(names, m.From), m.Text)
@@ -107,6 +108,20 @@ func cmdInbox(ctx context.Context, e *env) error {
 // name, used to render sender names for received messages.
 func contactNames(ctx context.Context, client *meshcore.Client) map[string]string {
 	contacts, err := client.Contacts(ctx)
+	if err != nil {
+		return nil
+	}
+	names := make(map[string]string, len(contacts))
+	for _, ct := range contacts {
+		if len(ct.PublicKey) >= 12 {
+			names[ct.PublicKey[:12]] = ct.Name
+		}
+	}
+	return names
+}
+
+func backendContactNames(ctx context.Context, backend Backend) map[string]string {
+	contacts, err := backend.Contacts(ctx)
 	if err != nil {
 		return nil
 	}
@@ -135,13 +150,13 @@ func cmdSend(ctx context.Context, e *env) error {
 		return fmt.Errorf("usage: mcr send <recipient> <text> [--wait]")
 	}
 
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	receipt, err := client.SendText(ctx, recipient, text)
+	receipt, err := backend.SendText(ctx, recipient, text)
 	if err != nil {
 		return err
 	}
@@ -151,7 +166,7 @@ func cmdSend(ctx context.Context, e *env) error {
 		return e.out.JSONValue(map[string]any{"id": receipt.ID(), "to": receipt.To})
 	}
 
-	ack, err := client.WaitForAcknowledgement(ctx, receipt)
+	ack, err := backend.WaitForAcknowledgement(ctx, receipt)
 	if err != nil {
 		return fmt.Errorf("waiting for acknowledgement: %w", err)
 	}
@@ -166,13 +181,13 @@ func cmdTrace(ctx context.Context, e *env) error {
 		return fmt.Errorf("usage: mcr trace <target>")
 	}
 
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	trace, err := client.Trace(ctx, target)
+	trace, err := backend.Trace(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -189,6 +204,11 @@ func cmdTrace(ctx context.Context, e *env) error {
 			"round_trip_ms": trace.RoundTrip.Milliseconds(),
 		})
 	}
+	printTrace(e, trace)
+	return nil
+}
+
+func printTrace(e *env, trace meshcore.Trace) {
 	e.out.Human("Trace to %s  ·  %s  ·  tag %08x\n",
 		trace.Target, trace.RoundTrip.Round(1e6), trace.Tag)
 
@@ -202,7 +222,7 @@ func cmdTrace(ctx context.Context, e *env) error {
 
 	if len(trace.SNRs) == 0 {
 		e.out.Human("  no signal data\n")
-		return nil
+		return
 	}
 
 	// Column width: longest node name (minimum 3 for "you").
@@ -228,11 +248,16 @@ func cmdTrace(ctx context.Context, e *env) error {
 		e.out.Human("  %-4d  %-*s  → %-*s  %+.2f dB%s\n",
 			i+1, col, nodes[i], col, nodes[i+1], snr, flag)
 	}
-	return nil
 }
 
 // cmdWatch implements `mcr watch`: stream asynchronous events.
 func cmdWatch(ctx context.Context, e *env) error {
+	if !e.args.has("direct") {
+		if err := cmdWatchBackend(ctx, e); err == nil {
+			return nil
+		}
+	}
+
 	uri, _, err := resolveURI(e)
 	if err != nil {
 		return err
@@ -261,6 +286,27 @@ func cmdWatch(ctx context.Context, e *env) error {
 			printEvent(e, ev, names)
 		}
 	}
+}
+
+func cmdWatchBackend(ctx context.Context, e *env) error {
+	client := localbackend.NewClient("")
+	st, err := client.Status(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	events, err := client.Watch(ctx)
+	if err != nil {
+		return err
+	}
+	e.out.Human("Watching backend %s (Ctrl-C to stop)...\n", st.URI)
+	for ev := range events {
+		printBackendEvent(e, ev)
+	}
+	return nil
 }
 
 func printEvent(e *env, ev meshcore.Event, names map[string]string) {
@@ -293,5 +339,26 @@ func printEvent(e *env, ev meshcore.Event, names map[string]string) {
 			return
 		}
 		e.out.Human("disconnected: %v\n", m.Err)
+	}
+}
+
+func printBackendEvent(e *env, ev localbackend.Event) {
+	if e.out.JSON {
+		_ = e.out.Line(ev)
+		return
+	}
+	switch ev.Type {
+	case "message":
+		from := ev.From
+		if from == "" && ev.Channel != "" {
+			from = "#" + ev.Channel
+		}
+		e.out.Human("%s: %s\n", from, ev.Text)
+	case "ack":
+		e.out.Human("ack %s\n", ev.Code)
+	case "advert":
+		e.out.Human("advert: %s\n", ev.Name)
+	case "disconnected":
+		e.out.Human("disconnected: %s\n", ev.Error)
 	}
 }

@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strings"
 	"time"
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
+	localbackend "github.com/meshcore-dev/meshcore-go/backend"
 )
 
 func clockDelta(deviceTime time.Time) string {
@@ -39,13 +41,14 @@ func cmdVersion(e *env) error {
 }
 
 func cmdStatus(ctx context.Context, e *env) error {
-	client, uri, err := connect(ctx, e)
+	st, backendRunning := backendStatus(ctx)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	info, err := client.DeviceInfo(ctx)
+	info, err := backend.DeviceInfo(ctx)
 	if err != nil {
 		return err
 	}
@@ -58,6 +61,7 @@ func cmdStatus(ctx context.Context, e *env) error {
 		Transport       string   `json:"transport"`
 		PublicKey       string   `json:"public_key"`
 		Capabilities    []string `json:"capabilities"`
+		Backend         any      `json:"backend"`
 	}
 	if e.out.JSON {
 		return e.out.JSONValue(statusJSON{
@@ -65,18 +69,24 @@ func cmdStatus(ctx context.Context, e *env) error {
 			Firmware:        info.FirmwareName,
 			FirmwareVersion: info.FirmwareVersion,
 			Protocol:        info.ProtocolVersion,
-			Transport:       client.Transport(),
+			Transport:       backend.Transport(),
 			PublicKey:       info.PublicKey,
 			Capabilities:    info.Capabilities.List(),
+			Backend:         backendStatusForOutput(st, backendRunning),
 		})
 	}
 
 	e.out.Human("Device:       %s\n", orDash(info.Name))
 	e.out.Human("Firmware:     %s %s\n", info.FirmwareName, info.FirmwareVersion)
 	e.out.Human("Protocol:     %s\n", orDash(info.ProtocolVersion))
-	e.out.Human("Transport:    %s\n", uri)
+	e.out.Human("Transport:    %s\n", backend.URI())
 	e.out.Human("Public key:   %s\n", shortKey(info.PublicKey))
 	e.out.Human("Capabilities: %s\n", info.Capabilities.String())
+	if backendRunning {
+		e.out.Human("Backend:      running (pid %d)\n", st.PID)
+	} else {
+		e.out.Human("Backend:      not running\n")
+	}
 	return nil
 }
 
@@ -103,6 +113,24 @@ func cmdDoctor(ctx context.Context, e *env) error {
 	}
 	add("Endpoint", uri, true)
 
+	if !e.args.has("direct") {
+		if st, ok := backendStatus(ctx); ok {
+			add("Local backend", fmt.Sprintf("running (pid %d)", st.PID), true)
+			client := localbackend.NewClient("")
+			info, err := client.DeviceInfo(ctx)
+			if err != nil {
+				add("Companion radio", "backend error: "+err.Error(), false)
+				return finishDoctor(e, checks)
+			}
+			add("Companion radio", "reachable via backend", true)
+			add("Protocol handshake", "already established", true)
+			add("Firmware", strings.TrimSpace(info.FirmwareName+" "+info.FirmwareVersion), true)
+			add("Protocol", orDash(info.ProtocolVersion), true)
+			return finishDoctor(e, checks)
+		}
+		add("Local backend", "not running", true)
+	}
+
 	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
 	if err != nil {
 		add("Companion radio", "unreachable: "+err.Error(), false)
@@ -125,6 +153,13 @@ func cmdDoctor(ctx context.Context, e *env) error {
 
 func finishDoctor(e *env, checks any) error {
 	return e.out.JSONValue(checks)
+}
+
+func backendStatusForOutput(st localbackend.Status, running bool) map[string]any {
+	if !running {
+		return map[string]any{"running": false}
+	}
+	return backendStatusJSON(st)
 }
 
 func orDash(s string) string {

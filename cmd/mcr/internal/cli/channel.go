@@ -20,13 +20,13 @@ func cmdChannel(ctx context.Context, e *env) error {
 }
 
 func channelList(ctx context.Context, e *env) error {
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	channels, err := client.Channels(ctx)
+	channels, err := backend.Channels(ctx)
 	if err != nil {
 		return err
 	}
@@ -49,13 +49,13 @@ func channelShow(ctx context.Context, e *env) error {
 	if name == "" {
 		return fmt.Errorf("usage: mcr channel show <name|index>")
 	}
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	ch, err := client.Channel(ctx, name)
+	ch, err := backend.Channel(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -73,13 +73,13 @@ func channelSend(ctx context.Context, e *env) error {
 	if channel == "" || text == "" {
 		return fmt.Errorf("usage: mcr channel send <name|index> <text>")
 	}
-	client, _, err := connect(ctx, e)
+	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer backend.Close()
 
-	receipt, err := client.SendChannelText(ctx, channel, text)
+	receipt, err := backend.SendChannelText(ctx, channel, text)
 	if err != nil {
 		return err
 	}
