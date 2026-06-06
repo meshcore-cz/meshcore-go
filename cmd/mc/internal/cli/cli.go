@@ -20,7 +20,18 @@ var (
 
 // commandAliases maps short command names to their canonical form.
 var commandAliases = map[string]string{
-	"rep": "repeater",
+	"add":  "connect",
+	"h":    "help",
+	"rep":  "repeater",
+	"conf": "config",
+	"ls":   "device",
+	"list": "device",
+}
+
+// commandAliasSubcommand supplies a default subcommand for alias-only commands.
+var commandAliasSubcommand = map[string]string{
+	"ls":   "list",
+	"list": "list",
 }
 
 // resolveAlias returns the canonical command name for cmd, or cmd unchanged.
@@ -40,7 +51,8 @@ func Run(args []string) int {
 		return 2
 	}
 
-	cmd := resolveAlias(pa.arg(0))
+	originalCmd := pa.arg(0)
+	cmd := resolveAlias(originalCmd)
 	wantHelp := pa.has("help") || pa.has("h")
 
 	// `mc help [command]`
@@ -67,6 +79,9 @@ func Run(args []string) int {
 	out := output.New(pa.has("json"))
 
 	rest := pa.positionals[1:]
+	if sub, ok := commandAliasSubcommand[originalCmd]; ok {
+		rest = append([]string{sub}, rest...)
+	}
 	env := &env{args: pa, rest: rest, out: out, dbg: newDebug(pa)}
 
 	var runErr error
