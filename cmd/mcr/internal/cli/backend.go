@@ -47,13 +47,19 @@ func openBackend(ctx context.Context, e *env) (Backend, error) {
 	if !e.args.has("direct") {
 		b, err := openIPCBackend(ctx)
 		if err == nil {
+			e.dbg.Backend("ipc", b)
 			return b, nil
 		}
 		if errors.Is(err, errBackendDegraded) {
 			return nil, err
 		}
+		e.dbg.Log("ipc backend unavailable", "error", err)
 	}
-	return openDirectBackend(ctx, e)
+	b, err := openDirectBackend(ctx, e)
+	if err == nil {
+		e.dbg.Backend("direct", b)
+	}
+	return b, err
 }
 
 func openIPCBackend(ctx context.Context) (*ipcBackend, error) {

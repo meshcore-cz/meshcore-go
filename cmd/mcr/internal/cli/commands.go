@@ -150,7 +150,7 @@ func cmdDoctor(ctx context.Context, e *env) error {
 		add("Local backend", "not running", true)
 	}
 
-	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
+	client, err := meshcore.Dial(ctx, uri, e.dbg.DialOptions()...)
 	if err != nil {
 		add("Companion radio", "unreachable: "+err.Error(), false)
 		return finishDoctor(e, checks)

@@ -3,22 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os"
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
 	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
 )
-
-// dialOptions returns the dial options for a command, enabling debug logging to
-// stderr when --debug is set.
-func dialOptions(e *env) []meshcore.DialOption {
-	if !e.args.has("debug") {
-		return nil
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return []meshcore.DialOption{meshcore.WithClientOptions(meshcore.WithLogger(logger))}
-}
 
 // resolveURI determines which endpoint a command should use, in priority order:
 //
@@ -60,7 +48,7 @@ func connect(ctx context.Context, e *env) (*meshcore.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
+	client, err := meshcore.Dial(ctx, uri, e.dbg.DialOptions()...)
 	if err != nil {
 		return nil, uri, fmt.Errorf("connecting to %s: %w", uri, err)
 	}

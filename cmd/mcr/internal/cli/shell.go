@@ -37,7 +37,7 @@ func openShellBackend(ctx context.Context, e *env) (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := append(dialOptions(e), meshcore.WithClientOptions(meshcore.WithMessageSync()))
+	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
 	client, err := meshcore.Dial(ctx, uri, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
@@ -93,7 +93,7 @@ func runShellCommand(ctx context.Context, parent *env, backend Backend, fields [
 	}
 	inheritShellFlags(&pa, parent.args)
 	cmd := pa.arg(0)
-	e := &env{args: pa, rest: pa.positionals[1:], out: parent.out}
+	e := &env{args: pa, rest: pa.positionals[1:], out: parent.out, dbg: newDebug(pa)}
 
 	switch cmd {
 	case "help", "?":

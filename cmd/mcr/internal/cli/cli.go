@@ -54,7 +54,7 @@ func Run(args []string) int {
 	out := output.New(pa.has("json"))
 
 	rest := pa.positionals[1:]
-	env := &env{args: pa, rest: rest, out: out}
+	env := &env{args: pa, rest: rest, out: out, dbg: newDebug(pa)}
 
 	var runErr error
 	switch cmd {
@@ -116,6 +116,7 @@ type env struct {
 	args parsedArgs
 	rest []string // positional args after the subcommand
 	out  *output.Printer
+	dbg  Debug
 }
 
 func (e *env) restArg(i int) string {

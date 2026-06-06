@@ -275,7 +275,7 @@ func cmdWatch(ctx context.Context, e *env) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	opts := append(dialOptions(e), meshcore.WithClientOptions(meshcore.WithMessageSync()))
+	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
 	client, err := meshcore.Dial(ctx, uri, opts...)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", uri, err)
@@ -317,7 +317,7 @@ func cmdWatchRaw(ctx context.Context, e *env) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
+	client, err := meshcore.Dial(ctx, uri, e.dbg.DialOptions()...)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", uri, err)
 	}

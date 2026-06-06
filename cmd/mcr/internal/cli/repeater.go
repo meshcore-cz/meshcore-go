@@ -36,6 +36,8 @@ func repeaterAdd(ctx context.Context, e *env) error {
 		password = promptSecret("Repeater password")
 	}
 
+	e.dbg.Log("repeater add", "name", name, "has_password", password != "")
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -44,6 +46,9 @@ func repeaterAdd(ctx context.Context, e *env) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
+	if path, err := config.Path(); err == nil {
+		e.dbg.Log("repeater saved", "name", name, "config", path, "current", cfg.CurrentRepeater)
+	}
 
 	backend, err := openBackend(ctx, e)
 	if err != nil {
@@ -51,11 +56,20 @@ func repeaterAdd(ctx context.Context, e *env) error {
 	}
 	defer backend.Close()
 	if password != "" {
+		if ct, err := backend.Contact(ctx, name); err != nil {
+			e.dbg.Log("contact lookup failed", "name", name, "error", err)
+		} else {
+			e.dbg.Contact(ct)
+		}
+		e.dbg.Log("repeater login", "name", name)
 		if err := backend.RepeaterLogin(ctx, name, password); err != nil {
+			e.dbg.Log("repeater login failed", "name", name, "error", err)
 			return err
 		}
+		e.dbg.Log("repeater login ok", "name", name)
 		e.out.Human("Saved and logged in to repeater %q.\n", name)
 	} else {
+		e.dbg.Log("skipping login", "name", name, "reason", "no password")
 		e.out.Human("Saved repeater %q without a password.\n", name)
 	}
 	return e.out.JSONValue(map[string]any{"name": name, "saved": true, "logged_in": password != ""})

@@ -28,6 +28,7 @@ func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) e
 	if err != nil {
 		return err
 	}
+	c.log.Debug("repeater login", "name", ct.Name, "type", ct.Type, "public_key", ct.PublicKey[:min(12, len(ct.PublicKey))])
 	msg, err := c.request(ctx, companion.SendLogin{
 		PublicKey: key,
 		Password:  password,
@@ -36,9 +37,10 @@ func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) e
 		return err
 	}
 	if _, ok := msg.(companion.OK); !ok {
+		c.log.Debug("repeater login unexpected response", "name", ct.Name, "type", fmt.Sprintf("%T", msg))
 		return protocol.ErrUnexpectedResponse
 	}
-	_ = ct
+	c.log.Debug("repeater login ok", "name", ct.Name)
 	return nil
 }
 
@@ -66,6 +68,7 @@ func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (Re
 	if command == "" {
 		return RepeaterResponse{}, fmt.Errorf("repeater command is empty")
 	}
+	c.log.Debug("repeater exec", "name", ct.Name, "command", command)
 
 	msg, err := c.request(ctx, companion.SendTextMessage{
 		DestPublicKey: key,
@@ -104,6 +107,7 @@ func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (Re
 				return RepeaterResponse{}, fmt.Errorf("meshcore: event stream closed")
 			}
 			if msg, ok := ev.(MessageReceived); ok && messageMatchesRepeater(msg, ct, prefix) {
+				c.log.Debug("repeater exec response", "name", ct.Name, "command", command, "bytes", len(msg.Text))
 				return RepeaterResponse{Repeater: ct.Name, Command: command, Text: msg.Text, Received: msg.Timestamp}, nil
 			}
 		case <-ticker.C:
@@ -113,6 +117,7 @@ func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (Re
 			}
 			for _, msg := range msgs {
 				if messageMatchesRepeaterMessage(msg, ct, prefix) {
+					c.log.Debug("repeater exec response", "name", ct.Name, "command", command, "bytes", len(msg.Text), "source", "sync")
 					return RepeaterResponse{Repeater: ct.Name, Command: command, Text: msg.Text, Received: msg.Timestamp}, nil
 				}
 			}

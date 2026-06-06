@@ -58,7 +58,7 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 	defer logFile.Close()
 
 	args := []string{"backend", "serve", "--uri", uri}
-	if e.args.has("debug") {
+	if e.dbg.Enabled() {
 		args = append(args, "--debug")
 	}
 	cmd := exec.Command(exe, args...)
@@ -145,7 +145,7 @@ func backendServe(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	opts := append(dialOptions(e), meshcore.WithClientOptions(meshcore.WithMessageSync()))
+	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
 	server, err := localbackend.NewServer(ctx, uri, opts...)
 	if err != nil {
 		return err
