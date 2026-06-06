@@ -12,7 +12,7 @@ import (
 
 	bugserial "go.bug.st/serial"
 
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // DefaultBaud is the default serial line speed for companion radios.

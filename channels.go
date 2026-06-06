@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // maxChannels bounds how many channel slots are probed when enumerating.

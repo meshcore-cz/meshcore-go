@@ -1,22 +1,22 @@
 # meshcore-go — build and development tasks.
 
-BIN     := mcr
-CMD     := ./cmd/mcr
+BIN     := mc
+CMD     := ./cmd/mc
 BINDIR  := bin
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-PKG     := github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/cli
+PKG     := github.com/meshcore-cz/meshcore-go/cmd/mc/internal/cli
 LDFLAGS := -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT)
 
 .DEFAULT_GOAL := build
 
 .PHONY: build
-build: ## Build the mcr binary into bin/
+build: ## Build the mc binary into bin/
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(BIN) $(CMD)
 
 .PHONY: install
-install: ## Install mcr into $GOBIN
+install: ## Install mc into $GOBIN
 	go install -ldflags "$(LDFLAGS)" $(CMD)
 
 .PHONY: test

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 )
 
 func cmdUse(e *env) error {
 	name := e.restArg(0)
 	if name == "" {
-		return fmt.Errorf("usage: mcr use <profile>")
+		return fmt.Errorf("usage: mc use <profile>")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -71,7 +71,7 @@ func deviceList(ctx context.Context, e *env) error {
 	}
 
 	if len(names) == 0 {
-		e.out.Human("No saved profiles. Run `mcr connect`.\n")
+		e.out.Human("No saved profiles. Run `mc connect`.\n")
 		return nil
 	}
 	e.out.Human("%-16s %-10s %-34s %-7s %s\n", "NAME", "TRANSPORT", "ENDPOINT", "BACKEND", "DEFAULT")
@@ -94,7 +94,7 @@ func deviceList(ctx context.Context, e *env) error {
 func deviceShow(e *env) error {
 	name := e.restArg(1)
 	if name == "" {
-		return fmt.Errorf("usage: mcr device show <name>")
+		return fmt.Errorf("usage: mc device show <name>")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -120,7 +120,7 @@ func deviceShow(e *env) error {
 func deviceRemove(e *env) error {
 	name := e.restArg(1)
 	if name == "" {
-		return fmt.Errorf("usage: mcr device remove <name>")
+		return fmt.Errorf("usage: mc device remove <name>")
 	}
 	cfg, err := config.Load()
 	if err != nil {

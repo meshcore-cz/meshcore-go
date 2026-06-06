@@ -7,14 +7,14 @@ import (
 )
 
 const (
-	dirName  = "mcr"
+	dirName  = "mc"
 	sockName = "backend.sock"
 	logName  = "backend.log"
 )
 
 // SocketPath returns the Unix socket path used by the local backend.
 func SocketPath() string {
-	if dir := os.Getenv("MCR_BACKEND_SOCKET"); dir != "" {
+	if dir := os.Getenv("MC_BACKEND_SOCKET"); dir != "" {
 		return dir
 	}
 	return filepath.Join(runtimeDir(), dirName, sockName)

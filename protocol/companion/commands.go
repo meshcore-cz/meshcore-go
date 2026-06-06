@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol"
 )
 
 // appName is the identifier the client reports to the device during the
 // APP_START handshake. It is padded/truncated to fit the reserved field.
-const appName = "mcr"
+const appName = "mc"
 
 // AppStart begins a companion session and elicits a SelfInfo response.
 type AppStart struct {
-	// Name identifies the connecting application (default "mcr").
+	// Name identifies the connecting application (default "mc").
 	Name string
 }
 

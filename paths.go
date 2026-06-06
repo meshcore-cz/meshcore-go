@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // Trace is the result of a path trace: the route to a target with per-link

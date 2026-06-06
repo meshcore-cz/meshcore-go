@@ -6,17 +6,17 @@ import (
 	"fmt"
 	"strings"
 
-	localbackend "github.com/meshcore-dev/meshcore-go/backend"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 )
 
-// cmdRaw implements `mcr raw <hex bytes...>`.
+// cmdRaw implements `mc raw <hex bytes...>`.
 func cmdRaw(ctx context.Context, e *env) error {
 	payload, err := parseHexArgs(e.rest)
 	if err != nil {
 		return err
 	}
 	if len(payload) == 0 {
-		return fmt.Errorf("usage: mcr raw <hex bytes>")
+		return fmt.Errorf("usage: mc raw <hex bytes>")
 	}
 
 	e.dbg.RawSend(payload)

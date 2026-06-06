@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"os"
 
-	localbackend "github.com/meshcore-dev/meshcore-go/backend"
-	meshcore "github.com/meshcore-dev/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))

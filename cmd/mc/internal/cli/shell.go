@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 func cmdShell(ctx context.Context, e *env) error {
@@ -48,7 +48,7 @@ func openShellBackend(ctx context.Context, e *env) (Backend, error) {
 func runShell(ctx context.Context, e *env, backend Backend, in io.Reader) error {
 	scanner := bufio.NewScanner(in)
 	for {
-		e.out.Human("mcr> ")
+		e.out.Human("mc> ")
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				return err
@@ -62,7 +62,7 @@ func runShell(ctx context.Context, e *env, backend Backend, in io.Reader) error 
 		}
 		fields, err := splitShellFields(line)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "mcr:", err)
+			fmt.Fprintln(os.Stderr, "mc:", err)
 			continue
 		}
 		if len(fields) == 0 {
@@ -72,7 +72,7 @@ func runShell(ctx context.Context, e *env, backend Backend, in io.Reader) error 
 			return nil
 		}
 		if err := runShellCommand(ctx, e, backend, fields); err != nil {
-			fmt.Fprintln(os.Stderr, "mcr:", err)
+			fmt.Fprintln(os.Stderr, "mc:", err)
 		}
 	}
 }

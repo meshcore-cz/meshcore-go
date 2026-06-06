@@ -9,7 +9,7 @@ import (
 	"log"
 	"os"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 func main() {

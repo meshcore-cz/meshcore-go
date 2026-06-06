@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 )
 
 // resolveURI determines which endpoint a command should use, in priority order:
@@ -28,7 +28,7 @@ func resolveURI(e *env) (uri, profile string, err error) {
 		name = cfg.Current
 	}
 	if name == "" {
-		return "", "", fmt.Errorf("no device selected; run `mcr connect` or pass --uri")
+		return "", "", fmt.Errorf("no device selected; run `mc connect` or pass --uri")
 	}
 
 	dev, ok := cfg.Devices[name]

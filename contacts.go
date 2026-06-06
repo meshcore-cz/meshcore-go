@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // ContactType classifies a contact by the kind of node it represents.

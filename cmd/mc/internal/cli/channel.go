@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// cmdChannel implements `mcr channel list|show|send`.
+// cmdChannel implements `mc channel list|show|send`.
 func cmdChannel(ctx context.Context, e *env) error {
 	switch e.restArg(0) {
 	case "", "list":
@@ -47,7 +47,7 @@ func channelList(ctx context.Context, e *env) error {
 func channelShow(ctx context.Context, e *env) error {
 	name := e.restArg(1)
 	if name == "" {
-		return fmt.Errorf("usage: mcr channel show <name|index>")
+		return fmt.Errorf("usage: mc channel show <name|index>")
 	}
 	backend, err := openBackend(ctx, e)
 	if err != nil {
@@ -71,7 +71,7 @@ func channelSend(ctx context.Context, e *env) error {
 	channel := e.restArg(1)
 	text := e.restArg(2)
 	if channel == "" || text == "" {
-		return fmt.Errorf("usage: mcr channel send <name|index> <text>")
+		return fmt.Errorf("usage: mc channel send <name|index> <text>")
 	}
 	backend, err := openBackend(ctx, e)
 	if err != nil {

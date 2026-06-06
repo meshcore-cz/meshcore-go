@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // Command is a protocol-agnostic handle for an outbound request. Concrete

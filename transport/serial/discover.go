@@ -6,7 +6,7 @@ import (
 
 	"go.bug.st/serial/enumerator"
 
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // Discoverer enumerates USB serial ports as candidate companion endpoints.

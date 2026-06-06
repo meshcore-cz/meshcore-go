@@ -1,6 +1,6 @@
 package meshcore
 
-import "github.com/meshcore-dev/meshcore-go/protocol"
+import "github.com/meshcore-cz/meshcore-go/protocol"
 
 // Capability and Capabilities are re-exported from the protocol package so
 // applications can refer to them as meshcore.Capability* without importing the

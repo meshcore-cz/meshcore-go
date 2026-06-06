@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport"
 	tinyble "tinygo.org/x/bluetooth"
 )
 

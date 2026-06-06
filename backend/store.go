@@ -3,7 +3,7 @@ package backend
 import (
 	"context"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 // ContactCacheEntry is a cached contact plus cache metadata.

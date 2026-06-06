@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/internal/dispatcher"
-	"github.com/meshcore-dev/meshcore-go/internal/queue"
-	"github.com/meshcore-dev/meshcore-go/protocol"
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/internal/dispatcher"
+	"github.com/meshcore-cz/meshcore-go/internal/queue"
+	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // DefaultTimeout bounds how long a single request waits for its response.
@@ -80,7 +80,7 @@ func WithLogger(l *slog.Logger) Option {
 // WithMessageSync makes the client automatically drain inbound messages when
 // the device signals MSG_WAITING, emitting MessageReceived events. Leave it
 // off for one-shot commands so messages are not consumed unexpectedly; enable
-// it for long-running consumers such as `mcr watch`.
+// it for long-running consumers such as `mc watch`.
 func WithMessageSync() Option {
 	return func(c *Client) { c.autoSync = true }
 }

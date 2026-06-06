@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 )
 
 // cmdConnect discovers or connects to a radio, verifies it via the handshake

@@ -1,4 +1,4 @@
-// Package cli implements the mcr command-line client. It is intentionally thin:
+// Package cli implements the mc command-line client. It is intentionally thin:
 // anything related to the companion protocol lives in the reusable SDK.
 package cli
 
@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/output"
-	"github.com/meshcore-dev/meshcore-go/transport/serial"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/output"
+	"github.com/meshcore-cz/meshcore-go/transport/serial"
 )
 
 // version metadata, overridable at build time with -ldflags.
@@ -23,14 +23,14 @@ var (
 func Run(args []string) int {
 	pa, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcr:", err)
+		fmt.Fprintln(os.Stderr, "mc:", err)
 		return 2
 	}
 
 	cmd := pa.arg(0)
 	wantHelp := pa.has("help") || pa.has("h")
 
-	// `mcr help [command]`
+	// `mc help [command]`
 	if cmd == "help" {
 		if sub := pa.arg(1); sub != "" {
 			return printCommandHelp(sub)
@@ -45,7 +45,7 @@ func Run(args []string) int {
 		}
 		return 2
 	}
-	// `mcr <command> -h` / `--help`
+	// `mc <command> -h` / `--help`
 	if wantHelp {
 		return printCommandHelp(cmd)
 	}
@@ -95,16 +95,16 @@ func Run(args []string) int {
 	case "raw":
 		runErr = cmdRaw(ctx, env)
 	default:
-		fmt.Fprintf(os.Stderr, "mcr: unknown command %q\n", cmd)
+		fmt.Fprintf(os.Stderr, "mc: unknown command %q\n", cmd)
 		usage()
 		return 2
 	}
 
 	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "mcr:", runErr)
+		fmt.Fprintln(os.Stderr, "mc:", runErr)
 		if errors.Is(runErr, serial.ErrBusy) {
 			fmt.Fprintln(os.Stderr, "hint: another program is using the serial port "+
-				"(serial monitor, firmware flasher, or another mcr). Close it and retry.")
+				"(serial monitor, firmware flasher, or another mc). Close it and retry.")
 		}
 		return 1
 	}
@@ -127,10 +127,10 @@ func (e *env) restArg(i int) string {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `mcr - MeshCore companion radio client
+	fmt.Fprint(os.Stderr, `mc - MeshCore companion radio client
 
 Usage:
-  mcr <command> [flags]
+  mc <command> [flags]
 
 Commands:
   connect [uri]      Discover or connect to a radio and save a profile
@@ -164,6 +164,6 @@ Global flags:
   --device <name>    Use a saved profile for one command
   --debug            Verbose logging
 
-Run "mcr <command> -h" or "mcr help <command>" for command-specific help.
+Run "mc <command> -h" or "mc help <command>" for command-specific help.
 `)
 }

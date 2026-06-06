@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // ProtocolVersion is reported in SessionInfo for the standard companion wire

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol"
 )
 
 // decode parses a complete companion-protocol packet. Unknown or short packets

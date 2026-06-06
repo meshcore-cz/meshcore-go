@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // DeviceInfo describes the connected radio's identity and capabilities.

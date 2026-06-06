@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	"github.com/meshcore-dev/meshcore-go/internal/testutil"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/internal/testutil"
 )
 
 // packet builders matching the companion wire layout.

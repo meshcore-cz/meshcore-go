@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // Receipt is returned after queuing an outbound message. It carries the ack

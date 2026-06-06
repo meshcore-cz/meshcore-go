@@ -1,18 +1,18 @@
 # meshcore-go
 
-A reusable Go library for interacting with MeshCore-compatible companion radios, with the `mcr` command-line client included.
+A reusable Go library for interacting with MeshCore-compatible companion radios, with the `mc` command-line client included.
 
 > **Status:** early concept and work in progress.
 > Public APIs, package names, CLI commands, and configuration formats may change before the first stable release.
 
 `meshcore-go` provides a transport-independent Go SDK for communicating with MeshCore-compatible companion radios.
 
-The repository also includes `mcr`, a modern terminal client built on top of the library:
+The repository also includes `mc`, a modern terminal client built on top of the library:
 
 ```text
 meshcore-go
 ├── reusable Go SDK
-└── cmd/mcr
+└── cmd/mc
     └── command-line client
 ```
 
@@ -29,7 +29,7 @@ The goal is to maintain one protocol implementation that can be reused by:
 * firmware development tools
 * custom MeshCore-compatible integrations
 
-The bundled `mcr` command is the first reference application.
+The bundled `mc` command is the first reference application.
 
 ---
 
@@ -52,7 +52,7 @@ capability detection
 transport abstractions
 ```
 
-Anything related only to terminal usage belongs in `mcr`:
+Anything related only to terminal usage belongs in `mc`:
 
 ```text
 saved profiles
@@ -156,12 +156,12 @@ Provide a reusable Go package for:
 Provide a simple terminal experience:
 
 ```bash
-mcr connect
-mcr status
-mcr contacts
-mcr inbox
-mcr send alice "hello"
-mcr watch
+mc connect
+mc status
+mc contacts
+mc inbox
+mc send alice "hello"
+mc watch
 ```
 
 After a one-time setup, daily commands should not require BLE addresses or serial paths.
@@ -171,15 +171,15 @@ After a one-time setup, daily commands should not require BLE addresses or seria
 Support stable structured output:
 
 ```bash
-mcr status --json
-mcr contacts --json
-mcr trace repeater-kololec --json
+mc status --json
+mc contacts --json
+mc trace repeater-kololec --json
 ```
 
 Streaming commands should emit newline-delimited JSON:
 
 ```bash
-mcr watch --json
+mc watch --json
 ```
 
 ---
@@ -209,7 +209,7 @@ The project separates four concerns:
 ```text
 applications
     │
-    ├── mcr CLI
+    ├── mc CLI
     ├── automations
     ├── gateways
     ├── Home Assistant bridges
@@ -299,7 +299,7 @@ WebSocket bridge
 
 ## Layer 4: CLI
 
-The bundled `mcr` client owns:
+The bundled `mc` client owns:
 
 * configuration files
 * saved device profiles
@@ -388,7 +388,7 @@ meshcore-go/
 │   └── custom-transport/
 │
 └── cmd/
-    └── mcr/
+    └── mc/
         ├── main.go
         └── internal/
             ├── cli/
@@ -401,13 +401,13 @@ meshcore-go/
 The root package is imported as:
 
 ```go
-import meshcore "github.com/meshcore-dev/meshcore-go"
+import meshcore "github.com/meshcore-cz/meshcore-go"
 ```
 
 The CLI is installed from:
 
 ```bash
-go install github.com/meshcore-dev/meshcore-go/cmd/mcr@latest
+go install github.com/meshcore-cz/meshcore-go/cmd/mc@latest
 ```
 
 ---
@@ -623,7 +623,7 @@ A bridge allows a companion radio attached to one machine to be used from anothe
 Example:
 
 ```text
-mcr
+mc
  ↓
 WebSocket packet tunnel
  ↓
@@ -1132,13 +1132,13 @@ type RawEvent struct {
 Add the module:
 
 ```bash
-go get github.com/meshcore-dev/meshcore-go
+go get github.com/meshcore-cz/meshcore-go
 ```
 
 Import it:
 
 ```go
-import meshcore "github.com/meshcore-dev/meshcore-go"
+import meshcore "github.com/meshcore-cz/meshcore-go"
 ```
 
 ---
@@ -1155,7 +1155,7 @@ import (
 	"fmt"
 	"log"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 func main() {
@@ -1379,9 +1379,9 @@ response, err := client.RepeaterExec(
 
 ---
 
-# mcr command-line client
+# mc command-line client
 
-`mcr` is the terminal client bundled with `meshcore-go`.
+`mc` is the terminal client bundled with `meshcore-go`.
 
 It is intended to be:
 
@@ -1395,13 +1395,13 @@ It is intended to be:
 Install:
 
 ```bash
-go install github.com/meshcore-dev/meshcore-go/cmd/mcr@latest
+go install github.com/meshcore-cz/meshcore-go/cmd/mc@latest
 ```
 
 Verify installation:
 
 ```bash
-mcr version
+mc version
 ```
 
 ---
@@ -1411,7 +1411,7 @@ mcr version
 Run:
 
 ```bash
-mcr connect
+mc connect
 ```
 
 The CLI scans for USB serial and BLE companion radios:
@@ -1433,17 +1433,17 @@ Using "handheld" as the default device.
 After setup, ordinary commands automatically use the selected profile:
 
 ```bash
-mcr status
-mcr contacts
-mcr inbox
-mcr send alice "hello"
+mc status
+mc contacts
+mc inbox
+mc send alice "hello"
 ```
 
 ---
 
-## Meaning of `mcr connect`
+## Meaning of `mc connect`
 
-`mcr connect` is primarily a setup command.
+`mc connect` is primarily a setup command.
 
 It:
 
@@ -1460,7 +1460,7 @@ It does not keep a permanent background process running.
 A normal command:
 
 ```bash
-mcr status
+mc status
 ```
 
 performs:
@@ -1482,8 +1482,8 @@ close transport
 Commands that require a persistent session stay connected until interrupted:
 
 ```bash
-mcr watch
-mcr shell
+mc watch
+mc shell
 ```
 
 ---
@@ -1493,58 +1493,58 @@ mcr shell
 Interactive discovery:
 
 ```bash
-mcr connect
+mc connect
 ```
 
 Scan only USB serial devices:
 
 ```bash
-mcr connect --usb
+mc connect --usb
 ```
 
 Scan only BLE devices:
 
 ```bash
-mcr connect --ble
+mc connect --ble
 ```
 
 Connect directly:
 
 ```bash
-mcr connect serial:///dev/ttyACM0
-mcr connect ble://C4:20:12:34:56:78
+mc connect serial:///dev/ttyACM0
+mc connect ble://C4:20:12:34:56:78
 ```
 
 Save a custom profile name:
 
 ```bash
-mcr connect serial:///dev/ttyACM0 --as desk-radio
-mcr connect ble://C4:20:12:34:56:78 --as handheld
+mc connect serial:///dev/ttyACM0 --as desk-radio
+mc connect ble://C4:20:12:34:56:78 --as handheld
 ```
 
 Test without saving:
 
 ```bash
-mcr connect serial:///dev/ttyUSB0 --no-save
+mc connect serial:///dev/ttyUSB0 --no-save
 ```
 
 Run one command against a temporary endpoint:
 
 ```bash
-mcr --uri serial:///dev/ttyUSB0 status
-mcr --uri ble://C4:20:12:34:56:78 contacts
+mc --uri serial:///dev/ttyUSB0 status
+mc --uri ble://C4:20:12:34:56:78 contacts
 ```
 
 Future gateway usage:
 
 ```bash
-mcr connect tcp://192.168.1.20:5000 --as home-gateway
+mc connect tcp://192.168.1.20:5000 --as home-gateway
 ```
 
 Future bridge usage:
 
 ```bash
-mcr connect ws://home-assistant.local/api/meshcore/handheld \
+mc connect ws://home-assistant.local/api/meshcore/handheld \
     --as remote-handheld
 ```
 
@@ -1555,7 +1555,7 @@ mcr connect ws://home-assistant.local/api/meshcore/handheld \
 List saved devices:
 
 ```bash
-mcr device list
+mc device list
 ```
 
 Example:
@@ -1570,25 +1570,25 @@ remote-handheld  ws          home-assistant.local/...
 Select a default device:
 
 ```bash
-mcr use handheld
+mc use handheld
 ```
 
 Use another profile for one command:
 
 ```bash
-mcr --device desk-radio status
+mc --device desk-radio status
 ```
 
 Show profile details:
 
 ```bash
-mcr device show handheld
+mc device show handheld
 ```
 
 Remove a profile:
 
 ```bash
-mcr device remove handheld
+mc device remove handheld
 ```
 
 ---
@@ -1600,21 +1600,21 @@ The CLI stores configuration in the standard per-user configuration directory.
 On Linux:
 
 ```text
-~/.config/mcr/config.yaml
+~/.config/mc/config.yaml
 ```
 
 If `$XDG_CONFIG_HOME` is defined:
 
 ```text
-$XDG_CONFIG_HOME/mcr/config.yaml
+$XDG_CONFIG_HOME/mc/config.yaml
 ```
 
 Useful commands:
 
 ```bash
-mcr config path
-mcr config show
-mcr config edit
+mc config path
+mc config show
+mc config edit
 ```
 
 Example:
@@ -1673,7 +1673,7 @@ The CLI may optionally try fallback transports in order.
 ### Status
 
 ```bash
-mcr status
+mc status
 ```
 
 Example:
@@ -1691,67 +1691,67 @@ Capabilities: contacts, channels, messages, telemetry
 ### Contacts
 
 ```bash
-mcr contacts
-mcr contact show alice
-mcr contact import 'meshcore://...'
-mcr contact export alice
-mcr contact remove alice
+mc contacts
+mc contact show alice
+mc contact import 'meshcore://...'
+mc contact export alice
+mc contact remove alice
 ```
 
 ### Messaging
 
 ```bash
-mcr send alice "hello"
-mcr send alice "hello" --wait
-mcr inbox
-mcr watch
+mc send alice "hello"
+mc send alice "hello" --wait
+mc inbox
+mc watch
 ```
 
 ### Channels
 
 ```bash
-mcr channel list
-mcr channel show '#kololec'
-mcr channel send '#kololec' "hello"
+mc channel list
+mc channel show '#kololec'
+mc channel send '#kololec' "hello"
 ```
 
 ### Paths
 
 ```bash
-mcr contact path alice
-mcr contact path reset alice
-mcr contact path discover alice
+mc contact path alice
+mc contact path reset alice
+mc contact path discover alice
 ```
 
 ### Traces
 
 ```bash
-mcr trace repeater-kololec
+mc trace repeater-kololec
 ```
 
 ### Telemetry
 
 ```bash
-mcr telemetry sensor-kololec
+mc telemetry sensor-kololec
 ```
 
 ### Repeaters
 
 ```bash
-mcr repeater login repeater-kololec
-mcr repeater logout repeater-kololec
-mcr repeater status repeater-kololec
-mcr repeater neighbours repeater-kololec
-mcr repeater exec repeater-kololec "clock"
+mc repeater login repeater-kololec
+mc repeater logout repeater-kololec
+mc repeater status repeater-kololec
+mc repeater neighbours repeater-kololec
+mc repeater exec repeater-kololec "clock"
 ```
 
 ### Device management
 
 ```bash
-mcr device time
-mcr device time sync
-mcr device advertise
-mcr device reboot
+mc device time
+mc device time sync
+mc device advertise
+mc device reboot
 ```
 
 ---
@@ -1761,7 +1761,7 @@ mcr device reboot
 A persistent shell is planned:
 
 ```bash
-mcr shell
+mc shell
 ```
 
 Example:
@@ -1791,7 +1791,7 @@ Potential shell features:
 A full-screen TUI may be added later:
 
 ```bash
-mcr tui
+mc tui
 ```
 
 ---
@@ -1801,21 +1801,21 @@ mcr tui
 Human-readable output is the default:
 
 ```bash
-mcr status
+mc status
 ```
 
 Structured output:
 
 ```bash
-mcr status --json
-mcr contacts --json
-mcr trace repeater-kololec --json
+mc status --json
+mc contacts --json
+mc trace repeater-kololec --json
 ```
 
 Streaming commands emit newline-delimited JSON:
 
 ```bash
-mcr watch --json
+mc watch --json
 ```
 
 Example:
@@ -1837,7 +1837,7 @@ Commands should return meaningful exit codes.
 Run checks:
 
 ```bash
-mcr doctor
+mc doctor
 ```
 
 Example:
@@ -1856,7 +1856,7 @@ Clock difference                   3s
 Verbose logging:
 
 ```bash
-mcr --debug status
+mc --debug status
 ```
 
 ---
@@ -1864,52 +1864,52 @@ mcr --debug status
 ## Planned CLI overview
 
 ```text
-mcr connect
-mcr status
-mcr contacts
-mcr inbox
-mcr send
-mcr watch
-mcr trace
-mcr telemetry
-mcr shell
-mcr tui
+mc connect
+mc status
+mc contacts
+mc inbox
+mc send
+mc watch
+mc trace
+mc telemetry
+mc shell
+mc tui
 
-mcr use
+mc use
 
-mcr device list
-mcr device show
-mcr device remove
-mcr device advertise
-mcr device reboot
-mcr device time
-mcr device time sync
+mc device list
+mc device show
+mc device remove
+mc device advertise
+mc device reboot
+mc device time
+mc device time sync
 
-mcr contact show
-mcr contact import
-mcr contact export
-mcr contact remove
-mcr contact path
-mcr contact path reset
-mcr contact path discover
+mc contact show
+mc contact import
+mc contact export
+mc contact remove
+mc contact path
+mc contact path reset
+mc contact path discover
 
-mcr channel list
-mcr channel show
-mcr channel send
+mc channel list
+mc channel show
+mc channel send
 
-mcr repeater login
-mcr repeater logout
-mcr repeater status
-mcr repeater neighbours
-mcr repeater exec
+mc repeater login
+mc repeater logout
+mc repeater status
+mc repeater neighbours
+mc repeater exec
 
-mcr config path
-mcr config show
-mcr config edit
+mc config path
+mc config show
+mc config edit
 
-mcr doctor
-mcr version
-mcr completion
+mc doctor
+mc version
+mc completion
 ```
 
 ---
@@ -1921,7 +1921,7 @@ mcr completion
 Use:
 
 ```bash
-mcr repeater neighbours repeater-kololec
+mc repeater neighbours repeater-kololec
 ```
 
 instead of opaque abbreviations.
@@ -1929,7 +1929,7 @@ instead of opaque abbreviations.
 Use:
 
 ```bash
-mcr device time sync
+mc device time sync
 ```
 
 instead of memorized aliases.
@@ -1939,12 +1939,12 @@ instead of memorized aliases.
 Common actions deserve concise top-level commands:
 
 ```bash
-mcr status
-mcr contacts
-mcr inbox
-mcr send
-mcr watch
-mcr trace
+mc status
+mc contacts
+mc inbox
+mc send
+mc watch
+mc trace
 ```
 
 ## Use flags consistently
@@ -1952,7 +1952,7 @@ mcr trace
 Use:
 
 ```bash
-mcr status --json
+mc status --json
 ```
 
 for structured output.
@@ -1960,7 +1960,7 @@ for structured output.
 Use:
 
 ```bash
-mcr --device handheld status
+mc --device handheld status
 ```
 
 for a saved profile.
@@ -1968,7 +1968,7 @@ for a saved profile.
 Use:
 
 ```bash
-mcr --uri serial:///dev/ttyUSB0 status
+mc --uri serial:///dev/ttyUSB0 status
 ```
 
 for an explicit temporary endpoint.
@@ -1978,13 +1978,13 @@ for an explicit temporary endpoint.
 Users should usually run:
 
 ```bash
-mcr status
+mc status
 ```
 
 not:
 
 ```bash
-mcr --ble-address C4:20:12:34:56:78 status
+mc --ble-address C4:20:12:34:56:78 status
 ```
 
 ---
@@ -2113,9 +2113,9 @@ serial V3 framing
 serial discovery
 device handshake
 device information
-mcr connect --usb
-mcr status
-mcr doctor
+mc connect --usb
+mc status
+mc doctor
 ```
 
 ## Phase 3: BLE
@@ -2128,7 +2128,7 @@ BLE connection lifecycle
 service filtering
 notification subscriptions
 device handshake
-mcr connect --ble
+mc connect --ble
 ```
 
 USB serial and BLE are both first-release priorities.
@@ -2145,10 +2145,10 @@ direct messages
 channel messages
 acknowledgements
 event stream
-mcr contacts
-mcr inbox
-mcr send
-mcr watch
+mc contacts
+mc inbox
+mc send
+mc watch
 ```
 
 ## Phase 5: advanced operations
@@ -2210,19 +2210,19 @@ The SDK and bundled CLI are released together:
 
 ```text
 meshcore-go v0.1.0
-mcr         v0.1.0
+mc         v0.1.0
 ```
 
 Version output:
 
 ```bash
-mcr version
+mc version
 ```
 
 Example:
 
 ```text
-mcr        v0.1.0
+mc        v0.1.0
 meshcore   v0.1.0
 commit     a12bc34
 go         go1.x

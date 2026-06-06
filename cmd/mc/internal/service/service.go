@@ -5,7 +5,7 @@ package service
 import (
 	"context"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 // Service exposes high-level operations over a connected MeshCore client.

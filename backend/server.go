@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	"github.com/meshcore-dev/meshcore-go/protocol"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/protocol"
 )
 
 // Server owns one long-lived MeshCore client and exposes it over a local Unix

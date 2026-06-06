@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	localbackend "github.com/meshcore-dev/meshcore-go/backend"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 )
 
 func clockDelta(deviceTime time.Time) string {
@@ -21,7 +21,7 @@ func clockDelta(deviceTime time.Time) string {
 
 func cmdVersion(e *env) error {
 	info := map[string]string{
-		"mcr":      Version,
+		"mc":      Version,
 		"meshcore": Version,
 		"commit":   Commit,
 		"go":       runtime.Version(),
@@ -31,7 +31,7 @@ func cmdVersion(e *env) error {
 	if err := e.out.JSONValue(info); err != nil {
 		return err
 	}
-	e.out.Human("mcr        %s\n", Version)
+	e.out.Human("mc        %s\n", Version)
 	e.out.Human("meshcore   %s\n", Version)
 	e.out.Human("commit     %s\n", Commit)
 	e.out.Human("go         %s\n", runtime.Version())

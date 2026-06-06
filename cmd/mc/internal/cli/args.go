@@ -14,7 +14,7 @@ var valueFlags = map[string]bool{
 }
 
 // parsedArgs holds flags and positional arguments extracted from anywhere in
-// the command line, so that `mcr --device x status` and `mcr status --json`
+// the command line, so that `mc --device x status` and `mc status --json`
 // both work.
 type parsedArgs struct {
 	flags       map[string]string

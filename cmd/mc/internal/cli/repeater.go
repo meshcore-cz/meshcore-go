@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 )
 
 func cmdRepeater(ctx context.Context, e *env) error {
@@ -27,7 +27,7 @@ func cmdRepeater(ctx context.Context, e *env) error {
 	case "exec":
 		return repeaterExec(ctx, e)
 	default:
-		return fmt.Errorf("usage: mcr repeater <list|add|del|status|neighbours|exec>")
+		return fmt.Errorf("usage: mc repeater <list|add|del|status|neighbours|exec>")
 	}
 }
 
@@ -76,7 +76,7 @@ func repeaterList(e *env) error {
 	}
 
 	if len(keys) == 0 {
-		e.out.Human("No saved repeaters. Run `mcr repeater add <name>`.\n")
+		e.out.Human("No saved repeaters. Run `mc repeater add <name>`.\n")
 		return nil
 	}
 	e.out.Human("%-26s %-14s %-9s %s\n", "NAME", "PUBLIC KEY", "PASSWORD", "DEFAULT")
@@ -102,7 +102,7 @@ func repeaterList(e *env) error {
 func repeaterDel(e *env) error {
 	name, err := resolveRepeaterArg(e, 1)
 	if err != nil {
-		return fmt.Errorf("usage: mcr repeater del [name]")
+		return fmt.Errorf("usage: mc repeater del [name]")
 	}
 
 	cfg, err := config.Load()
@@ -133,7 +133,7 @@ func repeaterDel(e *env) error {
 func repeaterAdd(ctx context.Context, e *env) error {
 	name := e.restArg(1)
 	if name == "" {
-		return fmt.Errorf("usage: mcr repeater add <name> [password]")
+		return fmt.Errorf("usage: mc repeater add <name> [password]")
 	}
 	password := e.restArg(2)
 	if password == "" && !e.out.JSON {
@@ -207,7 +207,7 @@ func repeaterExec(ctx context.Context, e *env) error {
 	}
 	command := strings.Join(e.rest[start:], " ")
 	if command == "" {
-		return fmt.Errorf("usage: mcr repeater exec [name] <command>")
+		return fmt.Errorf("usage: mc repeater exec [name] <command>")
 	}
 	return runRepeaterQuery(ctx, e, "exec", -1, func(ctx context.Context, b Backend, _ string) (meshcore.RepeaterResponse, error) {
 		return b.RepeaterExec(ctx, name, command)
@@ -310,7 +310,7 @@ func resolveRepeater(e *env, start int) (name string, next int, err error) {
 			return repeaterContactName("", rep), start, nil
 		}
 	}
-	return "", start, fmt.Errorf("no repeater selected; run `mcr repeater add <name>` or pass a repeater name")
+	return "", start, fmt.Errorf("no repeater selected; run `mc repeater add <name>` or pass a repeater name")
 }
 
 func repeaterContactName(fallback string, rep config.Repeater) string {

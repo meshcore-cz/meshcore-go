@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"github.com/creack/pty"
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	"github.com/meshcore-dev/meshcore-go/transport"
-	"github.com/meshcore-dev/meshcore-go/transport/serial"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport/serial"
 	"golang.org/x/term"
 )
 

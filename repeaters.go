@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // RepeaterStats is binary status data from a remote repeater.

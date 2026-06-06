@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

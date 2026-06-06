@@ -7,7 +7,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // ErrClosed is returned by a closed FakeTransport.

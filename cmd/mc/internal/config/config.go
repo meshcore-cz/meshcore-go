@@ -1,4 +1,4 @@
-// Package config loads and saves the mcr CLI configuration, including saved
+// Package config loads and saves the mc CLI configuration, including saved
 // device profiles and the active device selection.
 package config
 
@@ -79,13 +79,13 @@ func schemeOf(uri string) string {
 // Path returns the configuration file path, honouring $XDG_CONFIG_HOME.
 func Path() (string, error) {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "mcr", "config.yaml"), nil
+		return filepath.Join(x, "mc", "config.yaml"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "mcr", "config.yaml"), nil
+	return filepath.Join(home, ".config", "mc", "config.yaml"), nil
 }
 
 // Load reads the configuration. A missing file yields an empty default config.

@@ -4,8 +4,8 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
-	"github.com/meshcore-dev/meshcore-go/protocol/companion"
+	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // Event is the common interface for asynchronous notifications emitted by a

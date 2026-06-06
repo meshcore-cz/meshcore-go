@@ -8,11 +8,11 @@ import (
 	"os/signal"
 	"strings"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	localbackend "github.com/meshcore-dev/meshcore-go/backend"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 )
 
-// cmdContacts implements `mcr contacts`.
+// cmdContacts implements `mc contacts`.
 func cmdContacts(ctx context.Context, e *env) error {
 	backend, err := openContactsBackend(ctx, e)
 	if err != nil {
@@ -56,14 +56,14 @@ func openContactsBackend(ctx context.Context, e *env) (Backend, error) {
 	return openBackend(ctx, e)
 }
 
-// cmdContact implements `mcr contact show <name>`.
+// cmdContact implements `mc contact show <name>`.
 func cmdContact(ctx context.Context, e *env) error {
 	if e.restArg(0) != "show" {
-		return fmt.Errorf("usage: mcr contact show <name>")
+		return fmt.Errorf("usage: mc contact show <name>")
 	}
 	name := e.restArg(1)
 	if name == "" {
-		return fmt.Errorf("usage: mcr contact show <name>")
+		return fmt.Errorf("usage: mc contact show <name>")
 	}
 
 	backend, err := openBackend(ctx, e)
@@ -92,7 +92,7 @@ func cmdContact(ctx context.Context, e *env) error {
 	return nil
 }
 
-// cmdInbox implements `mcr inbox`: drain buffered messages.
+// cmdInbox implements `mc inbox`: drain buffered messages.
 func cmdInbox(ctx context.Context, e *env) error {
 	backend, err := openBackend(ctx, e)
 	if err != nil {
@@ -157,12 +157,12 @@ func resolveName(names map[string]string, from string) string {
 	return from
 }
 
-// cmdSend implements `mcr send <recipient> <text> [--wait]`.
+// cmdSend implements `mc send <recipient> <text> [--wait]`.
 func cmdSend(ctx context.Context, e *env) error {
 	recipient := e.restArg(0)
 	text := e.restArg(1)
 	if recipient == "" || text == "" {
-		return fmt.Errorf("usage: mcr send <recipient> <text> [--wait]")
+		return fmt.Errorf("usage: mc send <recipient> <text> [--wait]")
 	}
 
 	backend, err := openBackend(ctx, e)
@@ -189,11 +189,11 @@ func cmdSend(ctx context.Context, e *env) error {
 	return e.out.JSONValue(map[string]any{"id": receipt.ID(), "to": receipt.To, "rtt_ms": ack.RTT.Milliseconds()})
 }
 
-// cmdTrace implements `mcr trace <target>`.
+// cmdTrace implements `mc trace <target>`.
 func cmdTrace(ctx context.Context, e *env) error {
 	target := e.restArg(0)
 	if target == "" {
-		return fmt.Errorf("usage: mcr trace <target>")
+		return fmt.Errorf("usage: mc trace <target>")
 	}
 
 	backend, err := openBackend(ctx, e)
@@ -265,7 +265,7 @@ func printTrace(e *env, trace meshcore.Trace) {
 	}
 }
 
-// cmdWatch implements `mcr watch`: stream asynchronous events.
+// cmdWatch implements `mc watch`: stream asynchronous events.
 func cmdWatch(ctx context.Context, e *env) error {
 	if e.args.has("raw") {
 		return cmdWatchRaw(ctx, e)

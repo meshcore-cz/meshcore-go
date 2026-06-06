@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/meshcore-dev/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol"
 )
 
 func TestEncodeCommands(t *testing.T) {
@@ -36,18 +36,18 @@ func TestEncodeCommands(t *testing.T) {
 }
 
 func TestEncodeAppStart(t *testing.T) {
-	got, err := encode(AppStart{Name: "mcr"})
+	got, err := encode(AppStart{Name: "mc"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got[0] != cmdAppStart || got[1] != 3 {
 		t.Fatalf("header = %x, want 0103", got[:2])
 	}
-	if !bytes.HasSuffix(got, []byte("mcr")) {
+	if !bytes.HasSuffix(got, []byte("mc")) {
 		t.Errorf("payload %x should end with app name", got)
 	}
-	if len(got) != 8+len("mcr") {
-		t.Errorf("len = %d, want %d", len(got), 8+len("mcr"))
+	if len(got) != 8+len("mc") {
+		t.Errorf("len = %d, want %d", len(got), 8+len("mc"))
 	}
 }
 

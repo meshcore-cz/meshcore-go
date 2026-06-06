@@ -18,15 +18,15 @@ Global flags:
 // commandHelp maps each command to its detailed help text. Connection commands
 // end with the shared global-flags section.
 var commandHelp = map[string]string{
-	"connect": `Usage: mcr connect [uri] [flags]
+	"connect": `Usage: mc connect [uri] [flags]
 
 Discover or connect to a companion radio, verify it with a handshake, and
 (unless --no-save) save a profile and make it the default.
 
-  mcr connect                       scan USB + BLE and choose interactively
-  mcr connect --usb                 scan USB serial only
-  mcr connect serial:///dev/ttyACM0 connect to an explicit endpoint
-  mcr connect ble://C4:20:...       connect over BLE
+  mc connect                       scan USB + BLE and choose interactively
+  mc connect --usb                 scan USB serial only
+  mc connect serial:///dev/ttyACM0 connect to an explicit endpoint
+  mc connect ble://C4:20:...       connect over BLE
 
 Flags:
   --usb            Scan USB serial devices only
@@ -36,28 +36,28 @@ Flags:
   --json           Machine-readable JSON output
 `,
 
-	"status": `Usage: mcr status [flags]
+	"status": `Usage: mc status [flags]
 
 Show the connected device's identity, firmware, transport and capabilities.
 ` + globalFlags,
 
-	"doctor": `Usage: mcr doctor [flags]
+	"doctor": `Usage: mc doctor [flags]
 
 Run connection diagnostics: configuration, endpoint reachability, handshake,
 firmware and clock difference.
 ` + globalFlags,
 
-	"backend": `Usage: mcr backend <start|restart|stop|status> [flags]
+	"backend": `Usage: mc backend <start|restart|stop|status> [flags]
 
 Manage the local backend process. When it is running, ordinary commands use it
 automatically; when it is not running, commands dial the radio directly.
 
-  mcr backend start             start the backend for the selected profile
-  mcr backend restart           restart using the current backend endpoint
-  mcr backend restart --uri ... restart onto an explicit endpoint
-  mcr backend start --uri ...   start the backend for an explicit endpoint
-  mcr backend status            show backend socket, pid and endpoint
-  mcr backend stop              stop the running backend
+  mc backend start             start the backend for the selected profile
+  mc backend restart           restart using the current backend endpoint
+  mc backend restart --uri ... restart onto an explicit endpoint
+  mc backend start --uri ...   start the backend for an explicit endpoint
+  mc backend status            show backend socket, pid and endpoint
+  mc backend stop              stop the running backend
 
 Bridge listeners are configured in config.yaml:
 
@@ -74,7 +74,7 @@ for native serial clients; use tcp only with clients that explicitly support a
 TCP MeshCore bridge.
 ` + globalFlags,
 
-	"contacts": `Usage: mcr contacts [flags]
+	"contacts": `Usage: mc contacts [flags]
 
 List the contacts stored on the device.
 
@@ -83,41 +83,41 @@ Flags:
   --refresh        Force a radio sync and update the local replica
 ` + globalFlags,
 
-	"contact": `Usage: mcr contact show <name> [flags]
+	"contact": `Usage: mc contact show <name> [flags]
 
 Show details for a single contact, matched by name (case-insensitive) or by a
 public-key hex prefix.
 ` + globalFlags,
 
-	"inbox": `Usage: mcr inbox [flags]
+	"inbox": `Usage: mc inbox [flags]
 
 Drain and print messages buffered on the device. Synced messages are removed
 from the device buffer.
 ` + globalFlags,
 
-	"send": `Usage: mcr send <recipient> <text> [flags]
+	"send": `Usage: mc send <recipient> <text> [flags]
 
 Send a direct text message to a contact (by name or key prefix).
 
-  mcr send alice "hello"
-  mcr send alice "hello" --wait     wait for delivery acknowledgement
+  mc send alice "hello"
+  mc send alice "hello" --wait     wait for delivery acknowledgement
 
 Flags:
   --wait           Block until the message is acknowledged
 ` + globalFlags,
 
-	"watch": `Usage: mcr watch [flags]
+	"watch": `Usage: mc watch [flags]
 
 Stream incoming messages and events until interrupted (Ctrl-C). With --json,
 each event is emitted as a newline-delimited JSON object.
 
-  mcr watch --raw                 stream every inbound packet as JSON lines
+  mc watch --raw                 stream every inbound packet as JSON lines
 
 Flags:
   --raw           Stream all inbound companion packets as JSON lines
 ` + globalFlags,
 
-	"shell": `Usage: mcr shell [flags]
+	"shell": `Usage: mc shell [flags]
 
 Open an interactive foreground session that keeps one radio connection alive.
 
@@ -134,77 +134,77 @@ Available shell commands:
   exit
 ` + globalFlags,
 
-	"trace": `Usage: mcr trace <target> [flags]
+	"trace": `Usage: mc trace <target> [flags]
 
 Trace the network route to a node and report per-link signal quality.
 
 The target is either a hash path (one hex byte per hop) or a contact name /
 key prefix whose node hash is used:
 
-  mcr trace 25        trace the direct neighbour with hash 0x25
-  mcr trace 25,a1     trace through 0x25 then 0xa1
-  mcr trace alice     trace the contact "alice"
+  mc trace 25        trace the direct neighbour with hash 0x25
+  mc trace 25,a1     trace through 0x25 then 0xa1
+  mc trace alice     trace the contact "alice"
 
 A single-hash target only reaches a direct neighbour; distant nodes need the
 full multi-hop path.
 ` + globalFlags,
 
-	"channel": `Usage: mcr channel <list|show|send> [args] [flags]
+	"channel": `Usage: mc channel <list|show|send> [args] [flags]
 
 Work with channel slots.
 
-  mcr channel list                  list configured channels
-  mcr channel show Public           show a channel by name or index
-  mcr channel send Public "hello"   send a message to a channel
+  mc channel list                  list configured channels
+  mc channel show Public           show a channel by name or index
+  mc channel send Public "hello"   send a message to a channel
 ` + globalFlags,
 
-	"repeater": `Usage: mcr repeater <list|add|del|status|neighbours|exec> [args] [flags]
+	"repeater": `Usage: mc repeater <list|add|del|status|neighbours|exec> [args] [flags]
 
 Manage remote repeaters through the active companion radio.
 
-  mcr repeater list                 list saved repeaters
-  mcr repeater add mc.kololec.cz [password]
-  mcr repeater del [mc.kololec.cz]  remove saved repeater and session
-  mcr repeater status [mc.kololec.cz]
-  mcr repeater neighbours [mc.kololec.cz]
-  mcr repeater exec [mc.kololec.cz] "clock"
+  mc repeater list                 list saved repeaters
+  mc repeater add mc.kololec.cz [password]
+  mc repeater del [mc.kololec.cz]  remove saved repeater and session
+  mc repeater status [mc.kololec.cz]
+  mc repeater neighbours [mc.kololec.cz]
+  mc repeater exec [mc.kololec.cz] "clock"
 
-Saved repeaters are stored in the mcr config. If no password is supplied to
-add, mcr prompts for one in interactive human mode.
+Saved repeaters are stored in the mc config. If no password is supplied to
+add, mc prompts for one in interactive human mode.
 
 Flags:
   --json           Machine-readable JSON output
 ` + globalFlags,
 
-	"use": `Usage: mcr use <profile>
+	"use": `Usage: mc use <profile>
 
 Set the default device profile used by subsequent commands.
 `,
 
-	"device": `Usage: mcr device <list|show|remove> [name]
+	"device": `Usage: mc device <list|show|remove> [name]
 
 Manage saved device profiles.
 
-  mcr device list             list saved profiles
-  mcr device show handheld    show a profile
-  mcr device remove handheld  delete a profile
+  mc device list             list saved profiles
+  mc device show handheld    show a profile
+  mc device remove handheld  delete a profile
 
 Flags:
   --json           Machine-readable JSON output
 `,
 
-	"config": `Usage: mcr config <path|show>
+	"config": `Usage: mc config <path|show>
 
 Inspect the CLI configuration.
 
-  mcr config path    print the configuration file path
-  mcr config show    print the current configuration
+  mc config path    print the configuration file path
+  mc config show    print the current configuration
 
 Flags:
   --json           Machine-readable JSON output
 `,
 
-	"raw": `Usage: mcr raw <hex bytes...> [flags]
+	"raw": `Usage: mc raw <hex bytes...> [flags]
 
 Send raw bytes directly to the device and print the decoded response.
 Useful for protocol exploration and verifying undocumented commands.
@@ -213,14 +213,14 @@ The payload is the bare companion-protocol bytes (command byte + body).
 Transport framing is added automatically; do not include it.
 Bytes can be given as separate tokens or concatenated:
 
-  mcr raw 16 03              DeviceQuery  (cmd=0x16, app_ver=0x03)
-  mcr raw 14                 GetBatteryVoltage
-  mcr raw 05                 GetDeviceTime
-  mcr raw 04                 GetContacts (streaming — only first frame shown)
-  mcr raw 1f 00              GetChannel index 0
-  mcr raw ab cd ef           unknown three-byte command
-  mcr raw abcdef             same (concatenated)
-  mcr raw 0xab 0xcd          same with 0x prefix
+  mc raw 16 03              DeviceQuery  (cmd=0x16, app_ver=0x03)
+  mc raw 14                 GetBatteryVoltage
+  mc raw 05                 GetDeviceTime
+  mc raw 04                 GetContacts (streaming — only first frame shown)
+  mc raw 1f 00              GetChannel index 0
+  mc raw ab cd ef           unknown three-byte command
+  mc raw abcdef             same (concatenated)
+  mc raw 0xab 0xcd          same with 0x prefix
 
 Common command bytes (host → device):
   0x01  AppStart          0x0a  SyncNextMessage
@@ -239,7 +239,7 @@ or a hex dump for unrecognised ones.
 With --debug, logs the resolved endpoint, outbound frame, and decoded response.
 ` + globalFlags,
 
-	"version": `Usage: mcr version [--json]
+	"version": `Usage: mc version [--json]
 
 Print version information.
 `,
@@ -249,7 +249,7 @@ Print version information.
 func printCommandHelp(cmd string) int {
 	h, ok := commandHelp[cmd]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "mcr: no help available for %q\n", cmd)
+		fmt.Fprintf(os.Stderr, "mc: no help available for %q\n", cmd)
 		usage()
 		return 2
 	}

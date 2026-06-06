@@ -3,9 +3,9 @@ package meshcore
 import (
 	"context"
 
-	"github.com/meshcore-dev/meshcore-go/transport"
-	"github.com/meshcore-dev/meshcore-go/transport/ble"
-	"github.com/meshcore-dev/meshcore-go/transport/serial"
+	"github.com/meshcore-cz/meshcore-go/transport"
+	"github.com/meshcore-cz/meshcore-go/transport/ble"
+	"github.com/meshcore-cz/meshcore-go/transport/serial"
 )
 
 // DialOption configures Dial.

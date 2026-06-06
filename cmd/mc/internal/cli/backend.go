@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	meshcore "github.com/meshcore-dev/meshcore-go"
-	localbackend "github.com/meshcore-dev/meshcore-go/backend"
-	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/service"
+	meshcore "github.com/meshcore-cz/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/service"
 )
 
 // Backend is the command execution surface used by CLI commands. Today the
