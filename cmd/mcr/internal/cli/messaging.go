@@ -189,19 +189,44 @@ func cmdTrace(ctx context.Context, e *env) error {
 			"round_trip_ms": trace.RoundTrip.Milliseconds(),
 		})
 	}
-	e.out.Human("Trace to %s (tag %08x, round trip %s):\n", trace.Target, trace.Tag, trace.RoundTrip.Round(1e6))
-	if len(trace.Path) == 0 {
-		e.out.Human("  (direct, no intermediate hops)\n")
-	}
+	e.out.Human("Trace to %s  ·  %s  ·  tag %08x\n",
+		trace.Target, trace.RoundTrip.Round(1e6), trace.Tag)
+
+	// Build the full node chain: you → path[0] → … → path[N-1] → you
+	nodes := make([]string, len(trace.Path)+2)
+	nodes[0] = "you"
 	for i, h := range trace.Path {
-		e.out.Human("  hop %d: node %02x\n", i+1, h)
+		nodes[i+1] = fmt.Sprintf("%02x", h)
 	}
-	if len(trace.SNRs) > 0 {
-		parts := make([]string, len(trace.SNRs))
-		for i, s := range trace.SNRs {
-			parts[i] = fmt.Sprintf("%.2f dB", s)
+	nodes[len(nodes)-1] = "you"
+
+	if len(trace.SNRs) == 0 {
+		e.out.Human("  no signal data\n")
+		return nil
+	}
+
+	// Column width: longest node name (minimum 3 for "you").
+	col := 3
+	for _, n := range nodes {
+		if len(n) > col {
+			col = len(n)
 		}
-		e.out.Human("  link SNR: %s\n", strings.Join(parts, ", "))
+	}
+
+	e.out.Human("\n")
+	e.out.Human("  %-4s  %-*s    %-*s  %s\n", "hop", col, "from", col, "to", "SNR")
+	e.out.Human("  %s\n", strings.Repeat("─", 4+2+col+4+col+2+12))
+
+	for i, snr := range trace.SNRs {
+		if i+1 >= len(nodes) {
+			break
+		}
+		flag := ""
+		if snr < 0 {
+			flag = "  ← weak"
+		}
+		e.out.Human("  %-4d  %-*s  → %-*s  %+.2f dB%s\n",
+			i+1, col, nodes[i], col, nodes[i+1], snr, flag)
 	}
 	return nil
 }
