@@ -90,10 +90,7 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 	deadline := time.Now().Add(backendReadyTimeout(uri))
 	for time.Now().Before(deadline) {
 		if st, ok := backendStatus(ctx); ok && st.Healthy {
-			e.out.Human("Backend started for %s (pid %d).\n", st.URI, st.PID)
-			e.out.Human("Socket: %s\n", st.Socket)
-			printContactStatus(e, st)
-			printChannelStatus(e, st)
+			printBackendStartSummary(e, st)
 			return e.out.JSONValue(backendStatusJSON(st))
 		}
 		select {
@@ -420,6 +417,17 @@ func formatContactSyncStatus(cs localbackend.ContactStatus) string {
 		return fmt.Sprintf("replicating (%d/?)", cs.SyncReceived)
 	}
 	return "replicating"
+}
+
+func printBackendStartSummary(e *env, st localbackend.Status) {
+	replicating := st.Contacts.Syncing || st.Channels.Syncing ||
+		(st.Contacts.SyncedAt.IsZero() && st.Channels.SyncedAt.IsZero())
+	if replicating {
+		e.out.Human("Backend started for %s (pid %d). Replication of contacts and channels started.\n", st.URI, st.PID)
+	} else {
+		e.out.Human("Backend started for %s (pid %d). Contacts and channels replicated.\n", st.URI, st.PID)
+	}
+	e.out.Human("Socket: %s\n", st.Socket)
 }
 
 func printContactStatus(e *env, st localbackend.Status) {
