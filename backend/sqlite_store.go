@@ -121,6 +121,10 @@ ON CONFLICT(device, public_key) DO UPDATE SET
 	return tx.Commit()
 }
 
+func (s *SQLiteStore) UpsertContact(ctx context.Context, device string, contact meshcore.Contact) error {
+	return s.UpsertContacts(ctx, device, []meshcore.Contact{contact})
+}
+
 func (s *SQLiteStore) Contacts(ctx context.Context, device string) ([]ContactCacheEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT public_key, name, type, has_path, latitude, longitude, last_advert, cached_at

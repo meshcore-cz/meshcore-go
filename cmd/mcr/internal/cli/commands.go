@@ -52,6 +52,7 @@ func cmdStatus(ctx context.Context, e *env) error {
 		e.out.Human("Device:       unavailable\n")
 		e.out.Human("Transport:    %s\n", st.URI)
 		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
+		printContactStatus(e, st)
 		if st.LastError != "" {
 			e.out.Human("Last error:   %s\n", st.LastError)
 		}
@@ -103,6 +104,7 @@ func cmdStatus(ctx context.Context, e *env) error {
 	e.out.Human("Capabilities: %s\n", info.Capabilities.String())
 	if backendRunning {
 		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
+		printContactStatus(e, st)
 	} else {
 		e.out.Human("Backend:      not running\n")
 	}

@@ -26,6 +26,15 @@ type Status struct {
 	LastSeen  time.Time
 	LastError string
 	Bridges   []BridgeStatus
+	Contacts  ContactStatus
+}
+
+// ContactStatus describes the backend's local contact replica.
+type ContactStatus struct {
+	Syncing  bool
+	Count    int
+	SyncedAt time.Time
+	Error    string
 }
 
 // Client talks to a running local backend process.
@@ -66,6 +75,12 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		LastSeen:  res.LastSeen,
 		LastError: res.LastError,
 		Bridges:   res.Bridges,
+		Contacts: ContactStatus{
+			Syncing:  res.Contacts.Syncing,
+			Count:    res.Contacts.Count,
+			SyncedAt: res.Contacts.SyncedAt,
+			Error:    res.Contacts.Error,
+		},
 	}, nil
 }
 

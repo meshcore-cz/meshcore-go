@@ -28,11 +28,16 @@ type Server struct {
 	listener net.Listener
 	store    Store
 
-	mu             sync.RWMutex
-	state          string
-	lastSeen       time.Time
-	lastError      string
-	bridgeStatuses map[string]BridgeStatus
+	mu              sync.RWMutex
+	state           string
+	lastSeen        time.Time
+	lastError       string
+	bridgeStatuses  map[string]BridgeStatus
+	contactSyncing  bool
+	contactCount    int
+	contactSyncedAt time.Time
+	contactError    string
+	contactSyncMu   sync.Mutex
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -42,6 +47,9 @@ const (
 	stateReady    = "ready"
 	stateDegraded = "degraded"
 	stateBridge   = "bridge"
+
+	keepAliveInterval = 30 * time.Second
+	keepAliveTimeout  = 8 * time.Second
 )
 
 // NewServer dials uri and prepares a local backend server.
@@ -52,26 +60,27 @@ func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*S
 // NewServerWithBridges dials uri and prepares a backend with configured bridge
 // listeners.
 func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfig, opts ...meshcore.DialOption) (*Server, error) {
-	client, err := meshcore.Dial(ctx, uri, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
-	}
 	store, err := OpenSQLiteStore("")
 	if err != nil {
-		client.Close()
 		return nil, fmt.Errorf("opening backend store: %w", err)
 	}
-	return &Server{
+	s := &Server{
 		uri:      uri,
 		socket:   SocketPath(),
 		opts:     append([]meshcore.DialOption(nil), opts...),
 		bridges:  append([]BridgeConfig(nil), bridges...),
-		client:   client,
 		store:    store,
 		state:    stateReady,
 		lastSeen: time.Now(),
 		stopped:  make(chan struct{}),
-	}, nil
+	}
+	client, err := s.dialClient(ctx)
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
+	}
+	s.client = client
+	return s, nil
 }
 
 // Serve listens until Stop is called or the listener fails.
@@ -94,7 +103,6 @@ func (s *Server) Serve() error {
 	s.listener = ln
 	go s.keepAlive()
 	s.startBridges()
-	go s.refreshContacts(context.Background())
 	defer func() {
 		ln.Close()
 		os.Remove(s.socket)
@@ -356,34 +364,13 @@ func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts con
 		}
 		return s.refreshContactsNow(ctx, client)
 	}
-
-	cached, err := s.cachedContacts(ctx)
-	if err == nil && len(cached) > 0 {
-		if client != nil && s.healthy() && !opts.Cached {
-			go s.refreshContacts(context.Background())
-		}
-		return cached, nil
-	}
-
-	if opts.Cached {
-		return cached, err
-	}
-	if client == nil || !s.healthy() {
-		if err != nil {
-			return nil, err
-		}
-		return cached, nil
-	}
-	return s.refreshContactsNow(ctx, client)
+	return s.cachedContacts(ctx)
 }
 
 func (s *Server) contact(ctx context.Context, client *meshcore.Client, query string) (meshcore.Contact, error) {
 	if s.store != nil {
 		entry, err := s.store.Contact(ctx, s.uri, query)
 		if err == nil {
-			if client != nil && s.healthy() {
-				go s.refreshContacts(context.Background())
-			}
 			return entry.Contact, nil
 		}
 		if err != nil && !IsNotFound(err) {
@@ -410,14 +397,7 @@ func (s *Server) contact(ctx context.Context, client *meshcore.Client, query str
 }
 
 func (s *Server) refreshContactsNow(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {
-	contacts, err := client.Contacts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if s.store != nil {
-		_ = s.store.UpsertContacts(ctx, s.uri, contacts)
-	}
-	return contacts, nil
+	return s.syncContacts(ctx, client)
 }
 
 func (s *Server) cachedContacts(ctx context.Context) ([]meshcore.Contact, error) {
@@ -433,6 +413,55 @@ func (s *Server) cachedContacts(ctx context.Context) ([]meshcore.Contact, error)
 		contacts[i] = entry.Contact
 	}
 	return contacts, nil
+}
+
+func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("backend contact cache is unavailable")
+	}
+	if client == nil {
+		err := fmt.Errorf("backend radio unavailable: no active client")
+		s.recordContactSyncError(err)
+		return nil, err
+	}
+	s.contactSyncMu.Lock()
+	defer s.contactSyncMu.Unlock()
+	s.mu.Lock()
+	s.contactSyncing = true
+	s.contactError = ""
+	s.mu.Unlock()
+	defer s.finishContactSync()
+
+	contacts, err := client.Contacts(ctx)
+	if err != nil {
+		s.recordContactSyncError(err)
+		return nil, err
+	}
+	if err := s.store.UpsertContacts(ctx, s.uri, contacts); err != nil {
+		s.recordContactSyncError(err)
+		return nil, err
+	}
+	s.mu.Lock()
+	s.contactCount = len(contacts)
+	s.contactSyncedAt = time.Now()
+	s.contactError = ""
+	s.mu.Unlock()
+	return contacts, nil
+}
+
+func (s *Server) recordContactSyncError(err error) {
+	if err == nil {
+		return
+	}
+	s.mu.Lock()
+	s.contactError = err.Error()
+	s.mu.Unlock()
+}
+
+func (s *Server) finishContactSync() {
+	s.mu.Lock()
+	s.contactSyncing = false
+	s.mu.Unlock()
 }
 
 func (s *Server) repeaterLogin(ctx context.Context, client *meshcore.Client, repeater, password string) (meshcore.RepeaterSession, error) {
@@ -481,7 +510,7 @@ func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Cli
 }
 
 func (s *Server) keepAlive() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(keepAliveInterval)
 	defer ticker.Stop()
 
 	for {
@@ -501,7 +530,7 @@ func (s *Server) keepAlive() {
 				s.markDegraded(fmt.Errorf("no active client"))
 				continue
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), keepAliveTimeout)
 			_, err := client.DeviceTime(ctx)
 			cancel()
 			if err != nil {
@@ -530,6 +559,12 @@ func (s *Server) status() statusResult {
 		LastSeen:  s.lastSeen,
 		LastError: s.lastError,
 		Bridges:   s.bridgeStatusLocked(),
+		Contacts: contactStatus{
+			Syncing:  s.contactSyncing,
+			Count:    s.contactCount,
+			SyncedAt: s.contactSyncedAt,
+			Error:    s.contactError,
+		},
 	}
 }
 
@@ -539,7 +574,6 @@ func (s *Server) markReady() {
 	s.lastSeen = time.Now()
 	s.lastError = ""
 	s.mu.Unlock()
-	go s.refreshContacts(context.Background())
 }
 
 func (s *Server) markDegraded(err error) {
@@ -592,7 +626,7 @@ func (s *Server) tryReconnect() {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	client, err := meshcore.Dial(ctx, s.uri, s.opts...)
+	client, err := s.dialClient(ctx)
 	cancel()
 	if err != nil {
 		s.markReconnectFailed(err)
@@ -609,7 +643,12 @@ func (s *Server) tryReconnect() {
 	if old != nil {
 		old.Close()
 	}
-	go s.refreshContacts(context.Background())
+}
+
+func (s *Server) dialClient(ctx context.Context) (*meshcore.Client, error) {
+	opts := append([]meshcore.DialOption(nil), s.opts...)
+	opts = append(opts, meshcore.WithClientOptions(meshcore.WithEventHook(s.observeEvent)))
+	return meshcore.Dial(ctx, s.uri, opts...)
 }
 
 func (s *Server) markReconnectFailed(err error) {
@@ -621,21 +660,41 @@ func (s *Server) markReconnectFailed(err error) {
 	}
 }
 
-func (s *Server) refreshContacts(ctx context.Context) {
-	if s.store == nil {
+func (s *Server) observeEvent(ev meshcore.Event) {
+	adv, ok := ev.(meshcore.AdvertisementReceived)
+	if !ok || s.store == nil || adv.Contact.PublicKey == "" {
 		return
 	}
-	client := s.clientSnapshot()
-	if client == nil || !s.healthy() {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	go s.upsertObservedContact(adv.Contact)
+}
+
+func (s *Server) upsertObservedContact(contact meshcore.Contact) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	contacts, err := client.Contacts(ctx)
-	if err != nil {
+	contact.LastAdvert = time.Now()
+	if contact.Type == "" {
+		contact.Type = meshcore.ContactUnknown
+	}
+	if existing, err := s.store.Contact(ctx, s.uri, contact.PublicKey); err == nil {
+		if contact.Name == "" {
+			contact.Name = existing.Contact.Name
+		}
+		if contact.Type == meshcore.ContactUnknown && existing.Contact.Type != "" {
+			contact.Type = existing.Contact.Type
+		}
+		contact.HasPath = existing.Contact.HasPath
+		contact.Latitude = existing.Contact.Latitude
+		contact.Longitude = existing.Contact.Longitude
+	}
+	if err := s.store.UpsertContact(ctx, s.uri, contact); err != nil {
+		s.recordContactSyncError(err)
 		return
 	}
-	_ = s.store.UpsertContacts(ctx, s.uri, contacts)
+	if contacts, err := s.cachedContacts(ctx); err == nil {
+		s.mu.Lock()
+		s.contactCount = len(contacts)
+		s.mu.Unlock()
+	}
 }
 
 func connContext() context.Context {

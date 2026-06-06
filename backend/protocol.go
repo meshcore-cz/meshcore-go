@@ -28,6 +28,14 @@ type statusResult struct {
 	LastSeen  time.Time      `json:"last_seen,omitempty"`
 	LastError string         `json:"last_error,omitempty"`
 	Bridges   []BridgeStatus `json:"bridges,omitempty"`
+	Contacts  contactStatus  `json:"contacts,omitempty"`
+}
+
+type contactStatus struct {
+	Syncing  bool      `json:"syncing"`
+	Count    int       `json:"count"`
+	SyncedAt time.Time `json:"synced_at,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 type sendTextParams struct {

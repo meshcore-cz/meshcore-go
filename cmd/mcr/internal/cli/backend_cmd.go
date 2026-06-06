@@ -76,6 +76,10 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 			e.out.Human("Backend started for %s (pid %d).\n", st.URI, st.PID)
 			e.out.Human("Socket: %s\n", st.Socket)
 			e.out.Human("Log:    %s\n", logPath)
+			syncBackendContacts(ctx, e)
+			if synced, ok := backendStatus(ctx); ok {
+				st = synced
+			}
 			return e.out.JSONValue(backendStatusJSON(st))
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -135,6 +139,7 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	e.out.Human("Endpoint: %s\n", st.URI)
 	e.out.Human("Transport: %s\n", st.Transport)
 	e.out.Human("Socket:   %s\n", st.Socket)
+	printContactStatus(e, st)
 	for _, bridge := range st.Bridges {
 		switch bridge.Type {
 		case "tcp":
@@ -214,7 +219,39 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"last_seen":  st.LastSeen,
 		"last_error": st.LastError,
 		"bridges":    st.Bridges,
+		"contacts": map[string]any{
+			"syncing":   st.Contacts.Syncing,
+			"count":     st.Contacts.Count,
+			"synced_at": st.Contacts.SyncedAt,
+			"error":     st.Contacts.Error,
+		},
 	}
+}
+
+func syncBackendContacts(ctx context.Context, e *env) {
+	e.out.Human("Syncing contacts...\n")
+	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	contacts, err := localbackend.NewClient("").ContactsWithOptions(syncCtx, false, true)
+	if err != nil {
+		e.out.Human("Contact sync failed: %v\n", err)
+		return
+	}
+	e.out.Human("Contacts synced: %d\n", len(contacts))
+}
+
+func printContactStatus(e *env, st localbackend.Status) {
+	if st.Contacts.Syncing {
+		e.out.Human("Contacts: syncing")
+	} else if !st.Contacts.SyncedAt.IsZero() {
+		e.out.Human("Contacts: %d synced at %s", st.Contacts.Count, st.Contacts.SyncedAt.Format("2006-01-02 15:04:05"))
+	} else {
+		e.out.Human("Contacts: not synced")
+	}
+	if st.Contacts.Error != "" {
+		e.out.Human(" (error: %s)", st.Contacts.Error)
+	}
+	e.out.Human("\n")
 }
 
 func configuredBridges() ([]localbackend.BridgeConfig, error) {

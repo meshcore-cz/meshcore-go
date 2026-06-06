@@ -17,6 +17,7 @@ type ContactCacheEntry struct {
 type Store interface {
 	Close() error
 	UpsertContacts(ctx context.Context, device string, contacts []meshcore.Contact) error
+	UpsertContact(ctx context.Context, device string, contact meshcore.Contact) error
 	Contacts(ctx context.Context, device string) ([]ContactCacheEntry, error)
 	Contact(ctx context.Context, device, query string) (ContactCacheEntry, error)
 	UpsertRepeaterSession(ctx context.Context, device string, session meshcore.RepeaterSession) error

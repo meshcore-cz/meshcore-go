@@ -40,10 +40,11 @@ type Client struct {
 	timeout time.Duration
 	log     *slog.Logger
 
-	acks     chan uint32              // SendConfirmed ack codes, for WaitForAcknowledgement
-	traces   chan companion.TraceData // TraceData pushes, for Trace
-	autoSync bool                     // drain inbound messages on MSG_WAITING
-	syncReq  chan struct{}            // signals the sync loop
+	acks      chan uint32              // SendConfirmed ack codes, for WaitForAcknowledgement
+	traces    chan companion.TraceData // TraceData pushes, for Trace
+	autoSync  bool                     // drain inbound messages on MSG_WAITING
+	syncReq   chan struct{}            // signals the sync loop
+	eventHook func(Event)              // optional observer called before Events emits
 
 	mu      sync.RWMutex
 	session protocol.SessionInfo
@@ -82,6 +83,12 @@ func WithLogger(l *slog.Logger) Option {
 // it for long-running consumers such as `mcr watch`.
 func WithMessageSync() Option {
 	return func(c *Client) { c.autoSync = true }
+}
+
+// WithEventHook observes typed events without consuming the Events channel.
+// The hook must return quickly; it runs on the client's read/sync goroutines.
+func WithEventHook(hook func(Event)) Option {
+	return func(c *Client) { c.eventHook = hook }
 }
 
 // New builds a Client over an already-constructed transport. The caller is
@@ -157,7 +164,7 @@ func (c *Client) readLoop(ctx context.Context) {
 		pkt, err := c.conn.ReadPacket(ctx)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
-				c.events.Emit(Disconnected{Err: err})
+				c.emitEvent(Disconnected{Err: err})
 			}
 			c.events.Close()
 			c.raw.Close()
@@ -204,7 +211,7 @@ func (c *Client) handleAsync(msg protocol.Message) {
 		}
 	}
 	if ev := translate(msg); ev != nil {
-		c.events.Emit(ev)
+		c.emitEvent(ev)
 	}
 }
 
@@ -222,10 +229,17 @@ func (c *Client) syncLoop(ctx context.Context) {
 				continue
 			}
 			for _, m := range msgs {
-				c.events.Emit(messageEvent(m))
+				c.emitEvent(messageEvent(m))
 			}
 		}
 	}
+}
+
+func (c *Client) emitEvent(ev Event) {
+	if c.eventHook != nil {
+		c.eventHook(ev)
+	}
+	c.events.Emit(ev)
 }
 
 func msgType(msg protocol.Message) string {
