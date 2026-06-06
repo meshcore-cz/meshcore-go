@@ -660,6 +660,19 @@ A higher-level HTTP or JSON API may also be useful, but it should be treated as 
 
 # Protocol model
 
+> **Source of truth:** the companion protocol is defined by the firmware, not by
+> this repository. Every command code, response code, push-notification code,
+> packet layout, field offset and framing detail implemented here must be
+> cross-verified against the current firmware implementation:
+>
+> **https://github.com/meshcore-dev/MeshCore**
+>
+> When the firmware and this SDK disagree, the firmware wins. Wire-format details
+> derived by inspection or hardware capture should be confirmed against the
+> firmware source and annotated with the firmware version they were checked
+> against. Tolerant decoding (see below) exists precisely because firmware
+> evolves ahead of this library.
+
 ## Protocol interface
 
 The default client should use the standard companion protocol.
@@ -1977,6 +1990,11 @@ mcr --ble-address C4:20:12:34:56:78 status
 ---
 
 # Testing strategy
+
+All protocol fixtures and golden tests must reflect the current firmware
+implementation at **https://github.com/meshcore-dev/MeshCore**. Captured packet
+fixtures should record the firmware version they were taken from, and decoders
+should be re-checked against firmware source whenever they are added or changed.
 
 ## Unit tests
 
