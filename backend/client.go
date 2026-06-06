@@ -17,10 +17,14 @@ const dialTimeout = 250 * time.Millisecond
 // Status describes a running backend process.
 type Status struct {
 	Running   bool
+	Healthy   bool
+	State     string
 	URI       string
 	Transport string
 	PID       int
 	Socket    string
+	LastSeen  time.Time
+	LastError string
 }
 
 // Client talks to a running local backend process.
@@ -52,10 +56,14 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	}
 	return Status{
 		Running:   res.Running,
+		Healthy:   res.Healthy,
+		State:     res.State,
 		URI:       res.URI,
 		Transport: res.Transport,
 		PID:       res.PID,
 		Socket:    c.socket,
+		LastSeen:  res.LastSeen,
+		LastError: res.LastError,
 	}, nil
 }
 

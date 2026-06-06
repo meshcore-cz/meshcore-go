@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
 	localbackend "github.com/meshcore-dev/meshcore-go/backend"
@@ -29,6 +31,8 @@ type Backend interface {
 	Close() error
 }
 
+var errBackendDegraded = errors.New("backend degraded")
+
 type directBackend struct {
 	uri    string
 	client *meshcore.Client
@@ -37,8 +41,12 @@ type directBackend struct {
 
 func openBackend(ctx context.Context, e *env) (Backend, error) {
 	if !e.args.has("direct") {
-		if b, err := openIPCBackend(ctx); err == nil {
+		b, err := openIPCBackend(ctx)
+		if err == nil {
 			return b, nil
+		}
+		if errors.Is(err, errBackendDegraded) {
+			return nil, err
 		}
 	}
 	return openDirectBackend(ctx, e)
@@ -49,6 +57,13 @@ func openIPCBackend(ctx context.Context) (*ipcBackend, error) {
 	status, err := client.Status(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if !status.Healthy {
+		msg := fmt.Sprintf("current active device is %s", status.State)
+		if status.LastError != "" {
+			msg += ": " + status.LastError
+		}
+		return nil, fmt.Errorf("%w: %s", errBackendDegraded, msg)
 	}
 	return &ipcBackend{client: client, status: status}, nil
 }

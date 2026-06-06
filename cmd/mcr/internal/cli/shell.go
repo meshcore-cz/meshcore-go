@@ -25,8 +25,12 @@ func cmdShell(ctx context.Context, e *env) error {
 
 func openShellBackend(ctx context.Context, e *env) (Backend, error) {
 	if !e.args.has("direct") {
-		if b, err := openIPCBackend(ctx); err == nil {
+		b, err := openIPCBackend(ctx)
+		if err == nil {
 			return b, nil
+		}
+		if errors.Is(err, errBackendDegraded) {
+			return nil, err
 		}
 	}
 	uri, _, err := resolveURI(e)

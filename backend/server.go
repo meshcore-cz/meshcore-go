@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
 	"github.com/meshcore-dev/meshcore-go/protocol"
@@ -19,12 +20,23 @@ import (
 type Server struct {
 	uri      string
 	socket   string
+	opts     []meshcore.DialOption
 	client   *meshcore.Client
 	listener net.Listener
+
+	mu        sync.RWMutex
+	state     string
+	lastSeen  time.Time
+	lastError string
 
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
+
+const (
+	stateReady    = "ready"
+	stateDegraded = "degraded"
+)
 
 // NewServer dials uri and prepares a local backend server.
 func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*Server, error) {
@@ -33,10 +45,13 @@ func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*S
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
 	}
 	return &Server{
-		uri:     uri,
-		socket:  SocketPath(),
-		client:  client,
-		stopped: make(chan struct{}),
+		uri:      uri,
+		socket:   SocketPath(),
+		opts:     append([]meshcore.DialOption(nil), opts...),
+		client:   client,
+		state:    stateReady,
+		lastSeen: time.Now(),
+		stopped:  make(chan struct{}),
 	}, nil
 }
 
@@ -58,10 +73,13 @@ func (s *Server) Serve() error {
 		return err
 	}
 	s.listener = ln
+	go s.keepAlive()
 	defer func() {
 		ln.Close()
 		os.Remove(s.socket)
-		s.client.Close()
+		if client := s.clientSnapshot(); client != nil {
+			client.Close()
+		}
 		close(s.stopped)
 	}()
 
@@ -101,10 +119,18 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 	if req.Method == "watch" {
+		if !s.healthy() {
+			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			return
+		}
 		s.watch(conn, req.ID)
 		return
 	}
 	if req.Method == "watch_raw" {
+		if !s.healthy() {
+			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			return
+		}
 		s.watchRaw(conn, req.ID)
 		return
 	}
@@ -132,7 +158,11 @@ func (s *Server) watch(conn net.Conn, id uint64) {
 	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
 		return
 	}
-	for ev := range s.client.Events() {
+	client := s.clientSnapshot()
+	if client == nil {
+		return
+	}
+	for ev := range client.Events() {
 		out, ok := backendEvent(ev)
 		if !ok {
 			continue
@@ -148,7 +178,11 @@ func (s *Server) watchRaw(conn net.Conn, id uint64) {
 	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
 		return
 	}
-	for pkt := range s.client.RawPackets() {
+	client := s.clientSnapshot()
+	if client == nil {
+		return
+	}
+	for pkt := range client.RawPackets() {
 		if err := enc.Encode(pkt); err != nil {
 			return
 		}
@@ -158,65 +192,198 @@ func (s *Server) watchRaw(conn net.Conn, id uint64) {
 func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case "status":
-		return statusResult{Running: true, URI: s.uri, Transport: s.client.Transport(), PID: os.Getpid()}, nil
+		return s.status(), nil
 	case "stop":
 		return map[string]bool{"stopping": true}, nil
+	}
+	if !s.healthy() {
+		return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
+	}
+	client := s.clientSnapshot()
+	if client == nil {
+		return nil, fmt.Errorf("backend radio unavailable: no active client")
+	}
+
+	switch method {
 	case "device_info":
-		return s.client.DeviceInfo(ctx)
+		return client.DeviceInfo(ctx)
 	case "contacts":
-		return s.client.Contacts(ctx)
+		return client.Contacts(ctx)
 	case "contact":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return s.client.Contact(ctx, p.Query)
+		return client.Contact(ctx, p.Query)
 	case "inbox":
-		return s.client.SyncMessages(ctx)
+		return client.SyncMessages(ctx)
 	case "send_text":
 		var p sendTextParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return s.client.SendText(ctx, p.Recipient, p.Text)
+		return client.SendText(ctx, p.Recipient, p.Text)
 	case "wait_ack":
 		var receipt meshcore.Receipt
 		if err := json.Unmarshal(params, &receipt); err != nil {
 			return nil, err
 		}
-		return s.client.WaitForAcknowledgement(ctx, receipt)
+		return client.WaitForAcknowledgement(ctx, receipt)
 	case "trace":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return s.client.Trace(ctx, p.Query)
+		return client.Trace(ctx, p.Query)
 	case "channels":
-		return s.client.Channels(ctx)
+		return client.Channels(ctx)
 	case "channel":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return s.client.Channel(ctx, p.Query)
+		return client.Channel(ctx, p.Query)
 	case "send_channel_text":
 		var p channelSendParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return s.client.SendChannelText(ctx, p.Channel, p.Text)
+		return client.SendChannelText(ctx, p.Channel, p.Text)
 	case "raw_send":
 		var p rawParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		msg, err := s.client.RawSend(ctx, p.Payload)
+		msg, err := client.RawSend(ctx, p.Payload)
 		if err != nil {
 			return nil, err
 		}
 		return RawResultFromMessage(msg), nil
 	default:
 		return nil, fmt.Errorf("unknown backend method %q", method)
+	}
+}
+
+func (s *Server) keepAlive() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopped:
+			return
+		case <-ticker.C:
+			if !s.healthy() {
+				s.tryReconnect()
+				continue
+			}
+			client := s.clientSnapshot()
+			if client == nil {
+				s.markDegraded(fmt.Errorf("no active client"))
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			_, err := client.DeviceTime(ctx)
+			cancel()
+			if err != nil {
+				s.markDegraded(err)
+				continue
+			}
+			s.markReady()
+		}
+	}
+}
+
+func (s *Server) status() statusResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	transport := s.uri
+	if s.client != nil {
+		transport = s.client.Transport()
+	}
+	return statusResult{
+		Running:   true,
+		Healthy:   s.state == stateReady,
+		State:     s.state,
+		URI:       s.uri,
+		Transport: transport,
+		PID:       os.Getpid(),
+		LastSeen:  s.lastSeen,
+		LastError: s.lastError,
+	}
+}
+
+func (s *Server) markReady() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = stateReady
+	s.lastSeen = time.Now()
+	s.lastError = ""
+}
+
+func (s *Server) markDegraded(err error) {
+	var old *meshcore.Client
+	s.mu.Lock()
+	s.state = stateDegraded
+	if err != nil {
+		s.lastError = err.Error()
+	}
+	old = s.client
+	s.client = nil
+	s.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+}
+
+func (s *Server) healthy() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state == stateReady
+}
+
+func (s *Server) lastErr() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.lastError == "" {
+		return "radio is not responding"
+	}
+	return s.lastError
+}
+
+func (s *Server) clientSnapshot() *meshcore.Client {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.client
+}
+
+func (s *Server) tryReconnect() {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	client, err := meshcore.Dial(ctx, s.uri, s.opts...)
+	cancel()
+	if err != nil {
+		s.markReconnectFailed(err)
+		return
+	}
+
+	s.mu.Lock()
+	old := s.client
+	s.client = client
+	s.state = stateReady
+	s.lastSeen = time.Now()
+	s.lastError = ""
+	s.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+}
+
+func (s *Server) markReconnectFailed(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = stateDegraded
+	if err != nil {
+		s.lastError = err.Error()
 	}
 }
 

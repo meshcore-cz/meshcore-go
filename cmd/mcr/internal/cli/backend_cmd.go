@@ -129,10 +129,14 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 		return e.out.JSONValue(map[string]any{"running": false, "socket": localbackend.SocketPath()})
 	}
 	e.out.Human("Backend:  running\n")
+	e.out.Human("State:    %s\n", st.State)
 	e.out.Human("PID:      %d\n", st.PID)
 	e.out.Human("Endpoint: %s\n", st.URI)
 	e.out.Human("Transport: %s\n", st.Transport)
 	e.out.Human("Socket:   %s\n", st.Socket)
+	if st.LastError != "" {
+		e.out.Human("Last err: %s\n", st.LastError)
+	}
 	return e.out.JSONValue(backendStatusJSON(st))
 }
 
@@ -179,10 +183,14 @@ func backendStatus(ctx context.Context) (localbackend.Status, bool) {
 
 func backendStatusJSON(st localbackend.Status) map[string]any {
 	return map[string]any{
-		"running":   st.Running,
-		"pid":       st.PID,
-		"uri":       st.URI,
-		"transport": st.Transport,
-		"socket":    st.Socket,
+		"running":    st.Running,
+		"healthy":    st.Healthy,
+		"state":      st.State,
+		"pid":        st.PID,
+		"uri":        st.URI,
+		"transport":  st.Transport,
+		"socket":     st.Socket,
+		"last_seen":  st.LastSeen,
+		"last_error": st.LastError,
 	}
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -257,8 +258,12 @@ func cmdWatch(ctx context.Context, e *env) error {
 	}
 
 	if !e.args.has("direct") {
-		if err := cmdWatchBackend(ctx, e); err == nil {
+		err := cmdWatchBackend(ctx, e)
+		if err == nil {
 			return nil
+		}
+		if errors.Is(err, errBackendDegraded) {
+			return err
 		}
 	}
 
@@ -295,8 +300,12 @@ func cmdWatch(ctx context.Context, e *env) error {
 func cmdWatchRaw(ctx context.Context, e *env) error {
 	e.out.JSON = true
 	if !e.args.has("direct") {
-		if err := cmdWatchRawBackend(ctx, e); err == nil {
+		err := cmdWatchRawBackend(ctx, e)
+		if err == nil {
 			return nil
+		}
+		if errors.Is(err, errBackendDegraded) {
+			return err
 		}
 	}
 
@@ -334,6 +343,9 @@ func cmdWatchRawBackend(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
+	if !st.Healthy {
+		return fmt.Errorf("%w: current active device is %s: %s", errBackendDegraded, st.State, st.LastError)
+	}
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
@@ -354,6 +366,9 @@ func cmdWatchBackend(ctx context.Context, e *env) error {
 	st, err := client.Status(ctx)
 	if err != nil {
 		return err
+	}
+	if !st.Healthy {
+		return fmt.Errorf("%w: current active device is %s: %s", errBackendDegraded, st.State, st.LastError)
 	}
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)

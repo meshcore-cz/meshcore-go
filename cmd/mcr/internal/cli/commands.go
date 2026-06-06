@@ -42,6 +42,25 @@ func cmdVersion(e *env) error {
 
 func cmdStatus(ctx context.Context, e *env) error {
 	st, backendRunning := backendStatus(ctx)
+	if backendRunning && !st.Healthy && !e.args.has("direct") {
+		if e.out.JSON {
+			return e.out.JSONValue(map[string]any{
+				"device":  map[string]any{"available": false},
+				"backend": backendStatusForOutput(st, true),
+			})
+		}
+		e.out.Human("Device:       unavailable\n")
+		e.out.Human("Transport:    %s\n", st.URI)
+		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
+		if st.LastError != "" {
+			e.out.Human("Last error:   %s\n", st.LastError)
+		}
+		if !st.LastSeen.IsZero() {
+			e.out.Human("Last seen:    %s\n", st.LastSeen.Format("2006-01-02 15:04:05"))
+		}
+		return nil
+	}
+
 	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
@@ -83,7 +102,7 @@ func cmdStatus(ctx context.Context, e *env) error {
 	e.out.Human("Public key:   %s\n", shortKey(info.PublicKey))
 	e.out.Human("Capabilities: %s\n", info.Capabilities.String())
 	if backendRunning {
-		e.out.Human("Backend:      running (pid %d)\n", st.PID)
+		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
 	} else {
 		e.out.Human("Backend:      not running\n")
 	}
