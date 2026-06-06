@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-dev/meshcore-go/transport/ble"
 	"github.com/meshcore-dev/meshcore-go/transport/serial"
 )
 
@@ -30,7 +31,8 @@ func WithClientOptions(opts ...Option) DialOption {
 func DefaultRegistry() *transport.Registry {
 	r := transport.NewRegistry()
 	r.Register("serial", serial.NewDialer())
-	// ble, tcp and ws dialers register here as later phases land.
+	r.Register("ble", ble.NewDialer())
+	// tcp and ws dialers register here as later phases land.
 	return r
 }
 

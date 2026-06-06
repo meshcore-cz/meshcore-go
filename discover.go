@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/meshcore-dev/meshcore-go/transport"
+	"github.com/meshcore-dev/meshcore-go/transport/ble"
 	"github.com/meshcore-dev/meshcore-go/transport/serial"
 )
 
@@ -24,11 +25,10 @@ func WithSerialDiscovery() DiscoverOption {
 	}
 }
 
-// WithBLEDiscovery enables BLE discovery. BLE arrives in Phase 3; until then
-// this provider yields no endpoints.
+// WithBLEDiscovery enables BLE discovery.
 func WithBLEDiscovery() DiscoverOption {
 	return func(c *discoverConfig) {
-		c.providers = append(c.providers, noopDiscoverer{})
+		c.providers = append(c.providers, ble.NewDiscoverer())
 	}
 }
 
@@ -58,10 +58,4 @@ func Discover(ctx context.Context, opts ...DiscoverOption) ([]Endpoint, error) {
 		endpoints = append(endpoints, eps...)
 	}
 	return endpoints, nil
-}
-
-type noopDiscoverer struct{}
-
-func (noopDiscoverer) Discover(ctx context.Context) ([]transport.Endpoint, error) {
-	return nil, nil
 }

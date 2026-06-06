@@ -13,6 +13,8 @@ import (
 	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
 )
 
+const backendContactSyncTimeout = 90 * time.Second
+
 func cmdBackend(ctx context.Context, e *env) error {
 	switch e.restArg(0) {
 	case "start":
@@ -167,7 +169,10 @@ func backendServe(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
+	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(
+		meshcore.WithMessageSync(),
+		meshcore.WithTimeout(backendContactSyncTimeout),
+	))
 	bridges, err := configuredBridges()
 	if err != nil {
 		return err
@@ -230,7 +235,7 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 
 func syncBackendContacts(ctx context.Context, e *env) {
 	e.out.Human("Syncing contacts...\n")
-	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	syncCtx, cancel := context.WithTimeout(ctx, backendContactSyncTimeout)
 	defer cancel()
 	contacts, err := localbackend.NewClient("").ContactsWithOptions(syncCtx, false, true)
 	if err != nil {
