@@ -6,6 +6,9 @@ package meshcore
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -19,6 +22,10 @@ import (
 // DefaultTimeout bounds how long a single request waits for its response.
 const DefaultTimeout = 10 * time.Second
 
+// DefaultHandshakeTimeout bounds the protocol handshake when the caller's
+// context has no deadline of its own.
+const DefaultHandshakeTimeout = 20 * time.Second
+
 // Client is the high-level entry point for talking to a companion radio. It
 // owns request sequencing, response matching and the asynchronous event
 // stream so applications never manage command timing manually.
@@ -30,6 +37,7 @@ type Client struct {
 	events *dispatcher.Dispatcher[Event]
 
 	timeout time.Duration
+	log     *slog.Logger
 
 	mu      sync.RWMutex
 	session protocol.SessionInfo
@@ -52,6 +60,16 @@ func WithTimeout(d time.Duration) Option {
 	return func(c *Client) { c.timeout = d }
 }
 
+// WithLogger enables debug logging through the given slog.Logger. By default
+// the client logs nothing.
+func WithLogger(l *slog.Logger) Option {
+	return func(c *Client) {
+		if l != nil {
+			c.log = l
+		}
+	}
+}
+
 // New builds a Client over an already-constructed transport. The caller is
 // responsible for calling Connect.
 func New(conn transport.PacketConn, opts ...Option) *Client {
@@ -61,6 +79,7 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 		queue:   queue.New(),
 		events:  dispatcher.New[Event](64),
 		timeout: DefaultTimeout,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		closed:  make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -72,15 +91,33 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 // Connect opens the transport, performs the protocol handshake and starts the
 // background read loop.
 func (c *Client) Connect(ctx context.Context) error {
+	c.log.Debug("opening transport", "endpoint", c.conn.String())
 	if err := c.conn.Open(ctx); err != nil {
+		c.log.Debug("open failed", "error", err)
 		return err
 	}
 
-	session, err := c.proto.Initialize(ctx, c.conn)
+	// Bound the handshake if the caller did not supply a deadline, so a silent
+	// or wrongly-framed device cannot hang Connect forever.
+	hctx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		hctx, cancel = context.WithTimeout(ctx, DefaultHandshakeTimeout)
+		defer cancel()
+	}
+
+	c.log.Debug("starting handshake")
+	session, err := c.proto.Initialize(hctx, c.conn)
 	if err != nil {
+		c.log.Debug("handshake failed", "error", err)
 		_ = c.conn.Close()
 		return err
 	}
+	c.log.Debug("handshake ok",
+		"name", session.Name,
+		"firmware", session.FirmwareName,
+		"version", session.FirmwareVersion,
+		"public_key", session.PublicKey)
 	c.mu.Lock()
 	c.session = session
 	c.mu.Unlock()
@@ -106,14 +143,25 @@ func (c *Client) readLoop(ctx context.Context) {
 		}
 		msg, err := c.proto.Decode(pkt)
 		if err != nil {
+			c.log.Debug("decode error", "bytes", len(pkt), "error", err)
 			continue
 		}
 		if msg.Async() {
+			c.log.Debug("event", "type", msgType(msg))
 			c.events.Emit(translate(msg))
 			continue
 		}
-		c.queue.Deliver(msg)
+		if !c.queue.Deliver(msg) {
+			c.log.Debug("unmatched response", "type", msgType(msg))
+		}
 	}
+}
+
+func msgType(msg protocol.Message) string {
+	if raw, ok := msg.(protocol.RawMessage); ok {
+		return fmt.Sprintf("raw(0x%02x)", raw.Type)
+	}
+	return fmt.Sprintf("%T", msg)
 }
 
 // request sends a command and waits for the matching response, bounded by the
@@ -127,6 +175,7 @@ func (c *Client) request(ctx context.Context, cmd protocol.Command) (protocol.Me
 	tctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
+	c.log.Debug("request", "command", fmt.Sprintf("%T", cmd), "bytes", len(raw))
 	v, err := c.queue.Do(tctx, func() error {
 		return c.conn.WritePacket(tctx, raw)
 	})

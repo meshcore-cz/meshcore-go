@@ -17,22 +17,26 @@ func selfInfoPacket(name string, key []byte) []byte {
 	var b bytes.Buffer
 	b.WriteByte(5) // respSelfInfo
 	b.Write([]byte{1, 22, 30})
-	b.Write(key)               // 32-byte public key
-	b.Write(make([]byte, 4+4)) // lat, lon
-	b.Write(le32(868000))      // freq
-	b.Write(le32(250))         // bw
-	b.Write([]byte{11, 5})     // sf, cr
+	b.Write(key)                 // 32-byte public key
+	b.Write(make([]byte, 4+4+4)) // lat, lon, reserved
+	b.Write(le32(868000))        // freq
+	b.Write(le32(250))           // bw
+	b.Write([]byte{11, 5})       // sf, cr
 	b.WriteString(name)
 	return b.Bytes()
 }
 
-func deviceInfoPacket(fw string) []byte {
+func deviceInfoPacket(model, date, version string) []byte {
 	var b bytes.Buffer
-	b.WriteByte(13) // respDeviceInfo
-	b.WriteByte(1)  // firmware version
-	b.Write(le16(100))
-	b.WriteByte(8)
-	b.WriteString(fw)
+	b.WriteByte(13)                      // respDeviceInfo
+	b.Write([]byte{0x0b, 0xaf, 0x28, 0}) // binary header
+	b.Write([]byte{0, 0, 0})             // padding
+	b.WriteString(date)
+	b.WriteByte(0)
+	b.WriteString(model)
+	b.WriteByte(0)
+	b.WriteString(version)
+	b.WriteByte(0)
 	return b.Bytes()
 }
 
@@ -58,7 +62,7 @@ func newConnectedClient(t *testing.T) (*meshcore.Client, *testutil.FakeTransport
 
 	// Handshake reads: SelfInfo then DeviceInfo.
 	ft.ReadPackets <- selfInfoPacket("MeshCore-desk", key)
-	ft.ReadPackets <- deviceInfoPacket("ZephCore\nv1.2.3")
+	ft.ReadPackets <- deviceInfoPacket("Heltec V3", "19-Apr-2026", "v1.2.3")
 
 	client := meshcore.New(ft, meshcore.WithTimeout(2*time.Second))
 	if err := client.Connect(context.Background()); err != nil {
@@ -82,8 +86,8 @@ func TestClientHandshake(t *testing.T) {
 	if info.Name != "MeshCore-desk" {
 		t.Errorf("name = %q", info.Name)
 	}
-	if info.FirmwareName != "ZephCore" {
-		t.Errorf("firmware name = %q, want ZephCore", info.FirmwareName)
+	if info.FirmwareName != "MeshCore (Heltec V3)" {
+		t.Errorf("firmware name = %q, want MeshCore (Heltec V3)", info.FirmwareName)
 	}
 	if info.FirmwareVersion != "v1.2.3" {
 		t.Errorf("firmware version = %q", info.FirmwareVersion)

@@ -10,11 +10,13 @@ import (
 // MeshCore companion "serial V3" framing. Each logical packet is wrapped with a
 // one-byte direction marker, a little-endian uint16 length and the payload:
 //
-//	host -> device:  '>' | len(2, LE) | payload
-//	device -> host:  '<' | len(2, LE) | payload
+//	host -> device:  '<' | len(2, LE) | payload
+//	device -> host:  '>' | len(2, LE) | payload
+//
+// (Verified against MeshCore firmware v1.15 on Heltec V3 hardware.)
 const (
-	frameToDevice byte = '>' // 0x3e
-	frameToHost   byte = '<' // 0x3c
+	frameToDevice byte = '<' // 0x3c
+	frameToHost   byte = '>' // 0x3e
 
 	// maxFrameLen guards against runaway lengths from a desynchronised stream.
 	maxFrameLen = 8192

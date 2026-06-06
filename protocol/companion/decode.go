@@ -70,7 +70,8 @@ func decode(packet []byte) (protocol.Message, error) {
 
 // decodeSelfInfo parses RESP_CODE_SELF_INFO.
 //
-// Provisional layout (offsets relative to the body, i.e. after the code byte):
+// Layout (offsets relative to the body, i.e. after the code byte), verified
+// against MeshCore firmware v1.15:
 //
 //	[0]      adv_type
 //	[1]      tx_power
@@ -78,11 +79,12 @@ func decode(packet []byte) (protocol.Message, error) {
 //	[3:35]   public_key (32 bytes)
 //	[35:39]  adv_lat   (int32 LE, units of 1e-6 degrees)
 //	[39:43]  adv_lon   (int32 LE, units of 1e-6 degrees)
-//	[43:47]  radio_freq (uint32 LE, kHz)
-//	[47:51]  radio_bw   (uint32 LE, kHz)
-//	[51]     radio_sf
-//	[52]     radio_cr
-//	[53:]    name (UTF-8, NUL-trimmed)
+//	[43:47]  reserved
+//	[47:51]  radio_freq (uint32 LE)
+//	[51:55]  radio_bw   (uint32 LE)
+//	[55]     radio_sf
+//	[56]     radio_cr
+//	[57:]    name (UTF-8, NUL-trimmed)
 func decodeSelfInfo(b []byte) SelfInfo {
 	var s SelfInfo
 	get := func(i int) byte {
@@ -106,39 +108,42 @@ func decodeSelfInfo(b []byte) SelfInfo {
 	}
 	s.AdvLat = float64(int32(u32(35))) / 1e6
 	s.AdvLon = float64(int32(u32(39))) / 1e6
-	s.RadioFreq = u32(43)
-	s.RadioBW = u32(47)
-	s.RadioSF = get(51)
-	s.RadioCR = get(52)
-	if len(b) > 53 {
-		s.Name = trimString(b[53:])
+	// b[43:47] reserved
+	s.RadioFreq = u32(47)
+	s.RadioBW = u32(51)
+	s.RadioSF = get(55)
+	s.RadioCR = get(56)
+	if len(b) > 57 {
+		s.Name = trimString(b[57:])
 	}
 	return s
 }
 
 // decodeDeviceInfo parses RESP_CODE_DEVICE_INFO.
 //
-// Provisional layout: a small fixed header followed by NUL/newline-separated
-// strings (model/firmware name and build). Parsing is best-effort.
+// Layout: a small binary header followed by NUL-padded strings (build date,
+// hardware model and firmware version). Verified against MeshCore v1.15, which
+// returns e.g. "19-Apr-2026", "Heltec V3", "v1.15.0-dee3e26". Parsing is
+// tolerant of ordering and extra fields.
 func decodeDeviceInfo(b []byte) DeviceInfo {
 	var d DeviceInfo
 	if len(b) > 0 {
-		d.FirmwareVersion = b[0]
+		d.FirmwareCode = b[0]
 	}
-	if len(b) >= 3 {
-		d.MaxContacts = binary.LittleEndian.Uint16(b[1:3])
-	}
-	if len(b) >= 4 {
-		d.MaxChannels = b[3]
-	}
-	// Remaining bytes: printable strings separated by NUL or newline.
-	if len(b) > 4 {
-		fields := splitStrings(b[4:])
-		if len(fields) > 0 {
-			d.FirmwareName = fields[0]
-		}
-		if len(fields) > 1 {
-			d.FirmwareBuild = fields[1]
+	for _, tok := range printableTokens(b) {
+		switch {
+		case looksLikeVersion(tok):
+			if d.Version == "" {
+				d.Version = tok
+			}
+		case looksLikeDate(tok):
+			if d.BuildDate == "" {
+				d.BuildDate = tok
+			}
+		default:
+			if d.Model == "" {
+				d.Model = tok
+			}
 		}
 	}
 	return d
@@ -188,6 +193,45 @@ func splitStrings(b []byte) []string {
 	}
 	return out
 }
+
+// printableTokens extracts runs of printable ASCII (length >= 2) from b,
+// skipping binary header bytes and NUL padding.
+func printableTokens(b []byte) []string {
+	var out []string
+	var cur []byte
+	flush := func() {
+		if t := strings.TrimSpace(string(cur)); len(t) >= 2 {
+			out = append(out, t)
+		}
+		cur = cur[:0]
+	}
+	for _, c := range b {
+		if c >= 0x20 && c < 0x7f {
+			cur = append(cur, c)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return out
+}
+
+// looksLikeVersion reports whether tok resembles a version string such as
+// "v1.15.0-dee3e26" or "1.2.3".
+func looksLikeVersion(tok string) bool {
+	if len(tok) >= 2 && (tok[0] == 'v' || tok[0] == 'V') && isDigit(tok[1]) {
+		return true
+	}
+	return isDigit(tok[0]) && strings.Contains(tok, ".")
+}
+
+// looksLikeDate reports whether tok resembles a date such as "19-Apr-2026".
+func looksLikeDate(tok string) bool {
+	return strings.Contains(tok, "-") && strings.ContainsFunc(tok, isLetterRune)
+}
+
+func isDigit(c byte) bool      { return c >= '0' && c <= '9' }
+func isLetterRune(r rune) bool { return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') }
 
 func indexByte(b []byte, c byte) int {
 	for i := range b {

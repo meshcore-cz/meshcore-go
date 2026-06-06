@@ -27,7 +27,7 @@ func cmdConnect(ctx context.Context, e *env) error {
 	}
 
 	e.out.Human("Connecting to %s ...\n", uri)
-	client, err := meshcore.Dial(ctx, uri)
+	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", uri, err)
 	}

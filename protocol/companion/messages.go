@@ -34,11 +34,10 @@ func (SelfInfo) Async() bool { return false }
 
 // DeviceInfo is RESP_CODE_DEVICE_INFO, returned in reply to DeviceQuery.
 type DeviceInfo struct {
-	FirmwareVersion byte
-	MaxContacts     uint16
-	MaxChannels     byte
-	FirmwareName    string
-	FirmwareBuild   string
+	FirmwareCode byte   // firmware/protocol version byte
+	Model        string // hardware model, e.g. "Heltec V3"
+	BuildDate    string // firmware build date, e.g. "19-Apr-2026"
+	Version      string // firmware version, e.g. "v1.15.0-dee3e26"
 }
 
 func (DeviceInfo) Async() bool { return false }

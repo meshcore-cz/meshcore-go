@@ -103,7 +103,7 @@ func cmdDoctor(ctx context.Context, e *env) error {
 	}
 	add("Endpoint", uri, true)
 
-	client, err := meshcore.Dial(ctx, uri)
+	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
 	if err != nil {
 		add("Companion radio", "unreachable: "+err.Error(), false)
 		return finishDoctor(e, checks)

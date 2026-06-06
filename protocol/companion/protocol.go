@@ -3,6 +3,7 @@ package companion
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/meshcore-dev/meshcore-go/protocol"
 	"github.com/meshcore-dev/meshcore-go/transport"
@@ -49,8 +50,14 @@ func (p *Protocol) Capabilities() protocol.Capabilities {
 	}
 }
 
+// handshakeAttemptTimeout bounds how long each APP_START attempt waits for a
+// SelfInfo reply before resending. Opening a USB serial port can reset the MCU
+// (DTR toggling), so the first command(s) may be lost while the device boots.
+const handshakeAttemptTimeout = 1500 * time.Millisecond
+
 // Initialize performs the APP_START handshake, reads the SelfInfo identity and
-// best-effort device details, and returns the resulting SessionInfo.
+// best-effort device details, and returns the resulting SessionInfo. It resends
+// APP_START until the device replies or the context expires.
 func (p *Protocol) Initialize(ctx context.Context, conn transport.PacketConn) (protocol.SessionInfo, error) {
 	var si protocol.SessionInfo
 
@@ -58,17 +65,10 @@ func (p *Protocol) Initialize(ctx context.Context, conn transport.PacketConn) (p
 	if err != nil {
 		return si, err
 	}
-	if err := conn.WritePacket(ctx, start); err != nil {
-		return si, fmt.Errorf("companion: app start: %w", err)
-	}
 
-	msg, err := p.readNext(ctx, conn)
+	self, err := p.handshake(ctx, conn, start)
 	if err != nil {
-		return si, fmt.Errorf("companion: reading self info: %w", err)
-	}
-	self, ok := msg.(SelfInfo)
-	if !ok {
-		return si, fmt.Errorf("companion: %w: expected self info, got %T", protocol.ErrUnexpectedResponse, msg)
+		return si, err
 	}
 
 	si = protocol.SessionInfo{
@@ -81,13 +81,45 @@ func (p *Protocol) Initialize(ctx context.Context, conn transport.PacketConn) (p
 
 	// Device query is best-effort: older firmware may not implement it.
 	if dev, err := p.deviceQuery(ctx, conn); err == nil {
-		if dev.FirmwareName != "" {
-			si.FirmwareName = dev.FirmwareName
-		}
 		si.FirmwareVersion = firmwareVersion(dev)
+		if dev.Model != "" {
+			si.FirmwareName = "MeshCore (" + dev.Model + ")"
+		}
 	}
 
 	return si, nil
+}
+
+// handshake repeatedly sends APP_START until a SelfInfo response arrives or ctx
+// is done, tolerating the boot window after the port is opened.
+func (p *Protocol) handshake(ctx context.Context, conn transport.PacketConn, start []byte) (SelfInfo, error) {
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return SelfInfo{}, fmt.Errorf("companion: handshake failed: %w", lastErr)
+			}
+			return SelfInfo{}, fmt.Errorf("companion: handshake timed out: %w", err)
+		}
+
+		if err := conn.WritePacket(ctx, start); err != nil {
+			return SelfInfo{}, fmt.Errorf("companion: app start: %w", err)
+		}
+
+		attemptCtx, cancel := context.WithTimeout(ctx, handshakeAttemptTimeout)
+		msg, err := p.readNext(attemptCtx, conn)
+		cancel()
+		if err != nil {
+			lastErr = err
+			continue // resend APP_START
+		}
+		self, ok := msg.(SelfInfo)
+		if !ok {
+			lastErr = fmt.Errorf("%w: expected self info, got %T", protocol.ErrUnexpectedResponse, msg)
+			continue
+		}
+		return self, nil
+	}
 }
 
 // deviceQuery issues CMD_DEVICE_QUERY and returns the parsed DeviceInfo.
@@ -99,7 +131,9 @@ func (p *Protocol) deviceQuery(ctx context.Context, conn transport.PacketConn) (
 	if err := conn.WritePacket(ctx, q); err != nil {
 		return DeviceInfo{}, err
 	}
-	msg, err := p.readNext(ctx, conn)
+	qctx, cancel := context.WithTimeout(ctx, handshakeAttemptTimeout)
+	defer cancel()
+	msg, err := p.readNext(qctx, conn)
 	if err != nil {
 		return DeviceInfo{}, err
 	}
@@ -129,11 +163,11 @@ func (p *Protocol) readNext(ctx context.Context, conn transport.PacketConn) (pro
 }
 
 func firmwareVersion(d DeviceInfo) string {
-	if d.FirmwareBuild != "" {
-		return d.FirmwareBuild
+	if d.Version != "" {
+		return d.Version
 	}
-	if d.FirmwareVersion != 0 {
-		return fmt.Sprintf("v%d", d.FirmwareVersion)
+	if d.FirmwareCode != 0 {
+		return fmt.Sprintf("v%d", d.FirmwareCode)
 	}
 	return ""
 }

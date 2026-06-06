@@ -175,6 +175,7 @@ func buildSelfInfo(t *testing.T, f selfInfoFixture) []byte {
 	b.Write(f.key)
 	b.Write(le32(0)) // lat
 	b.Write(le32(0)) // lon
+	b.Write(le32(0)) // reserved
 	b.Write(le32(f.freq))
 	b.Write(le32(f.bw))
 	b.WriteByte(f.sf)
@@ -199,5 +200,57 @@ func TestSplitStrings(t *testing.T) {
 	got := splitStrings([]byte("MeshCore\x00v1.2.3\x00"))
 	if strings.Join(got, "|") != "MeshCore|v1.2.3" {
 		t.Errorf("got %v", got)
+	}
+}
+
+// Golden fixtures captured from real MeshCore v1.15 hardware (Heltec V3).
+
+func mustHex(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(strings.ReplaceAll(s, " ", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestDecodeRealSelfInfoGolden(t *testing.T) {
+	pkt := mustHex(t,
+		"05 01 16 16 ef f0 1e f2 18 05 fb 30 9c 2d ba 60 73 ac 39 54 51 1a 2b 08 be 41 c9 bc 78 7c c1 2a 41 87 9a a7 00 00 00 00 00 00 00 00 00 00 00 00 38 44 0d 00 24 f4 00 00 07 05 45 46 46 30 31 45 46 32")
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	si := msg.(SelfInfo)
+	if si.Name != "EFF01EF2" {
+		t.Errorf("name = %q, want EFF01EF2", si.Name)
+	}
+	if !strings.HasPrefix(si.PublicKey, "eff01ef21805fb30") {
+		t.Errorf("public key = %q", si.PublicKey)
+	}
+	if si.RadioSF != 7 || si.RadioCR != 5 {
+		t.Errorf("sf/cr = %d/%d, want 7/5", si.RadioSF, si.RadioCR)
+	}
+	if si.TxPower != 22 {
+		t.Errorf("tx power = %d, want 22", si.TxPower)
+	}
+}
+
+func TestDecodeRealDeviceInfoGolden(t *testing.T) {
+	pkt := mustHex(t,
+		"0d 0b af 28 00 00 00 00 31 39 2d 41 70 72 2d 32 30 32 36 00 48 65 6c 74 65 63 20 56 33 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 76 31 2e 31 35 2e 30 2d 64 65 65 33 65 32 36 00 00 00 00 00 00 00")
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := msg.(DeviceInfo)
+	if d.Model != "Heltec V3" {
+		t.Errorf("model = %q, want Heltec V3", d.Model)
+	}
+	if d.BuildDate != "19-Apr-2026" {
+		t.Errorf("build date = %q, want 19-Apr-2026", d.BuildDate)
+	}
+	if d.Version != "v1.15.0-dee3e26" {
+		t.Errorf("version = %q, want v1.15.0-dee3e26", d.Version)
 	}
 }
