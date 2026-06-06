@@ -47,8 +47,23 @@ type Contact struct {
 	LastAdvert time.Time
 }
 
+// ContactSyncProgress reports contact-list download progress from the radio.
+type ContactSyncProgress struct {
+	Received int
+	Total    int // 0 until ContactsStart is received
+}
+
+// ContactSyncProgressFunc is called as contacts stream in from the radio.
+type ContactSyncProgressFunc func(ContactSyncProgress)
+
 // Contacts returns the device's contact list.
 func (c *Client) Contacts(ctx context.Context) ([]Contact, error) {
+	return c.ContactsWithProgress(ctx, nil)
+}
+
+// ContactsWithProgress returns the device's contact list and reports download
+// progress when onProgress is non-nil.
+func (c *Client) ContactsWithProgress(ctx context.Context, onProgress ContactSyncProgressFunc) ([]Contact, error) {
 	if err := c.requireCapability(CapabilityContacts); err != nil {
 		return nil, err
 	}
@@ -59,10 +74,20 @@ func (c *Client) Contacts(ctx context.Context) ([]Contact, error) {
 	}
 
 	var contacts []Contact
+	var total int
+	report := func() {
+		if onProgress != nil {
+			onProgress(ContactSyncProgress{Received: len(contacts), Total: total})
+		}
+	}
 	collect := func(msg protocol.Message) (done bool) {
 		switch m := msg.(type) {
+		case companion.ContactsStart:
+			total = int(m.Count)
+			report()
 		case companion.Contact:
 			contacts = append(contacts, fromCompanionContact(m))
+			report()
 		case companion.EndOfContacts:
 			return true
 		}

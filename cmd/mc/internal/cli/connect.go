@@ -86,10 +86,7 @@ func maybeOfferBackendStart(ctx context.Context, e *env, uri string) error {
 	if e.out.JSON {
 		return nil
 	}
-	if st, ok := backendStatus(ctx); ok {
-		if st.Healthy && st.Contacts.SyncedAt.IsZero() && !st.Contacts.Syncing {
-			syncBackendContacts(ctx, e)
-		}
+	if _, ok := backendStatus(ctx); ok {
 		return nil
 	}
 	if !promptYes("Start backend?", true) {

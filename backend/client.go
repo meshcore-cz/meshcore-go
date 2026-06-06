@@ -14,6 +14,22 @@ import (
 
 const dialTimeout = 250 * time.Millisecond
 
+// DeviceStatus is a snapshot of the connected radio served without blocking on
+// active radio operations.
+type DeviceStatus struct {
+	Name            string
+	PublicKey       string
+	Firmware        string
+	FirmwareVersion string
+	Protocol        string
+	Transport       string
+	Capabilities    []string
+}
+
+func (d DeviceStatus) Available() bool {
+	return d.Name != "" || d.PublicKey != ""
+}
+
 // Status describes a running backend process.
 type Status struct {
 	Running   bool
@@ -27,14 +43,17 @@ type Status struct {
 	LastError string
 	Bridges   []BridgeStatus
 	Contacts  ContactStatus
+	Device    DeviceStatus
 }
 
 // ContactStatus describes the backend's local contact replica.
 type ContactStatus struct {
-	Syncing  bool
-	Count    int
-	SyncedAt time.Time
-	Error    string
+	Syncing      bool
+	SyncReceived int
+	SyncTotal    int
+	Count        int
+	SyncedAt     time.Time
+	Error        string
 }
 
 // Client talks to a running local backend process.
@@ -64,7 +83,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	if err := c.call(ctx, "status", nil, &res); err != nil {
 		return Status{Socket: c.socket}, err
 	}
-	return Status{
+	st := Status{
 		Running:   res.Running,
 		Healthy:   res.Healthy,
 		State:     res.State,
@@ -76,12 +95,25 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		LastError: res.LastError,
 		Bridges:   res.Bridges,
 		Contacts: ContactStatus{
-			Syncing:  res.Contacts.Syncing,
-			Count:    res.Contacts.Count,
-			SyncedAt: res.Contacts.SyncedAt,
-			Error:    res.Contacts.Error,
+			Syncing:      res.Contacts.Syncing,
+			SyncReceived: res.Contacts.SyncReceived,
+			SyncTotal:    res.Contacts.SyncTotal,
+			Count:        res.Contacts.Count,
+			SyncedAt:     res.Contacts.SyncedAt,
+			Error:        res.Contacts.Error,
 		},
-	}, nil
+	}
+	if res.Device != nil {
+		st.Device = DeviceStatus{
+			Name:            res.Device.Name,
+			PublicKey:       res.Device.PublicKey,
+			Firmware:        res.Device.Firmware,
+			FirmwareVersion: res.Device.FirmwareVersion,
+			Protocol:        res.Device.Protocol,
+			Capabilities:    append([]string(nil), res.Device.Capabilities...),
+		}
+	}
+	return st, nil
 }
 
 func (c *Client) Stop(ctx context.Context) error {

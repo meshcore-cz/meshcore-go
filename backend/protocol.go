@@ -18,24 +18,36 @@ type response struct {
 	Error  string          `json:"error,omitempty"`
 }
 
+type deviceStatusSnapshot struct {
+	Name            string   `json:"name,omitempty"`
+	PublicKey       string   `json:"public_key,omitempty"`
+	Firmware        string   `json:"firmware,omitempty"`
+	FirmwareVersion string   `json:"firmware_version,omitempty"`
+	Protocol        string   `json:"protocol,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+}
+
 type statusResult struct {
-	Running   bool           `json:"running"`
-	Healthy   bool           `json:"healthy"`
-	State     string         `json:"state"`
-	URI       string         `json:"uri"`
-	Transport string         `json:"transport"`
-	PID       int            `json:"pid"`
-	LastSeen  time.Time      `json:"last_seen,omitempty"`
-	LastError string         `json:"last_error,omitempty"`
-	Bridges   []BridgeStatus `json:"bridges,omitempty"`
-	Contacts  contactStatus  `json:"contacts,omitempty"`
+	Running   bool                  `json:"running"`
+	Healthy   bool                  `json:"healthy"`
+	State     string                `json:"state"`
+	URI       string                `json:"uri"`
+	Transport string                `json:"transport"`
+	PID       int                   `json:"pid"`
+	LastSeen  time.Time             `json:"last_seen,omitempty"`
+	LastError string                `json:"last_error,omitempty"`
+	Bridges   []BridgeStatus        `json:"bridges,omitempty"`
+	Contacts  contactStatus         `json:"contacts,omitempty"`
+	Device    *deviceStatusSnapshot `json:"device,omitempty"`
 }
 
 type contactStatus struct {
-	Syncing  bool      `json:"syncing"`
-	Count    int       `json:"count"`
-	SyncedAt time.Time `json:"synced_at,omitempty"`
-	Error    string    `json:"error,omitempty"`
+	Syncing      bool      `json:"syncing"`
+	SyncReceived int       `json:"sync_received,omitempty"`
+	SyncTotal    int       `json:"sync_total,omitempty"`
+	Count        int       `json:"count"`
+	SyncedAt     time.Time `json:"synced_at,omitempty"`
+	Error        string    `json:"error,omitempty"`
 }
 
 type sendTextParams struct {

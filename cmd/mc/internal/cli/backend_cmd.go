@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +36,8 @@ func cmdBackend(ctx context.Context, e *env) error {
 		return backendStatusCmd(ctx, e)
 	case "serve":
 		return backendServe(ctx, e)
+	case "log", "logs":
+		return backendLog(ctx, e)
 	default:
 		return fmt.Errorf("unknown backend subcommand %q", e.restArg(0))
 	}
@@ -42,12 +46,6 @@ func cmdBackend(ctx context.Context, e *env) error {
 func backendStart(ctx context.Context, e *env) error {
 	if st, ok := backendStatus(ctx); ok {
 		e.out.Human("Backend already running for %s (pid %d).\n", st.URI, st.PID)
-		if st.Healthy && st.Contacts.SyncedAt.IsZero() && !st.Contacts.Syncing {
-			syncBackendContacts(ctx, e)
-			if synced, ok := backendStatus(ctx); ok {
-				st = synced
-			}
-		}
 		return e.out.JSONValue(backendStatusJSON(st))
 	}
 
@@ -85,31 +83,26 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 	}
 	fmt.Fprintf(logFile, "\n--- backend start %s uri=%s pid=%d ---\n", time.Now().Format(time.RFC3339), uri, cmd.Process.Pid)
 	_ = logFile.Sync()
-	_ = cmd.Process.Release()
 
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- cmd.Wait() }()
 
 	deadline := time.Now().Add(backendReadyTimeout(uri))
 	for time.Now().Before(deadline) {
-		select {
-		case err := <-waitDone:
-			return backendStartFailed(logPath, uri, fmt.Errorf("backend exited: %w", err))
-		default:
-		}
 		if st, ok := backendStatus(ctx); ok && st.Healthy {
 			e.out.Human("Backend started for %s (pid %d).\n", st.URI, st.PID)
 			e.out.Human("Socket: %s\n", st.Socket)
-			e.out.Human("Log:    %s\n", logPath)
-			syncBackendContacts(ctx, e)
-			if synced, ok := backendStatus(ctx); ok {
-				st = synced
-			}
+			printContactStatus(e, st)
 			return e.out.JSONValue(backendStatusJSON(st))
+		}
+		select {
+		case err := <-waitDone:
+			return backendStartFailed(uri, fmt.Errorf("backend exited: %w", err))
+		default:
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return backendStartFailed(logPath, uri, fmt.Errorf("timed out after %s", backendReadyTimeout(uri)))
+	return backendStartFailed(uri, fmt.Errorf("timed out after %s", backendReadyTimeout(uri)))
 }
 
 func backendReadyTimeout(uri string) time.Duration {
@@ -123,41 +116,117 @@ func backendReadyTimeout(uri string) time.Duration {
 	}
 }
 
-func backendStartFailed(logPath, uri string, err error) error {
-	msg := fmt.Sprintf("backend did not become ready: %v", err)
-	if tail := readLogTail(logPath, 4096); tail != "" {
-		msg += "\nlog:\n" + tail
-	} else {
-		msg += fmt.Sprintf("; see %s", logPath)
-		if schemeOf(uri) == "ble" {
-			msg += " (BLE connect can take up to ~30s; retry with `mc backend start`)"
-		}
+func backendStartFailed(uri string, err error) error {
+	msg := fmt.Sprintf("backend did not become ready: %v; see `mc backend log`", err)
+	if schemeOf(uri) == "ble" {
+		msg += " (BLE connect can take up to ~45s)"
 	}
 	return fmt.Errorf("%s", msg)
 }
 
-func readLogTail(path string, maxBytes int64) string {
+const defaultBackendLogLines = 100
+
+func backendLog(ctx context.Context, e *env) error {
+	path := localbackend.LogPath()
+	if e.args.has("follow") || e.args.has("f") {
+		return backendLogFollow(ctx, e, path)
+	}
+
+	lines, err := backendLogLineCount(e)
+	if err != nil {
+		return err
+	}
+	content, err := readLogLines(path, lines)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if e.out.JSON {
+				return e.out.JSONValue(map[string]any{"path": path, "lines": []string{}, "exists": false})
+			}
+			e.out.Human("Log file not found: %s\n", path)
+			return nil
+		}
+		return err
+	}
+
+	if e.out.JSON {
+		return e.out.JSONValue(map[string]any{
+			"path":   path,
+			"lines":  content,
+			"exists": true,
+			"count":  len(content),
+		})
+	}
+	for _, line := range content {
+		e.out.Human("%s\n", line)
+	}
+	return nil
+}
+
+func backendLogLineCount(e *env) (int, error) {
+	raw := e.args.flag("lines")
+	if raw == "" {
+		raw = e.args.flag("n")
+	}
+	if raw == "" {
+		return defaultBackendLogLines, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("invalid log line count %q", raw)
+	}
+	return n, nil
+}
+
+func backendLogFollow(ctx context.Context, e *env, path string) error {
+	if e.out.JSON {
+		return fmt.Errorf("backend log --follow does not support --json")
+	}
 	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		if os.IsNotExist(err) {
+			e.out.Human("Log file not found: %s\n", path)
+			return nil
+		}
+		return err
 	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || info.Size() == 0 {
-		return ""
+
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+		return err
 	}
-	start := int64(0)
-	if info.Size() > maxBytes {
-		start = info.Size() - maxBytes
+	reader := bufio.NewReader(f)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				return err
+			}
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		e.out.Human("%s", strings.TrimSuffix(line, "\n")+"\n")
 	}
-	if _, err := f.Seek(start, io.SeekStart); err != nil {
-		return ""
-	}
-	b, err := io.ReadAll(f)
+}
+
+func readLogLines(path string, maxLines int) ([]string, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return nil, err
 	}
-	return strings.TrimSpace(string(b))
+	text := strings.TrimRight(string(data), "\n")
+	if text == "" {
+		return nil, nil
+	}
+	all := strings.Split(text, "\n")
+	if len(all) <= maxLines {
+		return all, nil
+	}
+	return all[len(all)-maxLines:], nil
 }
 
 func backendStop(ctx context.Context, e *env) error {
@@ -240,7 +309,7 @@ func backendServe(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "mc backend: connecting to %s\n", uri)
+	localbackend.Logf("connecting to %s", uri)
 	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(
 		meshcore.WithMessageSync(),
 		meshcore.WithTimeout(backendContactSyncTimeout),
@@ -251,10 +320,10 @@ func backendServe(ctx context.Context, e *env) error {
 	}
 	server, err := localbackend.NewServerWithBridges(ctx, uri, bridges, opts...)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mc backend: connect failed: %v\n", err)
+		localbackend.Logf("connect failed: %v", err)
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "mc backend: ready on %s\n", localbackend.SocketPath())
+	localbackend.Logf("ready on %s", localbackend.SocketPath())
 	return server.Serve()
 }
 
@@ -287,7 +356,7 @@ func backendStatus(ctx context.Context) (localbackend.Status, bool) {
 }
 
 func backendStatusJSON(st localbackend.Status) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"running":    st.Running,
 		"healthy":    st.Healthy,
 		"state":      st.State,
@@ -298,34 +367,65 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"last_seen":  st.LastSeen,
 		"last_error": st.LastError,
 		"bridges":    st.Bridges,
-		"contacts": map[string]any{
-			"syncing":   st.Contacts.Syncing,
-			"count":     st.Contacts.Count,
-			"synced_at": st.Contacts.SyncedAt,
-			"error":     st.Contacts.Error,
-		},
+		"contacts": contactStatusJSON(st.Contacts),
 	}
+	if st.Device.Available() {
+		out["device"] = map[string]any{
+			"name":             st.Device.Name,
+			"public_key":       st.Device.PublicKey,
+			"firmware":         st.Device.Firmware,
+			"firmware_version": st.Device.FirmwareVersion,
+			"protocol":         st.Device.Protocol,
+			"capabilities":     st.Device.Capabilities,
+		}
+	}
+	return out
 }
 
-func syncBackendContacts(ctx context.Context, e *env) {
-	e.out.Human("Replicating contacts from radio...\n")
-	syncCtx, cancel := context.WithTimeout(ctx, backendContactSyncTimeout)
-	defer cancel()
-	contacts, err := localbackend.NewClient("").ContactsWithOptions(syncCtx, false, true)
-	if err != nil {
-		e.out.Human("Contact replication failed: %v\n", err)
-		return
+func contactStatusJSON(cs localbackend.ContactStatus) map[string]any {
+	out := map[string]any{
+		"syncing":   cs.Syncing,
+		"count":     cs.Count,
+		"synced_at": cs.SyncedAt,
+		"error":     cs.Error,
 	}
-	e.out.Human("Contacts replicated: %d\n", len(contacts))
+	if cs.Syncing {
+		out["sync_received"] = cs.SyncReceived
+		if cs.SyncTotal > 0 {
+			out["sync_total"] = cs.SyncTotal
+			out["sync_percent"] = contactSyncPercent(cs.SyncReceived, cs.SyncTotal)
+		}
+	}
+	return out
+}
+
+func contactSyncPercent(received, total int) int {
+	if total <= 0 || received <= 0 {
+		return 0
+	}
+	if received >= total {
+		return 100
+	}
+	return received * 100 / total
+}
+
+func formatContactSyncStatus(cs localbackend.ContactStatus) string {
+	if cs.SyncTotal > 0 {
+		return fmt.Sprintf("replicating %d%% (%d/%d)", contactSyncPercent(cs.SyncReceived, cs.SyncTotal), cs.SyncReceived, cs.SyncTotal)
+	}
+	if cs.SyncReceived > 0 {
+		return fmt.Sprintf("replicating (%d/?)", cs.SyncReceived)
+	}
+	return "replicating"
 }
 
 func printContactStatus(e *env, st localbackend.Status) {
 	if st.Contacts.Syncing {
-		e.out.Human("Contacts: replicating")
+		e.out.Human("Contacts:     %s", formatContactSyncStatus(st.Contacts))
 	} else if !st.Contacts.SyncedAt.IsZero() {
-		e.out.Human("Contacts: %d in local replica (updated %s)", st.Contacts.Count, st.Contacts.SyncedAt.Format("2006-01-02 15:04:05"))
+		e.out.Human("Contacts:     %d in local replica (updated %s)", st.Contacts.Count, st.Contacts.SyncedAt.Format("2006-01-02 15:04:05"))
 	} else {
-		e.out.Human("Contacts: not replicated")
+		e.out.Human("Contacts:     not replicated")
 	}
 	if st.Contacts.Error != "" {
 		e.out.Human(" (error: %s)", st.Contacts.Error)

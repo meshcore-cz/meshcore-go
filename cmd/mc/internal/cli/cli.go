@@ -136,7 +136,7 @@ Commands:
   connect [uri]      Discover or connect to a radio and save a profile
   status             Show device status
   doctor             Run connection diagnostics
-  backend start      Start/restart/stop/inspect the local backend
+  backend start      Start/restart/stop/log/inspect the local backend
   contacts           List contacts
   contact show <n>   Show a contact
   inbox              Drain buffered incoming messages

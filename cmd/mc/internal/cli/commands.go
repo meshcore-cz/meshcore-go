@@ -21,7 +21,7 @@ func clockDelta(deviceTime time.Time) string {
 
 func cmdVersion(e *env) error {
 	info := map[string]string{
-		"mc":      Version,
+		"mc":       Version,
 		"meshcore": Version,
 		"commit":   Commit,
 		"go":       runtime.Version(),
@@ -62,6 +62,12 @@ func cmdStatus(ctx context.Context, e *env) error {
 		return nil
 	}
 
+	if backendRunning && st.Healthy && !e.args.has("direct") && st.Device.Available() {
+		dev := st.Device
+		dev.Transport = st.Transport
+		return printMCStatus(e, st, dev)
+	}
+
 	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
@@ -72,7 +78,10 @@ func cmdStatus(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
+	return printMCStatus(e, st, deviceStatusFromInfo(info, backend.Transport(), backendRunning))
+}
 
+func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus) error {
 	type statusJSON struct {
 		Name            string   `json:"name"`
 		Firmware        string   `json:"firmware"`
@@ -83,25 +92,34 @@ func cmdStatus(ctx context.Context, e *env) error {
 		Capabilities    []string `json:"capabilities"`
 		Backend         any      `json:"backend"`
 	}
+	transport := dev.Transport
+	if transport == "" {
+		transport = st.URI
+	}
+	backendRunning := st.Running && st.Healthy
 	if e.out.JSON {
 		return e.out.JSONValue(statusJSON{
-			Name:            info.Name,
-			Firmware:        info.FirmwareName,
-			FirmwareVersion: info.FirmwareVersion,
-			Protocol:        info.ProtocolVersion,
-			Transport:       backend.Transport(),
-			PublicKey:       info.PublicKey,
-			Capabilities:    info.Capabilities.List(),
+			Name:            dev.Name,
+			Firmware:        dev.Firmware,
+			FirmwareVersion: dev.FirmwareVersion,
+			Protocol:        dev.Protocol,
+			Transport:       transport,
+			PublicKey:       dev.PublicKey,
+			Capabilities:    dev.Capabilities,
 			Backend:         backendStatusForOutput(st, backendRunning),
 		})
 	}
 
-	e.out.Human("Device:       %s\n", orDash(info.Name))
-	e.out.Human("Firmware:     %s %s\n", info.FirmwareName, info.FirmwareVersion)
-	e.out.Human("Protocol:     %s\n", orDash(info.ProtocolVersion))
-	e.out.Human("Transport:    %s\n", backend.URI())
-	e.out.Human("Public key:   %s\n", shortKey(info.PublicKey))
-	e.out.Human("Capabilities: %s\n", info.Capabilities.String())
+	e.out.Human("Device:       %s\n", orDash(dev.Name))
+	e.out.Human("Firmware:     %s %s\n", dev.Firmware, dev.FirmwareVersion)
+	e.out.Human("Protocol:     %s\n", orDash(dev.Protocol))
+	e.out.Human("Transport:    %s\n", transport)
+	e.out.Human("Public key:   %s\n", shortKey(dev.PublicKey))
+	if len(dev.Capabilities) > 0 {
+		e.out.Human("Capabilities: %s\n", strings.Join(dev.Capabilities, ", "))
+	} else {
+		e.out.Human("Capabilities: -\n")
+	}
 	if backendRunning {
 		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
 		printContactStatus(e, st)
@@ -109,6 +127,18 @@ func cmdStatus(ctx context.Context, e *env) error {
 		e.out.Human("Backend:      not running\n")
 	}
 	return nil
+}
+
+func deviceStatusFromInfo(info meshcore.DeviceInfo, transport string, backendRunning bool) localbackend.DeviceStatus {
+	return localbackend.DeviceStatus{
+		Name:            info.Name,
+		PublicKey:       info.PublicKey,
+		Firmware:        info.FirmwareName,
+		FirmwareVersion: info.FirmwareVersion,
+		Protocol:        info.ProtocolVersion,
+		Capabilities:    info.Capabilities.List(),
+		Transport:       transport,
+	}
 }
 
 func cmdDoctor(ctx context.Context, e *env) error {
@@ -137,6 +167,13 @@ func cmdDoctor(ctx context.Context, e *env) error {
 	if !e.args.has("direct") {
 		if st, ok := backendStatus(ctx); ok {
 			add("Local backend", fmt.Sprintf("running (pid %d)", st.PID), true)
+			if st.Device.Available() {
+				add("Companion radio", "reachable via backend", true)
+				add("Protocol handshake", "already established", true)
+				add("Firmware", strings.TrimSpace(st.Device.Firmware+" "+st.Device.FirmwareVersion), true)
+				add("Protocol", orDash(st.Device.Protocol), true)
+				return finishDoctor(e, checks)
+			}
 			client := localbackend.NewClient("")
 			info, err := client.DeviceInfo(ctx)
 			if err != nil {
