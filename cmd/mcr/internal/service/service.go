@@ -58,7 +58,11 @@ func (s *Service) SendChannelText(ctx context.Context, channel, text string) (me
 	return s.client.SendChannelText(ctx, channel, text)
 }
 
-func (s *Service) RepeaterLogin(ctx context.Context, repeater, password string) error {
+func (s *Service) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
+	return s.client.RepeaterHasConnection(ctx, repeater)
+}
+
+func (s *Service) RepeaterLogin(ctx context.Context, repeater, password string) (meshcore.RepeaterSession, error) {
 	return s.client.RepeaterLogin(ctx, repeater, password)
 }
 

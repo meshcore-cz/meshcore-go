@@ -89,6 +89,15 @@ func decode(packet []byte) (protocol.Message, error) {
 
 	case pushTraceData:
 		return decodeTraceData(body), nil
+
+	case pushLoginSuccess:
+		return decodeLoginSuccess(body), nil
+
+	case pushLoginFail:
+		return decodeLoginFail(body), nil
+
+	case pushStatusResp:
+		return decodeStatusResponse(body), nil
 	}
 
 	// Unknown packet: preserve it for inspection.
@@ -291,74 +300,100 @@ func decodeSent(b []byte) Sent {
 	return s
 }
 
-// decodeContactMessage parses RESP_CODE_CONTACT_MSG_RECV[_V3]. Firmware-derived
-// layout:
+// decodeContactMessage parses RESP_CODE_CONTACT_MSG_RECV[_V3].
+//
+// Standard layout:
 //
 //	[0:6]   sender public-key prefix
 //	[6]     path_len
 //	[7]     txt_type
 //	[8:12]  sender_timestamp (uint32 LE)
-//	[12]    SNR (int8, 0.25 dB units) — V3 only
-//	[12|13:] text
+//	[12:16] signature (txt_type == 2 only)
+//	[...]   text
+//
+// V3 layout (verified against MeshCore companion radio v1.15):
+//
+//	[0]     SNR (int8, 0.25 dB units)
+//	[1:3]   reserved
+//	[3:9]   sender public-key prefix
+//	[9]     path_len
+//	[10]    txt_type
+//	[11:15] sender_timestamp (uint32 LE)
+//	[15:19] signature (txt_type == 2 only)
+//	[...]   text
 func decodeContactMessage(b []byte, v3 bool) ContactMessage {
 	var m ContactMessage
-	if len(b) >= 6 {
-		m.SenderPrefix = hex.EncodeToString(b[:6])
-	}
-	if len(b) > 6 {
-		m.PathLen = b[6]
-	}
-	if len(b) > 7 {
-		m.TxtType = b[7]
-	}
-	if len(b) >= 12 {
-		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[8:12])), 0)
-	}
-	off := 12
+	off := 0
 	if v3 {
-		if len(b) > 12 {
-			m.SNR = float64(int8(b[12])) / 4
+		if len(b) > 0 {
+			m.SNR = float64(int8(b[0])) / 4
 		}
-		off = 13
+		off = 3
 	}
-	if len(b) > off {
-		m.Text = trimString(b[off:])
+	if len(b) >= off+6 {
+		m.SenderPrefix = hex.EncodeToString(b[off : off+6])
+	}
+	if len(b) > off+6 {
+		m.PathLen = b[off+6]
+	}
+	if len(b) > off+7 {
+		m.TxtType = b[off+7]
+	}
+	if len(b) >= off+12 {
+		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[off+8 : off+12])), 0)
+	}
+	textOff := off + 12
+	if m.TxtType == 2 && len(b) >= textOff+4 {
+		textOff += 4
+	}
+	if len(b) > textOff {
+		m.Text = trimString(b[textOff:])
 	}
 	return m
 }
 
-// decodeChannelMessage parses RESP_CODE_CHANNEL_MSG_RECV[_V3]. Firmware-derived
-// layout:
+// decodeChannelMessage parses RESP_CODE_CHANNEL_MSG_RECV[_V3].
+//
+// Standard layout:
 //
 //	[0]     channel index
 //	[1]     path_len
 //	[2]     txt_type
 //	[3:7]   sender_timestamp (uint32 LE)
-//	[7]     SNR (int8, 0.25 dB units) — V3 only
-//	[7|8:]  text
+//	[7:]    text
+//
+// V3 layout:
+//
+//	[0]     SNR (int8, 0.25 dB units)
+//	[1:3]   reserved
+//	[3]     channel index
+//	[4]     path_len
+//	[5]     txt_type
+//	[6:10]  sender_timestamp (uint32 LE)
+//	[10:]   text
 func decodeChannelMessage(b []byte, v3 bool) ChannelMessage {
 	var m ChannelMessage
-	if len(b) > 0 {
-		m.Channel = b[0]
-	}
-	if len(b) > 1 {
-		m.PathLen = b[1]
-	}
-	if len(b) > 2 {
-		m.TxtType = b[2]
-	}
-	if len(b) >= 7 {
-		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[3:7])), 0)
-	}
-	off := 7
+	off := 0
 	if v3 {
-		if len(b) > 7 {
-			m.SNR = float64(int8(b[7])) / 4
+		if len(b) > 0 {
+			m.SNR = float64(int8(b[0])) / 4
 		}
-		off = 8
+		off = 3
 	}
 	if len(b) > off {
-		m.Text = trimString(b[off:])
+		m.Channel = b[off]
+	}
+	if len(b) > off+1 {
+		m.PathLen = b[off+1]
+	}
+	if len(b) > off+2 {
+		m.TxtType = b[off+2]
+	}
+	if len(b) >= off+7 {
+		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[off+3 : off+7])), 0)
+	}
+	if len(b) > off+7 {
+		m.Text = trimString(b[off+7:])
 	}
 	return m
 }
@@ -375,6 +410,42 @@ func decodeChannelMessage(b []byte, v3 bool) ChannelMessage {
 //	[11:11+n]   node hashes
 //	[11+n:]     per-link SNR (int8, 0.25 dB units); usually n+1 values for the
 //	            round trip (each forward hop plus the return to the origin)
+func decodeLoginSuccess(b []byte) LoginSuccess {
+	var l LoginSuccess
+	if len(b) > 0 {
+		l.Permissions = b[0]
+	}
+	if len(b) >= 7 {
+		l.PublicKeyPrefix = append([]byte(nil), b[1:7]...)
+	}
+	if len(b) >= 11 {
+		l.Tag = int32(binary.LittleEndian.Uint32(b[7:11]))
+	}
+	if len(b) >= 12 {
+		l.NewPermissions = b[11]
+	}
+	return l
+}
+
+func decodeLoginFail(b []byte) LoginFail {
+	var l LoginFail
+	if len(b) >= 7 {
+		l.PublicKeyPrefix = append([]byte(nil), b[1:7]...)
+	}
+	return l
+}
+
+func decodeStatusResponse(b []byte) StatusResponse {
+	var s StatusResponse
+	if len(b) >= 7 {
+		s.PublicKeyPrefix = append([]byte(nil), b[1:7]...)
+	}
+	if len(b) > 7 {
+		s.Stats, s.Text = decodeStatusData(b[7:])
+	}
+	return s
+}
+
 func decodeTraceData(b []byte) TraceData {
 	var t TraceData
 	if len(b) > 0 {

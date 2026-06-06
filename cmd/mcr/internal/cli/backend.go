@@ -27,7 +27,8 @@ type Backend interface {
 	Channel(context.Context, string) (meshcore.Channel, error)
 	SendChannelText(context.Context, string, string) (meshcore.Receipt, error)
 	RawSend(context.Context, []byte) (localbackend.RawResult, error)
-	RepeaterLogin(context.Context, string, string) error
+	RepeaterHasConnection(context.Context, string) (bool, error)
+	RepeaterLogin(context.Context, string, string) (meshcore.RepeaterSession, error)
 	RepeaterStatus(context.Context, string) (meshcore.RepeaterResponse, error)
 	RepeaterNeighbours(context.Context, string) (meshcore.RepeaterResponse, error)
 	RepeaterExec(context.Context, string, string) (meshcore.RepeaterResponse, error)
@@ -146,7 +147,11 @@ func (b *directBackend) RawSend(ctx context.Context, payload []byte) (localbacke
 	return localbackend.RawResultFromMessage(msg), nil
 }
 
-func (b *directBackend) RepeaterLogin(ctx context.Context, repeater, password string) error {
+func (b *directBackend) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
+	return b.svc.RepeaterHasConnection(ctx, repeater)
+}
+
+func (b *directBackend) RepeaterLogin(ctx context.Context, repeater, password string) (meshcore.RepeaterSession, error) {
 	return b.svc.RepeaterLogin(ctx, repeater, password)
 }
 
@@ -223,7 +228,11 @@ func (b *ipcBackend) RawSend(ctx context.Context, payload []byte) (localbackend.
 	return b.client.RawSend(ctx, payload)
 }
 
-func (b *ipcBackend) RepeaterLogin(ctx context.Context, repeater, password string) error {
+func (b *ipcBackend) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
+	return b.client.RepeaterHasConnection(ctx, repeater)
+}
+
+func (b *ipcBackend) RepeaterLogin(ctx context.Context, repeater, password string) (meshcore.RepeaterSession, error) {
 	return b.client.RepeaterLogin(ctx, repeater, password)
 }
 

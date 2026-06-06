@@ -171,3 +171,32 @@ type TraceData struct {
 }
 
 func (TraceData) Async() bool { return true }
+
+// LoginSuccess is PUSH_CODE_LOGIN_SUCCESS: a repeater or room server accepted
+// the login request.
+type LoginSuccess struct {
+	Permissions     byte
+	PublicKeyPrefix []byte // first 6 bytes of the server's public key
+	Tag             int32  // server timestamp on newer firmware
+	NewPermissions  byte   // ACL permissions on v7+ firmware
+}
+
+func (LoginSuccess) Async() bool { return true }
+
+// LoginFail is PUSH_CODE_LOGIN_FAIL: a repeater or room server rejected or
+// timed out the login request.
+type LoginFail struct {
+	PublicKeyPrefix []byte // first 6 bytes of the server's public key
+}
+
+func (LoginFail) Async() bool { return true }
+
+// StatusResponse is PUSH_CODE_STATUS_RESPONSE: binary repeater stats or text
+// from a sensor.
+type StatusResponse struct {
+	PublicKeyPrefix []byte // first 6 bytes of the server's public key
+	Stats           *RepeaterStats
+	Text            string // plain-text sensor status
+}
+
+func (StatusResponse) Async() bool { return true }

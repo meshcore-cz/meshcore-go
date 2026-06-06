@@ -1,6 +1,7 @@
 package meshcore
 
 import (
+	"encoding/hex"
 	"time"
 
 	"github.com/meshcore-dev/meshcore-go/protocol"
@@ -44,6 +45,26 @@ type Disconnected struct {
 	Err error
 }
 
+// RepeaterLoginSucceeded is emitted when a remote repeater accepts a login.
+type RepeaterLoginSucceeded struct {
+	PublicKeyPrefix string // hex-encoded 6-byte key prefix
+	Permissions     byte
+	Tag             int32 // server timestamp on newer firmware
+}
+
+// RepeaterLoginFailed is emitted when a remote repeater rejects or times out a
+// login.
+type RepeaterLoginFailed struct {
+	PublicKeyPrefix string // hex-encoded 6-byte key prefix
+}
+
+// RepeaterStatusReceived is emitted when a repeater returns a status response.
+type RepeaterStatusReceived struct {
+	PublicKeyPrefix string
+	Stats           *RepeaterStats
+	Text            string
+}
+
 // RawEvent carries a push notification the SDK did not decode into a typed
 // event, so applications can still inspect unknown firmware behaviour.
 type RawEvent struct {
@@ -68,6 +89,9 @@ func (MessageAcknowledged) isMeshCoreEvent()   {}
 func (AdvertisementReceived) isMeshCoreEvent() {}
 func (TelemetryReceived) isMeshCoreEvent()     {}
 func (Disconnected) isMeshCoreEvent()          {}
+func (RepeaterLoginSucceeded) isMeshCoreEvent() {}
+func (RepeaterLoginFailed) isMeshCoreEvent()    {}
+func (RepeaterStatusReceived) isMeshCoreEvent() {}
 func (RawEvent) isMeshCoreEvent()              {}
 
 // Telemetry is a placeholder for decoded telemetry payloads (Phase 5).
@@ -86,6 +110,29 @@ func translate(msg protocol.Message) Event {
 	case companion.MsgWaiting:
 		// Surfaced via the sync loop as MessageReceived, not on its own.
 		return nil
+	case companion.LoginSuccess:
+		prefix := ""
+		if len(m.PublicKeyPrefix) > 0 {
+			prefix = hex.EncodeToString(m.PublicKeyPrefix)
+		}
+		return RepeaterLoginSucceeded{PublicKeyPrefix: prefix, Permissions: m.Permissions, Tag: m.Tag}
+	case companion.LoginFail:
+		prefix := ""
+		if len(m.PublicKeyPrefix) > 0 {
+			prefix = hex.EncodeToString(m.PublicKeyPrefix)
+		}
+		return RepeaterLoginFailed{PublicKeyPrefix: prefix}
+	case companion.StatusResponse:
+		prefix := ""
+		if len(m.PublicKeyPrefix) > 0 {
+			prefix = hex.EncodeToString(m.PublicKeyPrefix)
+		}
+		var stats *RepeaterStats
+		if m.Stats != nil {
+			s := *m.Stats
+			stats = &s
+		}
+		return RepeaterStatusReceived{PublicKeyPrefix: prefix, Stats: stats, Text: m.Text}
 	case protocol.RawMessage:
 		return RawEvent{Type: m.Type, Payload: m.Payload}
 	default:

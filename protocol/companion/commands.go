@@ -70,7 +70,16 @@ type SendTextMessage struct {
 type SendLogin struct {
 	PublicKey []byte
 	Password  string
-	Timestamp time.Time
+}
+
+// SendStatusReq requests status from a remote repeater or sensor.
+type SendStatusReq struct {
+	PublicKey []byte
+}
+
+// HasConnection asks whether the radio still has an active session to a repeater.
+type HasConnection struct {
+	PublicKey []byte
 }
 
 // Logout logs out from a remote repeater/sensor.
@@ -168,12 +177,31 @@ func encode(cmd protocol.Command) ([]byte, error) {
 		if len(c.PublicKey) < 32 {
 			return nil, fmt.Errorf("companion: repeater key too short (%d bytes)", len(c.PublicKey))
 		}
-		// [cmd][dest public key(32)][timestamp(4 LE)][password]
-		buf := make([]byte, 0, 37+len(c.Password))
+		// [cmd][dest public key(32)][password]
+		buf := make([]byte, 0, 33+len(c.Password))
 		buf = append(buf, cmdSendLogin)
 		buf = append(buf, c.PublicKey[:32]...)
-		buf = appendTimestamp(buf, c.Timestamp)
 		buf = append(buf, []byte(c.Password)...)
+		return buf, nil
+
+	case SendStatusReq:
+		if len(c.PublicKey) < 32 {
+			return nil, fmt.Errorf("companion: repeater key too short (%d bytes)", len(c.PublicKey))
+		}
+		// [cmd][dest public key(32)]
+		buf := make([]byte, 0, 33)
+		buf = append(buf, cmdSendStatusReq)
+		buf = append(buf, c.PublicKey[:32]...)
+		return buf, nil
+
+	case HasConnection:
+		if len(c.PublicKey) < 32 {
+			return nil, fmt.Errorf("companion: repeater key too short (%d bytes)", len(c.PublicKey))
+		}
+		// [cmd][dest public key(32)]
+		buf := make([]byte, 0, 33)
+		buf = append(buf, cmdHasConnection)
+		buf = append(buf, c.PublicKey[:32]...)
 		return buf, nil
 
 	case Logout:

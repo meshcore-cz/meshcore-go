@@ -34,6 +34,7 @@ const (
 	cmdDeviceQuery      byte = 22
 	cmdSendLogin        byte = 26
 	cmdSendStatusReq    byte = 27
+	cmdHasConnection    byte = 28
 	cmdLogout           byte = 29
 	cmdGetChannel       byte = 31
 	cmdSetChannel       byte = 32

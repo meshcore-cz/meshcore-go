@@ -140,17 +140,22 @@ Work with channel slots.
   mcr channel send Public "hello"   send a message to a channel
 ` + globalFlags,
 
-	"repeater": `Usage: mcr repeater <add|status|neighbours|exec> [args] [flags]
+	"repeater": `Usage: mcr repeater <list|add|del|status|neighbours|exec> [args] [flags]
 
 Manage remote repeaters through the active companion radio.
 
+  mcr repeater list                 list saved repeaters
   mcr repeater add mc.kololec.cz [password]
+  mcr repeater del [mc.kololec.cz]  remove saved repeater and session
   mcr repeater status [mc.kololec.cz]
   mcr repeater neighbours [mc.kololec.cz]
   mcr repeater exec [mc.kololec.cz] "clock"
 
 Saved repeaters are stored in the mcr config. If no password is supplied to
 add, mcr prompts for one in interactive human mode.
+
+Flags:
+  --json           Machine-readable JSON output
 ` + globalFlags,
 
 	"use": `Usage: mcr use <profile>

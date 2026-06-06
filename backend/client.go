@@ -137,8 +137,16 @@ func (c *Client) RawSend(ctx context.Context, payload []byte) (RawResult, error)
 	return out, err
 }
 
-func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) error {
-	return c.call(ctx, "repeater_login", repeaterLoginParams{Repeater: repeater, Password: password}, nil)
+func (c *Client) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
+	var out repeaterHasConnectionResult
+	err := c.call(ctx, "repeater_has_connection", queryParams{Query: repeater}, &out)
+	return out.Active, err
+}
+
+func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) (meshcore.RepeaterSession, error) {
+	var out meshcore.RepeaterSession
+	err := c.call(ctx, "repeater_login", repeaterLoginParams{Repeater: repeater, Password: password}, &out)
+	return out, err
 }
 
 func (c *Client) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {

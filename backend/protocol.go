@@ -52,6 +52,10 @@ type repeaterLoginParams struct {
 	Password string `json:"password"`
 }
 
+type repeaterHasConnectionResult struct {
+	Active bool `json:"active"`
+}
+
 type repeaterExecParams struct {
 	Repeater string `json:"repeater"`
 	Command  string `json:"command"`

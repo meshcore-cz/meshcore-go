@@ -146,7 +146,9 @@ Commands:
   trace <target>     Trace the route to a node
   channel list       List channels
   channel send <c> <text>  Send a channel message
+  repeater list      List saved repeaters
   repeater add <n>   Save/login to a repeater
+  repeater del [n]   Remove a saved repeater
   use <profile>      Set the default device profile
   device list        List saved profiles
   device show <name> Show a profile

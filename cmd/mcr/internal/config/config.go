@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -102,18 +103,93 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// PutRepeater adds or replaces a repeater profile and optionally marks it current.
-func (c *Config) PutRepeater(name string, rep Repeater, makeCurrent bool) {
+// NormalizePublicKey lowercases a contact public key for use as a map key.
+func NormalizePublicKey(key string) string {
+	return strings.ToLower(strings.TrimSpace(key))
+}
+
+// IsPublicKey reports whether s looks like a full 32-byte hex public key.
+func IsPublicKey(s string) bool {
+	s = NormalizePublicKey(s)
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// PutRepeater adds or replaces a repeater profile keyed by public key and
+// optionally marks it current.
+func (c *Config) PutRepeater(publicKey string, rep Repeater, makeCurrent bool) {
 	if c.Repeaters == nil {
 		c.Repeaters = map[string]Repeater{}
 	}
-	if rep.Name == "" {
-		rep.Name = name
-	}
-	c.Repeaters[name] = rep
+	publicKey = NormalizePublicKey(publicKey)
+	c.Repeaters[publicKey] = rep
 	if makeCurrent || c.CurrentRepeater == "" {
-		c.CurrentRepeater = name
+		c.CurrentRepeater = publicKey
 	}
+}
+
+// RepeaterByKey returns a saved repeater by full public key.
+func (c *Config) RepeaterByKey(publicKey string) (Repeater, bool) {
+	publicKey = NormalizePublicKey(publicKey)
+	rep, ok := c.Repeaters[publicKey]
+	return rep, ok
+}
+
+// MatchRepeater finds a saved repeater by full public key, key prefix, saved
+// name, or a legacy name-keyed entry.
+func (c *Config) MatchRepeater(query string) (publicKey string, rep Repeater, ok bool) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", Repeater{}, false
+	}
+	q := strings.ToLower(query)
+	for key, rep := range c.Repeaters {
+		nk := NormalizePublicKey(key)
+		if strings.EqualFold(nk, query) ||
+			strings.EqualFold(rep.Name, query) ||
+			strings.EqualFold(key, query) {
+			return key, rep, true
+		}
+		if len(q) >= 6 && strings.HasPrefix(nk, q) {
+			return key, rep, true
+		}
+	}
+	return "", Repeater{}, false
+}
+
+// RemoveRepeater deletes a saved repeater profile and clears the current
+// selection when it pointed there.
+func (c *Config) RemoveRepeater(query string) (publicKey string, rep Repeater, removed bool) {
+	publicKey, rep, ok := c.MatchRepeater(query)
+	if !ok {
+		return "", Repeater{}, false
+	}
+	delete(c.Repeaters, publicKey)
+	if NormalizePublicKey(c.CurrentRepeater) == NormalizePublicKey(publicKey) {
+		c.CurrentRepeater = ""
+	}
+	return publicKey, rep, true
+}
+
+// CurrentRepeaterName returns the saved display name for the current repeater.
+func (c *Config) CurrentRepeaterName() string {
+	if c.CurrentRepeater == "" {
+		return ""
+	}
+	if rep, ok := c.Repeaters[c.CurrentRepeater]; ok && rep.Name != "" {
+		return rep.Name
+	}
+	if !IsPublicKey(c.CurrentRepeater) {
+		return c.CurrentRepeater
+	}
+	return ""
 }
 
 // Save writes the configuration, creating the directory if necessary.

@@ -391,3 +391,186 @@ func TestDecodeRealDeviceInfoGolden(t *testing.T) {
 		t.Errorf("version = %q, want v1.15.0-dee3e26", d.Version)
 	}
 }
+
+func TestEncodeSendLogin(t *testing.T) {
+	key := bytes.Repeat([]byte{0x25}, 32)
+	got, err := encode(SendLogin{PublicKey: key, Password: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append([]byte{cmdSendLogin}, key...)
+	want = append(want, []byte("secret")...)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %x, want %x", got, want)
+	}
+}
+
+func TestEncodeHasConnection(t *testing.T) {
+	key := bytes.Repeat([]byte{0x25}, 32)
+	got, err := encode(HasConnection{PublicKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append([]byte{cmdHasConnection}, key...)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %x, want %x", got, want)
+	}
+}
+
+func TestEncodeSendStatusReq(t *testing.T) {
+	key := bytes.Repeat([]byte{0x25}, 32)
+	got, err := encode(SendStatusReq{PublicKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append([]byte{cmdSendStatusReq}, key...)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %x, want %x", got, want)
+	}
+}
+
+func TestDecodeContactMessageV3(t *testing.T) {
+	prefix := []byte{0x25, 0x25, 0x25, 0xce, 0x52, 0x67}
+	var body []byte
+	body = append(body, 20, 0, 0) // SNR + reserved
+	body = append(body, prefix...)
+	body = append(body, 0xff, 1) // path_len, txt_type CLI
+	body = append(body, le32(1717675200)...)
+	body = append(body, []byte("12:34:56")...)
+	pkt := append([]byte{respContactMsgRecvV3}, body...)
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm, ok := msg.(ContactMessage)
+	if !ok {
+		t.Fatalf("decoded to %T, want ContactMessage", msg)
+	}
+	if cm.SenderPrefix != hex.EncodeToString(prefix) || cm.TxtType != 1 || cm.Text != "12:34:56" {
+		t.Fatalf("decoded %#v", cm)
+	}
+	if cm.SNR != 5 {
+		t.Fatalf("SNR = %v, want 5", cm.SNR)
+	}
+}
+
+func TestDecodeChannelMessageV3(t *testing.T) {
+	var body []byte
+	body = append(body, 12, 0, 0) // SNR + reserved
+	body = append(body, 2, 0xff, 0) // channel, path_len, txt_type plain
+	body = append(body, le32(1717675200)...)
+	body = append(body, []byte("hello")...)
+	pkt := append([]byte{respChannelMsgRecvV3}, body...)
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, ok := msg.(ChannelMessage)
+	if !ok {
+		t.Fatalf("decoded to %T, want ChannelMessage", msg)
+	}
+	if ch.Channel != 2 || ch.Text != "hello" || ch.SNR != 3 {
+		t.Fatalf("decoded %#v", ch)
+	}
+}
+
+func TestDecodeStatusResponse(t *testing.T) {
+	prefix := []byte{0x25, 0x25, 0x25, 0xce, 0x52, 0x67}
+	stats := make([]byte, RepeaterStatsSize)
+	binary.LittleEndian.PutUint16(stats[0:2], 3700)
+	binary.LittleEndian.PutUint16(stats[2:4], 2)
+	binary.LittleEndian.PutUint16(stats[4:6], 0xff8a) // -118
+	binary.LittleEndian.PutUint16(stats[6:8], 0xffd6) // -42
+	binary.LittleEndian.PutUint32(stats[8:12], 1200)
+	binary.LittleEndian.PutUint32(stats[12:16], 800)
+	binary.LittleEndian.PutUint32(stats[16:20], 3600)
+	binary.LittleEndian.PutUint32(stats[20:24], 86400)
+	binary.LittleEndian.PutUint32(stats[24:28], 50)
+	binary.LittleEndian.PutUint32(stats[28:32], 30)
+	binary.LittleEndian.PutUint32(stats[32:36], 600)
+	binary.LittleEndian.PutUint32(stats[36:40], 400)
+	binary.LittleEndian.PutUint16(stats[40:42], 1)
+	binary.LittleEndian.PutUint16(stats[42:44], uint16(int16(34))) // 8.5 dB
+	binary.LittleEndian.PutUint16(stats[44:46], 3)
+	binary.LittleEndian.PutUint16(stats[46:48], 5)
+	binary.LittleEndian.PutUint32(stats[48:52], 7200)
+	binary.LittleEndian.PutUint32(stats[52:56], 2)
+
+	pkt := append(append([]byte{pushStatusResp, 0x00}, prefix...), stats...)
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, ok := msg.(StatusResponse)
+	if !ok {
+		t.Fatalf("decoded to %T, want StatusResponse", msg)
+	}
+	want := RepeaterStats{
+		BattMilliVolts:     3700,
+		CurrTxQueueLen:     2,
+		NoiseFloor:         -118,
+		LastRSSI:           -42,
+		NPacketsRecv:       1200,
+		NPacketsSent:       800,
+		TotalAirTimeSecs:   3600,
+		TotalUpTimeSecs:    86400,
+		NSentFlood:         50,
+		NSentDirect:        30,
+		NRecvFlood:         600,
+		NRecvDirect:        400,
+		ErrEvents:          1,
+		LastSNR:            34,
+		NDirectDups:        3,
+		NFloodDups:         5,
+		TotalRxAirTimeSecs: 7200,
+		NRecvErrors:        2,
+	}
+	if !bytes.Equal(resp.PublicKeyPrefix, prefix) || resp.Stats == nil || *resp.Stats != want {
+		t.Fatalf("decoded %#v, want stats %#v", resp, want)
+	}
+	if resp.Text != "" {
+		t.Fatalf("decoded %#v, want empty text", resp)
+	}
+
+	textPkt := append(append([]byte{pushStatusResp, 0x00}, prefix...), []byte("sensor ok")...)
+	msg, err = decode(textPkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, ok = msg.(StatusResponse)
+	if !ok {
+		t.Fatalf("decoded to %T, want StatusResponse", msg)
+	}
+	if resp.Text != "sensor ok" {
+		t.Fatalf("decoded %#v", resp)
+	}
+}
+
+func TestDecodeLoginPush(t *testing.T) {
+	prefix := []byte{0x25, 0x25, 0x25, 0xce, 0x52, 0x67}
+	pkt := append([]byte{pushLoginSuccess, 0x01}, prefix...)
+	msg, err := decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, is := msg.(LoginSuccess)
+	if !is {
+		t.Fatalf("decoded to %T, want LoginSuccess", msg)
+	}
+	if ok.Permissions != 1 || !bytes.Equal(ok.PublicKeyPrefix, prefix) {
+		t.Fatalf("decoded %#v", ok)
+	}
+
+	pkt = append([]byte{pushLoginFail, 0x00}, prefix...)
+	msg, err = decode(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fail, is := msg.(LoginFail)
+	if !is {
+		t.Fatalf("decoded to %T, want LoginFail", msg)
+	}
+	if !bytes.Equal(fail.PublicKeyPrefix, prefix) {
+		t.Fatalf("decoded %#v", fail)
+	}
+}
