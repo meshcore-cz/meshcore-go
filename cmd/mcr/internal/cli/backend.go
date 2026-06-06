@@ -27,6 +27,10 @@ type Backend interface {
 	Channel(context.Context, string) (meshcore.Channel, error)
 	SendChannelText(context.Context, string, string) (meshcore.Receipt, error)
 	RawSend(context.Context, []byte) (localbackend.RawResult, error)
+	RepeaterLogin(context.Context, string, string) error
+	RepeaterStatus(context.Context, string) (meshcore.RepeaterResponse, error)
+	RepeaterNeighbours(context.Context, string) (meshcore.RepeaterResponse, error)
+	RepeaterExec(context.Context, string, string) (meshcore.RepeaterResponse, error)
 	Events() <-chan meshcore.Event
 	Close() error
 }
@@ -136,6 +140,22 @@ func (b *directBackend) RawSend(ctx context.Context, payload []byte) (localbacke
 	return localbackend.RawResultFromMessage(msg), nil
 }
 
+func (b *directBackend) RepeaterLogin(ctx context.Context, repeater, password string) error {
+	return b.svc.RepeaterLogin(ctx, repeater, password)
+}
+
+func (b *directBackend) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	return b.svc.RepeaterStatus(ctx, repeater)
+}
+
+func (b *directBackend) RepeaterNeighbours(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	return b.svc.RepeaterNeighbours(ctx, repeater)
+}
+
+func (b *directBackend) RepeaterExec(ctx context.Context, repeater, command string) (meshcore.RepeaterResponse, error) {
+	return b.svc.RepeaterExec(ctx, repeater, command)
+}
+
 func (b *directBackend) Events() <-chan meshcore.Event {
 	return b.svc.Events()
 }
@@ -195,6 +215,22 @@ func (b *ipcBackend) SendChannelText(ctx context.Context, channel, text string) 
 
 func (b *ipcBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {
 	return b.client.RawSend(ctx, payload)
+}
+
+func (b *ipcBackend) RepeaterLogin(ctx context.Context, repeater, password string) error {
+	return b.client.RepeaterLogin(ctx, repeater, password)
+}
+
+func (b *ipcBackend) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	return b.client.RepeaterStatus(ctx, repeater)
+}
+
+func (b *ipcBackend) RepeaterNeighbours(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	return b.client.RepeaterNeighbours(ctx, repeater)
+}
+
+func (b *ipcBackend) RepeaterExec(ctx context.Context, repeater, command string) (meshcore.RepeaterResponse, error) {
+	return b.client.RepeaterExec(ctx, repeater, command)
 }
 
 func (b *ipcBackend) Events() <-chan meshcore.Event {

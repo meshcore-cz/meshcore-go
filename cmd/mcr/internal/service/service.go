@@ -58,6 +58,22 @@ func (s *Service) SendChannelText(ctx context.Context, channel, text string) (me
 	return s.client.SendChannelText(ctx, channel, text)
 }
 
+func (s *Service) RepeaterLogin(ctx context.Context, repeater, password string) error {
+	return s.client.RepeaterLogin(ctx, repeater, password)
+}
+
+func (s *Service) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	return s.client.RepeaterStatus(ctx, repeater)
+}
+
+func (s *Service) RepeaterNeighbours(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	return s.client.RepeaterNeighbours(ctx, repeater)
+}
+
+func (s *Service) RepeaterExec(ctx context.Context, repeater, command string) (meshcore.RepeaterResponse, error) {
+	return s.client.RepeaterExec(ctx, repeater, command)
+}
+
 func (s *Service) Events() <-chan meshcore.Event {
 	return s.client.Events()
 }

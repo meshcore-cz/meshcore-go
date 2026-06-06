@@ -47,6 +47,16 @@ type channelSendParams struct {
 	Text    string `json:"text"`
 }
 
+type repeaterLoginParams struct {
+	Repeater string `json:"repeater"`
+	Password string `json:"password"`
+}
+
+type repeaterExecParams struct {
+	Repeater string `json:"repeater"`
+	Command  string `json:"command"`
+}
+
 type rawParams struct {
 	Payload []byte `json:"payload"`
 }

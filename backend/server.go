@@ -259,6 +259,30 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return nil, err
 		}
 		return RawResultFromMessage(msg), nil
+	case "repeater_login":
+		var p repeaterLoginParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		return nil, client.RepeaterLogin(ctx, p.Repeater, p.Password)
+	case "repeater_status":
+		var p queryParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		return client.RepeaterStatus(ctx, p.Query)
+	case "repeater_neighbours":
+		var p queryParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		return client.RepeaterNeighbours(ctx, p.Query)
+	case "repeater_exec":
+		var p repeaterExecParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		return client.RepeaterExec(ctx, p.Repeater, p.Command)
 	default:
 		return nil, fmt.Errorf("unknown backend method %q", method)
 	}

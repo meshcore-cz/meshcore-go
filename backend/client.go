@@ -137,6 +137,28 @@ func (c *Client) RawSend(ctx context.Context, payload []byte) (RawResult, error)
 	return out, err
 }
 
+func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) error {
+	return c.call(ctx, "repeater_login", repeaterLoginParams{Repeater: repeater, Password: password}, nil)
+}
+
+func (c *Client) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	var out meshcore.RepeaterResponse
+	err := c.call(ctx, "repeater_status", queryParams{Query: repeater}, &out)
+	return out, err
+}
+
+func (c *Client) RepeaterNeighbours(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
+	var out meshcore.RepeaterResponse
+	err := c.call(ctx, "repeater_neighbours", queryParams{Query: repeater}, &out)
+	return out, err
+}
+
+func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (meshcore.RepeaterResponse, error) {
+	var out meshcore.RepeaterResponse
+	err := c.call(ctx, "repeater_exec", repeaterExecParams{Repeater: repeater, Command: command}, &out)
+	return out, err
+}
+
 // Watch streams backend events until ctx is cancelled or the backend closes the
 // stream.
 func (c *Client) Watch(ctx context.Context) (<-chan Event, error) {

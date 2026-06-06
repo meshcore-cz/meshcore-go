@@ -66,6 +66,18 @@ type SendTextMessage struct {
 	Attempt       byte
 }
 
+// SendLogin logs in to a remote repeater/sensor.
+type SendLogin struct {
+	PublicKey []byte
+	Password  string
+	Timestamp time.Time
+}
+
+// Logout logs out from a remote repeater/sensor.
+type Logout struct {
+	PublicKey []byte
+}
+
 // SendChannelTextMessage sends a text message to a channel slot.
 //
 // Wire layout is firmware-derived and not yet hardware-verified (see
@@ -150,6 +162,27 @@ func encode(cmd protocol.Command) ([]byte, error) {
 		buf = appendTimestamp(buf, c.Timestamp)
 		buf = append(buf, c.DestPublicKey[:6]...)
 		buf = append(buf, []byte(c.Text)...)
+		return buf, nil
+
+	case SendLogin:
+		if len(c.PublicKey) < 32 {
+			return nil, fmt.Errorf("companion: repeater key too short (%d bytes)", len(c.PublicKey))
+		}
+		// [cmd][dest public key(32)][timestamp(4 LE)][password]
+		buf := make([]byte, 0, 37+len(c.Password))
+		buf = append(buf, cmdSendLogin)
+		buf = append(buf, c.PublicKey[:32]...)
+		buf = appendTimestamp(buf, c.Timestamp)
+		buf = append(buf, []byte(c.Password)...)
+		return buf, nil
+
+	case Logout:
+		if len(c.PublicKey) < 32 {
+			return nil, fmt.Errorf("companion: repeater key too short (%d bytes)", len(c.PublicKey))
+		}
+		buf := make([]byte, 0, 33)
+		buf = append(buf, cmdLogout)
+		buf = append(buf, c.PublicKey[:32]...)
 		return buf, nil
 
 	case SendChannelTextMessage:

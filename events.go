@@ -18,6 +18,7 @@ type MessageReceived struct {
 	From      Contact
 	Channel   string // non-empty for channel messages
 	Text      string
+	TxtType   byte
 	Timestamp time.Time
 }
 
@@ -97,6 +98,7 @@ func messageEvent(m Message) Event {
 	return MessageReceived{
 		From:      Contact{Name: m.From},
 		Text:      m.Text,
+		TxtType:   m.TxtType,
 		Timestamp: m.Timestamp,
 		Channel:   m.Channel,
 	}

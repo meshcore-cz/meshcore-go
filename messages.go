@@ -33,6 +33,7 @@ type Message struct {
 	From      string // sender name, key prefix, or channel
 	Channel   string // non-empty for channel messages
 	Text      string
+	TxtType   byte
 	Timestamp time.Time
 	SNR       float64
 }
@@ -93,6 +94,7 @@ func (c *Client) syncNext(ctx context.Context) (Message, bool, error) {
 		return Message{
 			From:      m.SenderPrefix,
 			Text:      m.Text,
+			TxtType:   m.TxtType,
 			Timestamp: m.Timestamp,
 			SNR:       m.SNR,
 		}, true, nil
@@ -101,6 +103,7 @@ func (c *Client) syncNext(ctx context.Context) (Message, bool, error) {
 			From:      fmt.Sprintf("channel %d", m.Channel),
 			Channel:   fmt.Sprintf("%d", m.Channel),
 			Text:      m.Text,
+			TxtType:   m.TxtType,
 			Timestamp: m.Timestamp,
 			SNR:       m.SNR,
 		}, true, nil

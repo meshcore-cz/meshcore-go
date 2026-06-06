@@ -12,9 +12,11 @@ import (
 
 // Config is the on-disk CLI configuration.
 type Config struct {
-	Version int               `yaml:"version"`
-	Current string            `yaml:"current,omitempty"`
-	Devices map[string]Device `yaml:"devices,omitempty"`
+	Version         int                 `yaml:"version"`
+	Current         string              `yaml:"current,omitempty"`
+	CurrentRepeater string              `yaml:"current_repeater,omitempty"`
+	Devices         map[string]Device   `yaml:"devices,omitempty"`
+	Repeaters       map[string]Repeater `yaml:"repeaters,omitempty"`
 }
 
 // Device is a saved profile. A logical device may carry multiple endpoints.
@@ -29,6 +31,12 @@ type Device struct {
 type Endpoint struct {
 	URI     string         `yaml:"uri"`
 	Options map[string]any `yaml:"options,omitempty"`
+}
+
+// Repeater is a saved remote repeater profile.
+type Repeater struct {
+	Name     string `yaml:"name,omitempty"`
+	Password string `yaml:"password,omitempty"`
 }
 
 // PrimaryURI returns the device's preferred endpoint URI.
@@ -73,7 +81,7 @@ func Load() (*Config, error) {
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Config{Version: 1, Devices: map[string]Device{}}, nil
+		return &Config{Version: 1, Devices: map[string]Device{}, Repeaters: map[string]Repeater{}}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -85,10 +93,27 @@ func Load() (*Config, error) {
 	if cfg.Devices == nil {
 		cfg.Devices = map[string]Device{}
 	}
+	if cfg.Repeaters == nil {
+		cfg.Repeaters = map[string]Repeater{}
+	}
 	if cfg.Version == 0 {
 		cfg.Version = 1
 	}
 	return cfg, nil
+}
+
+// PutRepeater adds or replaces a repeater profile and optionally marks it current.
+func (c *Config) PutRepeater(name string, rep Repeater, makeCurrent bool) {
+	if c.Repeaters == nil {
+		c.Repeaters = map[string]Repeater{}
+	}
+	if rep.Name == "" {
+		rep.Name = name
+	}
+	c.Repeaters[name] = rep
+	if makeCurrent || c.CurrentRepeater == "" {
+		c.CurrentRepeater = name
+	}
 }
 
 // Save writes the configuration, creating the directory if necessary.
