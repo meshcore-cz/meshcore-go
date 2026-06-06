@@ -49,18 +49,7 @@ func cmdStatus(ctx context.Context, e *env) error {
 				"backend": backendStatusForOutput(st, true),
 			})
 		}
-		e.out.Human("Device:       unavailable\n")
-		e.out.Human("Transport:    %s\n", st.URI)
-		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
-		printContactStatus(e, st)
-		printChannelStatus(e, st)
-		if st.LastError != "" {
-			e.out.Human("Last error:   %s\n", st.LastError)
-		}
-		if !st.LastSeen.IsZero() {
-			e.out.Human("Last seen:    %s\n", st.LastSeen.Format("2006-01-02 15:04:05"))
-		}
-		return nil
+		return printStyledUnavailableStatus(e, st)
 	}
 
 	if backendRunning && st.Healthy && !e.args.has("direct") && st.Device.Available() {
@@ -111,24 +100,7 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 		})
 	}
 
-	e.out.Human("Device:       %s\n", orDash(dev.Name))
-	e.out.Human("Firmware:     %s %s\n", dev.Firmware, dev.FirmwareVersion)
-	e.out.Human("Protocol:     %s\n", orDash(dev.Protocol))
-	e.out.Human("Transport:    %s\n", transport)
-	e.out.Human("Public key:   %s\n", shortKey(dev.PublicKey))
-	if len(dev.Capabilities) > 0 {
-		e.out.Human("Capabilities: %s\n", strings.Join(dev.Capabilities, ", "))
-	} else {
-		e.out.Human("Capabilities: -\n")
-	}
-	if backendRunning {
-		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
-		printContactStatus(e, st)
-		printChannelStatus(e, st)
-	} else {
-		e.out.Human("Backend:      not running\n")
-	}
-	return nil
+	return printStyledStatus(e, st, dev)
 }
 
 func deviceStatusFromInfo(info meshcore.DeviceInfo, transport string, backendRunning bool) localbackend.DeviceStatus {

@@ -39,7 +39,8 @@ Flags:
 
 	"status": `Usage: mc status [flags]
 
-Show the connected device's identity, firmware, transport and capabilities.
+Show the connected device's identity, firmware, transport, backend replica
+freshness and capabilities.
 ` + globalFlags,
 
 	"doctor": `Usage: mc doctor [flags]
@@ -231,7 +232,8 @@ Set the default device profile used by subsequent commands.
 Manage saved device profiles.
 
   mc device list             list saved profiles
-  mc device show handheld    show a profile
+  mc device show             show the connected device and capabilities
+  mc device show handheld    show a saved profile
   mc device remove handheld  delete a profile
 
 Flags:

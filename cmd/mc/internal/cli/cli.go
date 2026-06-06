@@ -185,7 +185,8 @@ Commands:
   repeater del [n]   Remove a saved repeater
   use <profile>      Set the default device profile
   device list        List saved profiles
-  device show <name> Show a profile
+  device show        Show the connected device
+  device show <name> Show a saved profile
   device remove <n>  Remove a profile
   config path        Print the config file path
   config show        Print the current configuration

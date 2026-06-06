@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"sort"
 
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 )
 
 func cmdUse(e *env) error {
@@ -33,7 +35,7 @@ func cmdDevice(ctx context.Context, e *env) error {
 	case "", "list":
 		return deviceList(ctx, e)
 	case "show":
-		return deviceShow(e)
+		return deviceShow(ctx, e)
 	case "remove":
 		return deviceRemove(e)
 	default:
@@ -91,11 +93,56 @@ func deviceList(ctx context.Context, e *env) error {
 	return nil
 }
 
-func deviceShow(e *env) error {
+func deviceShow(ctx context.Context, e *env) error {
 	name := e.restArg(1)
 	if name == "" {
-		return fmt.Errorf("usage: mc device show <name>")
+		return deviceShowConnected(ctx, e)
 	}
+	return deviceShowProfile(e, name)
+}
+
+func deviceShowConnected(ctx context.Context, e *env) error {
+	st, backendRunning := backendStatus(ctx)
+	if backendRunning && st.Healthy && !e.args.has("direct") && st.Device.Available() {
+		dev := st.Device
+		dev.Transport = st.Transport
+		return printDeviceShow(e, st, dev)
+	}
+
+	backend, err := openBackend(ctx, e)
+	if err != nil {
+		return err
+	}
+	defer backend.Close()
+
+	info, err := backend.DeviceInfo(ctx)
+	if err != nil {
+		return err
+	}
+	dev := deviceStatusFromInfo(info, backend.Transport(), backendRunning)
+	return printDeviceShow(e, st, dev)
+}
+
+func printDeviceShow(e *env, st localbackend.Status, dev localbackend.DeviceStatus) error {
+	info := deviceInfoFromBackend(st, dev)
+	if e.out.JSON {
+		return e.out.JSONValue(map[string]any{
+			"name":             info.Name,
+			"firmware":         info.Firmware,
+			"firmware_version": info.FirmwareVersion,
+			"protocol":         info.Protocol,
+			"transport":        info.Transport,
+			"endpoint":         info.TransportURI,
+			"public_key":       info.PublicKey,
+			"capabilities":     info.Capabilities,
+		})
+	}
+	printer := ui.NewPrinter(e.out.Out)
+	printer.Print(ui.RenderDeviceShow(info, printer))
+	return nil
+}
+
+func deviceShowProfile(e *env, name string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
