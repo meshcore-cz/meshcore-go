@@ -159,3 +159,15 @@ type ChannelMessage struct {
 }
 
 func (ChannelMessage) Async() bool { return false }
+
+// TraceData is a PUSH_CODE_TRACE_DATA push carrying the result of a path trace.
+// Verified against MeshCore v1.15 (tracing through a single repeater).
+type TraceData struct {
+	Tag   uint32
+	Auth  uint32
+	Flags byte
+	Path  []byte    // intermediate node hashes
+	SNRs  []float64 // per-link SNR in dB (typically len(Path)+1)
+}
+
+func (TraceData) Async() bool { return true }

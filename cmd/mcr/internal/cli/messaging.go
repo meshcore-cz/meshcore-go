@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
 )
@@ -156,6 +157,53 @@ func cmdSend(ctx context.Context, e *env) error {
 	}
 	e.out.Human("Acknowledged after %s.\n", ack.RTT.Round(1e6))
 	return e.out.JSONValue(map[string]any{"id": receipt.ID(), "to": receipt.To, "rtt_ms": ack.RTT.Milliseconds()})
+}
+
+// cmdTrace implements `mcr trace <target>`.
+func cmdTrace(ctx context.Context, e *env) error {
+	target := e.restArg(0)
+	if target == "" {
+		return fmt.Errorf("usage: mcr trace <target>")
+	}
+
+	client, _, err := connect(ctx, e)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	trace, err := client.Trace(ctx, target)
+	if err != nil {
+		return err
+	}
+	if e.out.JSON {
+		path := make([]string, len(trace.Path))
+		for i, h := range trace.Path {
+			path[i] = fmt.Sprintf("%02x", h)
+		}
+		return e.out.JSONValue(map[string]any{
+			"target":        trace.Target,
+			"tag":           fmt.Sprintf("%08x", trace.Tag),
+			"path":          path,
+			"snr_db":        trace.SNRs,
+			"round_trip_ms": trace.RoundTrip.Milliseconds(),
+		})
+	}
+	e.out.Human("Trace to %s (tag %08x, round trip %s):\n", trace.Target, trace.Tag, trace.RoundTrip.Round(1e6))
+	if len(trace.Path) == 0 {
+		e.out.Human("  (direct, no intermediate hops)\n")
+	}
+	for i, h := range trace.Path {
+		e.out.Human("  hop %d: node %02x\n", i+1, h)
+	}
+	if len(trace.SNRs) > 0 {
+		parts := make([]string, len(trace.SNRs))
+		for i, s := range trace.SNRs {
+			parts[i] = fmt.Sprintf("%.2f dB", s)
+		}
+		e.out.Human("  link SNR: %s\n", strings.Join(parts, ", "))
+	}
+	return nil
 }
 
 // cmdWatch implements `mcr watch`: stream asynchronous events.

@@ -77,6 +77,19 @@ type SendChannelTextMessage struct {
 	TxtType   byte
 }
 
+// SendTracePath initiates a path trace. The device replies immediately with a
+// Sent response and later emits a TraceData push tagged with Tag.
+//
+// Path lists one hash byte per intermediate node (a node's hash is the first
+// byte of its public key). Verified against MeshCore v1.15: a single-hash path
+// reaches a direct neighbour; distant nodes need the full multi-hop path.
+type SendTracePath struct {
+	Tag   uint32
+	Auth  uint32
+	Flags byte
+	Path  []byte // optional repeater hashes to trace through; empty = flood
+}
+
 // encode serialises a command to its wire payload (without transport framing).
 func encode(cmd protocol.Command) ([]byte, error) {
 	switch c := cmd.(type) {
@@ -145,6 +158,16 @@ func encode(cmd protocol.Command) ([]byte, error) {
 		buf = append(buf, cmdSendChannelTxt, c.TxtType, c.Channel)
 		buf = appendTimestamp(buf, c.Timestamp)
 		buf = append(buf, []byte(c.Text)...)
+		return buf, nil
+
+	case SendTracePath:
+		// [cmd][tag(4 LE)][auth(4 LE)][flags][path…]
+		buf := make([]byte, 0, 10+len(c.Path))
+		buf = append(buf, cmdSendTracePath)
+		buf = binary.LittleEndian.AppendUint32(buf, c.Tag)
+		buf = binary.LittleEndian.AppendUint32(buf, c.Auth)
+		buf = append(buf, c.Flags)
+		buf = append(buf, c.Path...)
 		return buf, nil
 
 	default:

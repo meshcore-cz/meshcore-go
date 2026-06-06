@@ -39,9 +39,10 @@ type Client struct {
 	timeout time.Duration
 	log     *slog.Logger
 
-	acks     chan uint32   // SendConfirmed ack codes, for WaitForAcknowledgement
-	autoSync bool          // drain inbound messages on MSG_WAITING
-	syncReq  chan struct{} // signals the sync loop
+	acks     chan uint32              // SendConfirmed ack codes, for WaitForAcknowledgement
+	traces   chan companion.TraceData // TraceData pushes, for Trace
+	autoSync bool                     // drain inbound messages on MSG_WAITING
+	syncReq  chan struct{}            // signals the sync loop
 
 	mu      sync.RWMutex
 	session protocol.SessionInfo
@@ -93,6 +94,7 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 		timeout: DefaultTimeout,
 		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		acks:    make(chan uint32, 16),
+		traces:  make(chan companion.TraceData, 8),
 		syncReq: make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 	}
@@ -181,6 +183,11 @@ func (c *Client) handleAsync(msg protocol.Message) {
 	case companion.SendConfirmed:
 		select {
 		case c.acks <- m.Code:
+		default:
+		}
+	case companion.TraceData:
+		select {
+		case c.traces <- m:
 		default:
 		}
 	case companion.MsgWaiting:

@@ -86,6 +86,9 @@ func decode(packet []byte) (protocol.Message, error) {
 
 	case pushMsgWaiting:
 		return MsgWaiting{}, nil
+
+	case pushTraceData:
+		return decodeTraceData(body), nil
 	}
 
 	// Unknown packet: preserve it for inspection.
@@ -358,6 +361,41 @@ func decodeChannelMessage(b []byte, v3 bool) ChannelMessage {
 		m.Text = trimString(b[off:])
 	}
 	return m
+}
+
+// decodeTraceData parses PUSH_CODE_TRACE_DATA.
+//
+// Layout (verified against MeshCore v1.15):
+//
+//	[0]      flags
+//	[1]      path_len (number of intermediate hops)
+//	[2]      reserved
+//	[3:7]    tag (uint32 LE)
+//	[7:11]   auth (uint32 LE)
+//	[11:11+n]   node hashes
+//	[11+n:]     per-link SNR (int8, 0.25 dB units); usually n+1 values for the
+//	            round trip (each forward hop plus the return to the origin)
+func decodeTraceData(b []byte) TraceData {
+	var t TraceData
+	if len(b) > 0 {
+		t.Flags = b[0]
+	}
+	if len(b) < 11 {
+		return t
+	}
+	n := int(b[1])
+	t.Tag = binary.LittleEndian.Uint32(b[3:7])
+	t.Auth = binary.LittleEndian.Uint32(b[7:11])
+
+	end := 11 + n
+	if end > len(b) {
+		end = len(b)
+	}
+	t.Path = append([]byte(nil), b[11:end]...)
+	for _, s := range b[end:] {
+		t.SNRs = append(t.SNRs, float64(int8(s))/4)
+	}
+	return t
 }
 
 // trimString decodes bytes as UTF-8 up to the first NUL.

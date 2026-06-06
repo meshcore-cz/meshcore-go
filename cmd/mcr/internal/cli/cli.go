@@ -4,10 +4,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/output"
+	"github.com/meshcore-dev/meshcore-go/transport/serial"
 )
 
 // version metadata, overridable at build time with -ldflags.
@@ -26,12 +28,26 @@ func Run(args []string) int {
 	}
 
 	cmd := pa.arg(0)
-	if cmd == "" || pa.has("help") || pa.has("h") {
-		usage()
-		if cmd == "" {
-			return 2
+	wantHelp := pa.has("help") || pa.has("h")
+
+	// `mcr help [command]`
+	if cmd == "help" {
+		if sub := pa.arg(1); sub != "" {
+			return printCommandHelp(sub)
 		}
+		usage()
 		return 0
+	}
+	if cmd == "" {
+		usage()
+		if wantHelp {
+			return 0
+		}
+		return 2
+	}
+	// `mcr <command> -h` / `--help`
+	if wantHelp {
+		return printCommandHelp(cmd)
 	}
 
 	ctx := context.Background()
@@ -60,6 +76,8 @@ func Run(args []string) int {
 		runErr = cmdSend(ctx, env)
 	case "watch":
 		runErr = cmdWatch(ctx, env)
+	case "trace":
+		runErr = cmdTrace(ctx, env)
 	case "channel":
 		runErr = cmdChannel(ctx, env)
 	case "use":
@@ -76,6 +94,10 @@ func Run(args []string) int {
 
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "mcr:", runErr)
+		if errors.Is(runErr, serial.ErrBusy) {
+			fmt.Fprintln(os.Stderr, "hint: another program is using the serial port "+
+				"(serial monitor, firmware flasher, or another mcr). Close it and retry.")
+		}
 		return 1
 	}
 	return 0
@@ -110,6 +132,7 @@ Commands:
   inbox              Drain buffered incoming messages
   send <to> <text>   Send a direct message (--wait for ack)
   watch              Stream incoming messages and events
+  trace <target>     Trace the route to a node
   channel list       List channels
   channel send <c> <text>  Send a channel message
   use <profile>      Set the default device profile
@@ -125,5 +148,7 @@ Global flags:
   --uri <uri>        Use an explicit endpoint for one command
   --device <name>    Use a saved profile for one command
   --debug            Verbose logging
+
+Run "mcr <command> -h" or "mcr help <command>" for command-specific help.
 `)
 }

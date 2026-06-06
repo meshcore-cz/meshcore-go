@@ -3,6 +3,7 @@ package meshcore_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -51,6 +52,44 @@ func contactMessagePacket(prefix []byte, text string, ts time.Time) []byte {
 func noMoreMessagesPacket() []byte { return []byte{10} }
 
 func msgWaitingPacket() []byte { return []byte{0x83} }
+
+func okPacket() []byte { return []byte{0} }
+
+func traceDataPacket(tag uint32, hashes []byte, snrs []int8) []byte {
+	// [code][flags][path_len][rsvd][tag(4)][auth(4)][hashes…][snrs…]
+	p := []byte{0x89, 0, byte(len(hashes)), 0}
+	p = append(p, le32(tag)...)
+	p = append(p, le32(0)...) // auth
+	p = append(p, hashes...)
+	for _, s := range snrs {
+		p = append(p, byte(s))
+	}
+	return p
+}
+
+func TestClientTrace(t *testing.T) {
+	client, ft := newConnectedClient(t)
+	defer client.Close()
+
+	go func() {
+		// Target "25" parses directly as a hash path, so no contact lookup.
+		raw := <-ft.WrittenPackets // SendTracePath
+		tag := binary.LittleEndian.Uint32(raw[1:5])
+		ft.ReadPackets <- okPacket()
+		ft.ReadPackets <- traceDataPacket(tag, []byte{0x25}, []int8{48, 46})
+	}()
+
+	trace, err := client.Trace(context.Background(), "25")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trace.Path) != 1 || trace.Path[0] != 0x25 {
+		t.Fatalf("path = %x", trace.Path)
+	}
+	if len(trace.SNRs) != 2 || trace.SNRs[0] != 12 {
+		t.Errorf("snrs = %v", trace.SNRs)
+	}
+}
 
 func TestClientContacts(t *testing.T) {
 	client, ft := newConnectedClient(t)

@@ -271,6 +271,36 @@ func TestEncodeMessagingCommands(t *testing.T) {
 	}
 }
 
+func TestEncodeSendTracePath(t *testing.T) {
+	got, err := encode(SendTracePath{Tag: 0x11223344, Auth: 0x0a0b0c0d, Flags: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{cmdSendTracePath, 0x44, 0x33, 0x22, 0x11, 0x0d, 0x0c, 0x0b, 0x0a, 1}
+	if !bytes.Equal(got, want) {
+		t.Errorf("SendTracePath = %x, want %x", got, want)
+	}
+}
+
+func TestDecodeTraceDataGolden(t *testing.T) {
+	// Captured verbatim from MeshCore v1.15: trace through repeater 0x25.
+	// flags, path_len=1, rsvd, tag, auth, hash 0x25, two SNR bytes (0x30, 0x2e).
+	pkt := mustHex(t, "89 00 01 00 62 69 d9 49 00 00 00 00 25 30 2e")
+	td := mustDecode(t, pkt).(TraceData)
+	if td.Tag != 0x49d96962 {
+		t.Errorf("tag = %08x, want 49d96962", td.Tag)
+	}
+	if len(td.Path) != 1 || td.Path[0] != 0x25 {
+		t.Errorf("path = %x, want [25]", td.Path)
+	}
+	if len(td.SNRs) != 2 || td.SNRs[0] != 12 || td.SNRs[1] != 11.5 {
+		t.Errorf("snrs = %v, want [12 11.5]", td.SNRs)
+	}
+	if !td.Async() {
+		t.Error("trace data must be async")
+	}
+}
+
 func TestDecodeRealContactGolden(t *testing.T) {
 	// Captured verbatim from MeshCore v1.15: the "liba.meshcore.cz" repeater.
 	pkt := mustHex(t,

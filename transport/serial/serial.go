@@ -5,6 +5,7 @@ package serial
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -16,6 +17,10 @@ import (
 
 // DefaultBaud is the default serial line speed for companion radios.
 const DefaultBaud = 115200
+
+// ErrBusy is returned by Open when the serial port is already in use by another
+// program. Callers can test for it with errors.Is.
+var ErrBusy = errors.New("port is busy (already in use by another program)")
 
 // Option configures a serial connection.
 type Option func(*Conn)
@@ -73,6 +78,9 @@ func (c *Conn) Open(ctx context.Context) error {
 		StopBits: bugserial.OneStopBit,
 	})
 	if err != nil {
+		if isBusy(err) {
+			return fmt.Errorf("serial %s: %w", c.path, ErrBusy)
+		}
 		return fmt.Errorf("serial: open %s: %w", c.path, err)
 	}
 	c.port = port
@@ -139,6 +147,15 @@ func (c *Conn) Close() error {
 // String returns the endpoint URI.
 func (c *Conn) String() string {
 	return "serial://" + c.path
+}
+
+// isBusy reports whether err is the library's "port busy" condition.
+func isBusy(err error) bool {
+	var pe *bugserial.PortError
+	if errors.As(err, &pe) {
+		return pe.Code() == bugserial.PortBusy
+	}
+	return false
 }
 
 // Dialer dials serial:// URIs for the transport registry.
