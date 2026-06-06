@@ -29,14 +29,14 @@ func cmdContacts(ctx context.Context, e *env) error {
 	}
 	if len(contacts) == 0 {
 		if e.args.has("cached") {
-			e.out.Human("No cached contacts.\n")
+			e.out.Human("No contacts in local replica.\n")
 		} else {
 			e.out.Human("No contacts.\n")
 		}
 		return nil
 	}
 	if e.args.has("cached") {
-		e.out.Human("Cached contacts:\n")
+		e.out.Human("Local replica:\n")
 	}
 	e.out.Human("%-26s %-9s %-5s %s\n", "NAME", "TYPE", "PATH", "PUBLIC KEY")
 	for _, ct := range contacts {

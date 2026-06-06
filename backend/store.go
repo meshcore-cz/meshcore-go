@@ -6,14 +6,14 @@ import (
 	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
-// ContactCacheEntry is a cached contact plus cache metadata.
+// ContactCacheEntry is a replicated contact plus sync metadata.
 type ContactCacheEntry struct {
 	Contact  meshcore.Contact `json:"contact"`
 	Device   string           `json:"device"`
-	CachedAt string           `json:"cached_at"`
+	CachedAt string           `json:"cached_at"` // last replicated at (JSON field name kept for compatibility)
 }
 
-// Store persists backend-local state such as contact caches.
+// Store persists backend-local state such as the contact replica.
 type Store interface {
 	Close() error
 	UpsertContacts(ctx context.Context, device string, contacts []meshcore.Contact) error

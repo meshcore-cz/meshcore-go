@@ -3,6 +3,7 @@ package meshcore
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -42,43 +43,70 @@ func (s RepeaterSession) Active() bool {
 // RepeaterHasConnection reports whether the companion radio still has an active
 // login session to the repeater.
 func (c *Client) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
-	_, key, err := c.repeaterKey(ctx, repeater)
+	ct, err := c.repeaterContact(ctx, repeater)
 	if err != nil {
 		return false, err
 	}
+	return c.RepeaterHasConnectionContact(ctx, ct)
+}
+
+// RepeaterHasConnectionContact is like RepeaterHasConnection but uses a known
+// contact instead of fetching the full contact list from the radio.
+func (c *Client) RepeaterHasConnectionContact(ctx context.Context, ct Contact) (bool, error) {
+	_, key, err := repeaterKeyFromContact(ct)
+	if err != nil {
+		return false, err
+	}
+	c.log.Debug("radio send", "op", "has_connection", "cmd", "0x1c", "repeater", ct.Name, "key_prefix", hex.EncodeToString(key[:6]), "source", "local_replica")
 	msg, err := c.request(ctx, companion.HasConnection{PublicKey: key})
 	if err != nil {
+		var de *DeviceError
+		if errors.As(err, &de) && de.Code == companion.ErrNotFound {
+			c.log.Debug("radio recv", "op", "has_connection", "response", "not_found", "err_code", de.Code)
+			return false, nil
+		}
+		c.log.Debug("radio recv", "op", "has_connection", "error", err)
 		return false, err
 	}
 	if _, ok := msg.(companion.OK); ok {
+		c.log.Debug("radio recv", "op", "has_connection", "response", "ok")
 		return true, nil
 	}
-	if _, ok := msg.(companion.Err); ok {
-		return false, nil
-	}
+	c.log.Debug("radio recv", "op", "has_connection", "response", fmt.Sprintf("%T", msg))
 	return false, fmt.Errorf("meshcore: unexpected has_connection response: %T", msg)
 }
 
 // RepeaterLogin logs in to a remote repeater using its saved contact key.
 func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) (RepeaterSession, error) {
-	if err := c.requireCapability(CapabilityRepeaterLogin); err != nil {
-		return RepeaterSession{}, err
-	}
-	ct, key, err := c.repeaterKey(ctx, repeater)
+	ct, err := c.repeaterContact(ctx, repeater)
 	if err != nil {
 		return RepeaterSession{}, err
 	}
-	c.log.Debug("repeater login", "name", ct.Name, "type", ct.Type, "public_key", ct.PublicKey[:min(12, len(ct.PublicKey))])
+	return c.RepeaterLoginContact(ctx, ct, password)
+}
+
+// RepeaterLoginContact is like RepeaterLogin but uses a known contact instead
+// of fetching the full contact list from the radio.
+func (c *Client) RepeaterLoginContact(ctx context.Context, ct Contact, password string) (RepeaterSession, error) {
+	if err := c.requireCapability(CapabilityRepeaterLogin); err != nil {
+		return RepeaterSession{}, err
+	}
+	ct, key, err := repeaterKeyFromContact(ct)
+	if err != nil {
+		return RepeaterSession{}, err
+	}
+	c.log.Debug("radio send", "op", "send_login", "cmd", "0x1a", "repeater", ct.Name, "key_prefix", hex.EncodeToString(key[:6]), "password_len", len(password), "source", "local_replica")
 	msg, err := c.request(ctx, companion.SendLogin{
 		PublicKey: key,
 		Password:  password,
 	})
 	if err != nil {
+		c.log.Debug("radio recv", "op", "send_login", "error", err)
 		return RepeaterSession{}, err
 	}
 	receipt, err := receiptFrom(msg, ct.Name)
 	if err != nil {
-		c.log.Debug("repeater login unexpected response", "name", ct.Name, "type", fmt.Sprintf("%T", msg))
+		c.log.Debug("radio recv", "op", "send_login", "response", fmt.Sprintf("%T", msg), "error", err)
 		return RepeaterSession{}, err
 	}
 	timeout := receipt.Timeout
@@ -88,7 +116,8 @@ func (c *Client) RepeaterLogin(ctx context.Context, repeater, password string) (
 	if timeout < 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	c.log.Debug("repeater login queued", "name", ct.Name, "timeout", timeout)
+	c.log.Debug("radio recv", "op", "send_login", "response", "sent", "timeout", timeout)
+	c.log.Debug("waiting for login push", "repeater", ct.Name, "timeout", timeout)
 	success, err := c.waitForRepeaterLogin(ctx, ct, key[:6], timeout)
 	if err != nil {
 		return RepeaterSession{}, err
@@ -134,10 +163,12 @@ func (c *Client) waitForRepeaterLogin(ctx context.Context, ct Contact, prefix []
 			switch m := ev.(type) {
 			case RepeaterLoginSucceeded:
 				if loginPrefixMatches(prefix, m.PublicKeyPrefix, ct.Name) {
+					c.log.Debug("radio recv", "op", "send_login", "response", "login_success", "repeater", ct.Name)
 					return m, nil
 				}
 			case RepeaterLoginFailed:
 				if loginPrefixMatches(prefix, m.PublicKeyPrefix, ct.Name) {
+					c.log.Debug("radio recv", "op", "send_login", "response", "login_fail", "repeater", ct.Name)
 					return RepeaterLoginSucceeded{}, fmt.Errorf("repeater %s login failed", ct.Name)
 				}
 			}
@@ -157,22 +188,35 @@ func loginPrefixMatches(prefix []byte, evPrefix, name string) bool {
 
 // RepeaterStatus requests binary stats from a remote repeater.
 func (c *Client) RepeaterStatus(ctx context.Context, repeater string) (RepeaterResponse, error) {
+	ct, err := c.repeaterContact(ctx, repeater)
+	if err != nil {
+		return RepeaterResponse{}, err
+	}
+	return c.RepeaterStatusContact(ctx, ct)
+}
+
+// RepeaterStatusContact is like RepeaterStatus but uses a known contact instead
+// of fetching the full contact list from the radio.
+func (c *Client) RepeaterStatusContact(ctx context.Context, ct Contact) (RepeaterResponse, error) {
 	if err := c.requireCapability(CapabilityRepeaterCommands); err != nil {
 		return RepeaterResponse{}, err
 	}
-	ct, key, err := c.repeaterKey(ctx, repeater)
+	ct, key, err := repeaterKeyFromContact(ct)
 	if err != nil {
 		return RepeaterResponse{}, err
 	}
-	c.log.Debug("repeater status", "name", ct.Name, "public_key", ct.PublicKey[:min(12, len(ct.PublicKey))])
+	statusStart := time.Now()
+	c.log.Debug("repeater status start", "name", ct.Name, "started_at", statusStart.Format(time.RFC3339Nano), "public_key", ct.PublicKey[:min(12, len(ct.PublicKey))])
+	c.log.Debug("radio send", "op", "send_status_req", "cmd", "0x1b", "repeater", ct.Name, "key_prefix", hex.EncodeToString(key[:6]))
 
 	msg, err := c.request(ctx, companion.SendStatusReq{PublicKey: key})
 	if err != nil {
+		c.log.Debug("radio recv", "op", "send_status_req", "error", err, "elapsed", time.Since(statusStart).Round(time.Millisecond))
 		return RepeaterResponse{}, err
 	}
 	receipt, err := receiptFrom(msg, ct.Name)
 	if err != nil {
-		c.log.Debug("repeater status unexpected response", "name", ct.Name, "type", fmt.Sprintf("%T", msg))
+		c.log.Debug("radio recv", "op", "send_status_req", "response", fmt.Sprintf("%T", msg), "error", err)
 		return RepeaterResponse{}, err
 	}
 	timeout := receipt.Timeout
@@ -182,12 +226,15 @@ func (c *Client) RepeaterStatus(ctx context.Context, repeater string) (RepeaterR
 	if timeout < 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	c.log.Debug("repeater status queued", "name", ct.Name, "timeout", timeout)
+	c.log.Debug("radio recv", "op", "send_status_req", "response", "sent", "timeout", timeout, "elapsed", time.Since(statusStart).Round(time.Millisecond))
+	waitStart := time.Now()
+	c.log.Debug("waiting for status push", "repeater", ct.Name, "timeout", timeout, "started_at", waitStart.Format(time.RFC3339Nano))
 	stats, text, err := c.waitForRepeaterStatus(ctx, ct, key[:6], timeout)
 	if err != nil {
+		c.log.Debug("repeater status failed", "name", ct.Name, "error", err, "wait_elapsed", time.Since(waitStart).Round(time.Millisecond), "total_elapsed", time.Since(statusStart).Round(time.Millisecond))
 		return RepeaterResponse{}, err
 	}
-	c.log.Debug("repeater status ok", "name", ct.Name, "stats", stats != nil, "bytes", len(text))
+	c.log.Debug("repeater status ok", "name", ct.Name, "stats", stats != nil, "bytes", len(text), "wait_elapsed", time.Since(waitStart).Round(time.Millisecond), "total_elapsed", time.Since(statusStart).Round(time.Millisecond))
 	return RepeaterResponse{Repeater: ct.Name, Command: "status", Stats: stats, Text: text, Received: time.Now()}, nil
 }
 
@@ -208,10 +255,10 @@ func (c *Client) waitForRepeaterStatus(ctx context.Context, ct Contact, prefix [
 			switch m := ev.(type) {
 			case RepeaterStatusReceived:
 				if loginPrefixMatches(prefix, m.PublicKeyPrefix, ct.Name) {
-					c.log.Debug("repeater status response", "name", ct.Name, "stats", m.Stats != nil, "bytes", len(m.Text))
+					c.log.Debug("radio recv", "op", "send_status_req", "response", "status_push", "repeater", ct.Name, "stats", m.Stats != nil, "bytes", len(m.Text), "at", time.Now().Format(time.RFC3339Nano))
 					return m.Stats, m.Text, nil
 				}
-				c.log.Debug("repeater status ignored", "name", ct.Name, "from", m.PublicKeyPrefix)
+				c.log.Debug("repeater status ignored", "name", ct.Name, "from", m.PublicKeyPrefix, "at", time.Now().Format(time.RFC3339Nano))
 			default:
 				c.log.Debug("repeater status event", "name", ct.Name, "type", fmt.Sprintf("%T", ev))
 			}
@@ -221,7 +268,16 @@ func (c *Client) waitForRepeaterStatus(ctx context.Context, ct Contact, prefix [
 
 // RepeaterNeighbours requests the repeater's CLI neighbour list.
 func (c *Client) RepeaterNeighbours(ctx context.Context, repeater string) (RepeaterResponse, error) {
-	resp, err := c.RepeaterExec(ctx, repeater, "neighbors")
+	ct, err := c.repeaterContact(ctx, repeater)
+	if err != nil {
+		return RepeaterResponse{}, err
+	}
+	return c.RepeaterNeighboursContact(ctx, ct)
+}
+
+// RepeaterNeighboursContact is like RepeaterNeighbours but uses a known contact.
+func (c *Client) RepeaterNeighboursContact(ctx context.Context, ct Contact) (RepeaterResponse, error) {
+	resp, err := c.RepeaterExecContact(ctx, ct, "neighbors")
 	if err != nil {
 		return resp, err
 	}
@@ -232,10 +288,20 @@ func (c *Client) RepeaterNeighbours(ctx context.Context, repeater string) (Repea
 // RepeaterExec sends a command to a remote repeater CLI and waits for a text
 // response from the same contact.
 func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (RepeaterResponse, error) {
+	ct, err := c.repeaterContact(ctx, repeater)
+	if err != nil {
+		return RepeaterResponse{}, err
+	}
+	return c.RepeaterExecContact(ctx, ct, command)
+}
+
+// RepeaterExecContact is like RepeaterExec but uses a known contact instead of
+// fetching the full contact list from the radio.
+func (c *Client) RepeaterExecContact(ctx context.Context, ct Contact, command string) (RepeaterResponse, error) {
 	if err := c.requireCapability(CapabilityRepeaterCommands); err != nil {
 		return RepeaterResponse{}, err
 	}
-	ct, key, err := c.repeaterKey(ctx, repeater)
+	ct, key, err := repeaterKeyFromContact(ct)
 	if err != nil {
 		return RepeaterResponse{}, err
 	}
@@ -311,11 +377,19 @@ func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (Re
 	}
 }
 
-func (c *Client) repeaterKey(ctx context.Context, repeater string) (Contact, []byte, error) {
+func (c *Client) repeaterContact(ctx context.Context, repeater string) (Contact, error) {
+	lookupStart := time.Now()
+	c.log.Debug("radio send", "op", "contact_lookup", "repeater", repeater, "source", "device_get_contacts")
 	ct, err := c.Contact(ctx, repeater)
 	if err != nil {
-		return Contact{}, nil, err
+		c.log.Debug("radio recv", "op", "contact_lookup", "repeater", repeater, "error", err, "elapsed", time.Since(lookupStart).Round(time.Millisecond))
+		return Contact{}, err
 	}
+	c.log.Debug("radio recv", "op", "contact_lookup", "repeater", ct.Name, "type", ct.Type, "has_path", ct.HasPath, "elapsed", time.Since(lookupStart).Round(time.Millisecond))
+	return ct, nil
+}
+
+func repeaterKeyFromContact(ct Contact) (Contact, []byte, error) {
 	if ct.Type != ContactRepeater && ct.Type != ContactRoom && ct.Type != ContactSensor {
 		return Contact{}, nil, fmt.Errorf("%q is %s, not a repeater/room/sensor", ct.Name, ct.Type)
 	}

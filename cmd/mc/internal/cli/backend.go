@@ -127,7 +127,7 @@ func (b *directBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error
 
 func (b *directBackend) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
 	if cached {
-		return nil, fmt.Errorf("cached contacts require the local backend")
+		return nil, fmt.Errorf("local contact replica requires the backend")
 	}
 	return b.svc.Contacts(ctx)
 }

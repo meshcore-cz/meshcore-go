@@ -308,24 +308,24 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 }
 
 func syncBackendContacts(ctx context.Context, e *env) {
-	e.out.Human("Syncing contacts...\n")
+	e.out.Human("Replicating contacts from radio...\n")
 	syncCtx, cancel := context.WithTimeout(ctx, backendContactSyncTimeout)
 	defer cancel()
 	contacts, err := localbackend.NewClient("").ContactsWithOptions(syncCtx, false, true)
 	if err != nil {
-		e.out.Human("Contact sync failed: %v\n", err)
+		e.out.Human("Contact replication failed: %v\n", err)
 		return
 	}
-	e.out.Human("Contacts synced: %d\n", len(contacts))
+	e.out.Human("Contacts replicated: %d\n", len(contacts))
 }
 
 func printContactStatus(e *env, st localbackend.Status) {
 	if st.Contacts.Syncing {
-		e.out.Human("Contacts: syncing")
+		e.out.Human("Contacts: replicating")
 	} else if !st.Contacts.SyncedAt.IsZero() {
-		e.out.Human("Contacts: %d synced at %s", st.Contacts.Count, st.Contacts.SyncedAt.Format("2006-01-02 15:04:05"))
+		e.out.Human("Contacts: %d in local replica (updated %s)", st.Contacts.Count, st.Contacts.SyncedAt.Format("2006-01-02 15:04:05"))
 	} else {
-		e.out.Human("Contacts: not synced")
+		e.out.Human("Contacts: not replicated")
 	}
 	if st.Contacts.Error != "" {
 		e.out.Human(" (error: %s)", st.Contacts.Error)

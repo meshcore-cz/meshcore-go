@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
@@ -148,7 +149,10 @@ func repeaterAdd(ctx context.Context, e *env) error {
 	}
 	defer backend.Close()
 
+	contactStart := time.Now()
+	e.dbg.SendCommand("contact_lookup", 0, "name", name)
 	ct, err := backend.Contact(ctx, name)
+	e.dbg.CommandDone("contact_lookup", contactStart, "error", err)
 	if err != nil {
 		return fmt.Errorf("lookup contact %q: %w", name, err)
 	}
@@ -245,46 +249,73 @@ func runRepeaterQuery(ctx context.Context, e *env, op string, nameIndex int, que
 			return err
 		}
 	}
-	e.dbg.Log("repeater "+op, "name", name, "command", qo.command)
+	cmdStart := time.Now()
+	e.dbg.Started("repeater "+op, cmdStart, "name", name, "command", qo.command)
 
 	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
 	}
 	defer backend.Close()
+	e.dbg.Phase("repeater "+op, "backend_open", cmdStart, "uri", backend.URI(), "transport", backend.Transport())
 
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 	if sess, ok := config.CachedRepeaterSession(cfg, name); ok {
-		e.dbg.Log("repeater session cached", "name", sess.Name, "public_key", shortKey(sess.PublicKey), "expires_at", sess.ExpiresAt)
+		e.dbg.Phase("repeater "+op, "session_cached", cmdStart,
+			"name", sess.Name,
+			"public_key", shortKey(sess.PublicKey),
+			"expires_at", sess.ExpiresAt,
+		)
 	} else {
+		contactStart := time.Now()
+		e.dbg.SendCommand("contact_lookup", 0, "name", name)
 		if ct, err := backend.Contact(ctx, name); err != nil {
+			e.dbg.CommandDone("contact_lookup", contactStart, "error", err)
 			e.dbg.Log("contact lookup failed", "name", name, "error", err)
 		} else {
+			e.dbg.CommandDone("contact_lookup", contactStart)
 			e.dbg.Contact(ct)
 		}
+		loginStart := time.Now()
+		e.dbg.Log("repeater login check", "name", name, "at", loginStart.Format("2006-01-02 15:04:05.000"))
 		if err := loginSavedRepeater(ctx, e, backend, name, false); err != nil {
 			return err
 		}
+		e.dbg.Phase("repeater "+op, "login_check", cmdStart, "elapsed_login", time.Since(loginStart).Round(time.Millisecond))
 	}
 
-	e.dbg.Log("repeater "+op+" request", "name", name, "command", qo.command)
+	switch op {
+	case "status":
+		e.dbg.SendCommand("send_status_req", 0x1b, "repeater", name)
+		e.dbg.Log("waiting for status push", "repeater", name)
+	case "neighbours":
+		e.dbg.SendCommand("repeater_exec", 0x02, "repeater", name, "command", "neighbors")
+	case "exec":
+		e.dbg.SendCommand("repeater_exec", 0x02, "repeater", name, "command", qo.command)
+	}
+
+	queryStart := time.Now()
 	resp, err := query(ctx, backend, name)
+	e.dbg.CommandDone(op, queryStart, "error", err, "stats", resp.Stats != nil, "bytes", len(resp.Text))
 	if err != nil {
-		e.dbg.Log("repeater "+op+" failed", "name", name, "error", err)
+		e.dbg.Log("repeater "+op+" failed", "name", name, "error", err, "at", time.Now().Format("2006-01-02 15:04:05.000"))
 		if reloginErr := loginSavedRepeater(ctx, e, backend, name, true); reloginErr != nil {
 			return err
 		}
-		e.dbg.Log("repeater "+op+" retry", "name", name, "command", qo.command)
+		e.dbg.Log("repeater "+op+" retry", "name", name, "command", qo.command, "at", time.Now().Format("2006-01-02 15:04:05.000"))
+		retryStart := time.Now()
 		resp, err = query(ctx, backend, name)
+		e.dbg.CommandDone(op+"_retry", retryStart, "error", err, "stats", resp.Stats != nil, "bytes", len(resp.Text))
 		if err != nil {
 			e.dbg.Log("repeater "+op+" failed", "name", name, "error", err)
 			return err
 		}
 	}
-	e.dbg.Log("repeater "+op+" ok", "name", name, "bytes", len(resp.Text))
+	e.dbg.CommandDone("repeater "+op, cmdStart, "stats", resp.Stats != nil, "bytes", len(resp.Text))
+	e.dbg.Log("repeater "+op+" ok", "name", name, "bytes", len(resp.Text), "stats", resp.Stats != nil)
 	return printRepeaterResponse(e, resp)
 }
 
@@ -363,7 +394,10 @@ func ensureRepeaterLogin(ctx context.Context, e *env, backend Backend, ct meshco
 		e.dbg.Log("repeater login skipped", "name", ct.Name, "reason", "cached session", "expires_at", sess.ExpiresAt)
 		return meshcoreSessionFromConfig(sess), nil
 	} else {
+		hasConnStart := time.Now()
+		e.dbg.SendCommand("has_connection", 0x1c, "repeater", ct.Name, "public_key", shortKey(ct.PublicKey))
 		active, err := backend.RepeaterHasConnection(ctx, ct.Name)
+		e.dbg.CommandDone("has_connection", hasConnStart, "active", active, "error", err)
 		switch {
 		case err == nil && active:
 			e.dbg.Log("repeater login skipped", "name", ct.Name, "reason", "active connection")
@@ -371,12 +405,17 @@ func ensureRepeaterLogin(ctx context.Context, e *env, backend Backend, ct meshco
 				return meshcoreSessionFromConfig(sess), nil
 			}
 			return meshcore.RepeaterSession{Repeater: ct.Name, PublicKey: ct.PublicKey}, nil
+		case err == nil && !active:
+			e.dbg.Log("repeater login", "name", ct.Name, "reason", "no active connection on radio")
 		case err != nil:
 			e.dbg.Log("repeater has_connection failed", "name", ct.Name, "error", err)
 		}
 	}
-	e.dbg.Log("repeater login", "name", ct.Name, "public_key", shortKey(ct.PublicKey))
+	loginStart := time.Now()
+	e.dbg.SendCommand("send_login", 0x1a, "repeater", ct.Name, "public_key", shortKey(ct.PublicKey), "password_len", len(password))
+	e.dbg.Log("waiting for login push", "repeater", ct.Name)
 	sess, err := backend.RepeaterLogin(ctx, ct.Name, password)
+	e.dbg.CommandDone("send_login", loginStart, "error", err)
 	if err != nil {
 		e.dbg.Log("repeater login failed", "name", ct.Name, "error", err)
 		return meshcore.RepeaterSession{}, err

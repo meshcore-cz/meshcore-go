@@ -5,6 +5,7 @@ package meshcore
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -242,6 +243,18 @@ func (c *Client) emitEvent(ev Event) {
 	c.events.Emit(ev)
 }
 
+func hexPreview(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	n := min(16, len(b))
+	s := hex.EncodeToString(b[:n])
+	if len(b) > n {
+		return s + "…"
+	}
+	return s
+}
+
 func msgType(msg protocol.Message) string {
 	if raw, ok := msg.(protocol.RawMessage); ok {
 		return fmt.Sprintf("raw(0x%02x)", raw.Type)
@@ -279,18 +292,26 @@ func (c *Client) request(ctx context.Context, cmd protocol.Command) (protocol.Me
 	tctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	c.log.Debug("request", "command", fmt.Sprintf("%T", cmd), "bytes", len(raw))
+	cmdName := fmt.Sprintf("%T", cmd)
+	cmdHex := ""
+	if len(raw) > 0 {
+		cmdHex = fmt.Sprintf("0x%02x", raw[0])
+	}
+	c.log.Debug("radio send", "cmd", cmdHex, "op", cmdName, "bytes", len(raw), "hex", hexPreview(raw))
 	v, err := c.queue.Do(tctx, func() error {
 		return c.conn.WritePacket(tctx, raw)
 	})
 	if err != nil {
+		c.log.Debug("radio recv", "cmd", cmdHex, "op", cmdName, "error", err)
 		return nil, err
 	}
 
 	msg := v.(protocol.Message)
 	if e, ok := msg.(companion.Err); ok {
+		c.log.Debug("radio recv", "cmd", cmdHex, "op", cmdName, "response", "err", "err_code", e.Code)
 		return msg, &DeviceError{Code: e.Code}
 	}
+	c.log.Debug("radio recv", "cmd", cmdHex, "op", cmdName, "response", msgType(msg))
 	return msg, nil
 }
 

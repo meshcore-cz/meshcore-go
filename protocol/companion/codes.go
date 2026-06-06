@@ -81,5 +81,15 @@ const (
 	pushNewAdvert     byte = 0x8A
 )
 
+// Device error codes carried in RESP_CODE_ERR frames (second byte).
+const (
+	ErrUnsupportedCmd byte = 1
+	ErrNotFound       byte = 2
+	ErrTableFull      byte = 3
+	ErrBadState       byte = 4
+	ErrFileIO         byte = 5
+	ErrIllegalArg     byte = 6
+)
+
 // isPush reports whether a leading code byte denotes a push notification.
 func isPush(code byte) bool { return code&0x80 != 0 }

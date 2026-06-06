@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"time"
 
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	meshcore "github.com/meshcore-cz/meshcore-go"
@@ -51,6 +52,43 @@ func (d Debug) DialOptions() []meshcore.DialOption {
 // Backend logs the opened backend endpoint.
 func (d Debug) Backend(mode string, b Backend) {
 	d.Log("backend opened", "mode", mode, "uri", b.URI(), "transport", b.Transport())
+}
+
+func debugTimestamp(t time.Time) string {
+	return t.Format("2006-01-02 15:04:05.000")
+}
+
+// Started logs the start of a command with a wall-clock timestamp.
+func (d Debug) Started(op string, start time.Time, args ...any) {
+	fields := []any{"op", op, "started_at", debugTimestamp(start)}
+	d.Log("started", append(fields, args...)...)
+}
+
+// Phase logs progress within a command relative to its start time.
+func (d Debug) Phase(op, phase string, start time.Time, args ...any) {
+	fields := []any{"op", op, "phase", phase, "at", debugTimestamp(time.Now()), "elapsed", time.Since(start).Round(time.Millisecond)}
+	d.Log("phase", append(fields, args...)...)
+}
+
+// SendCommand logs an outbound radio/backend operation when --debug is set.
+func (d Debug) SendCommand(op string, wireCmd byte, args ...any) {
+	fields := []any{"op", op, "at", debugTimestamp(time.Now())}
+	if wireCmd != 0 {
+		fields = append(fields, "wire_cmd", fmt.Sprintf("0x%02x", wireCmd))
+	}
+	d.Log("radio send", append(fields, args...)...)
+}
+
+// CommandDone logs completion of a radio/backend operation with elapsed time.
+func (d Debug) CommandDone(op string, start time.Time, args ...any) {
+	now := time.Now()
+	fields := []any{
+		"op", op,
+		"started_at", debugTimestamp(start),
+		"finished_at", debugTimestamp(now),
+		"elapsed", now.Sub(start).Round(time.Millisecond),
+	}
+	d.Log("radio done", append(fields, args...)...)
 }
 
 // Contact logs a resolved device contact.

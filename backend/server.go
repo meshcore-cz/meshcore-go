@@ -38,6 +38,7 @@ type Server struct {
 	contactSyncedAt time.Time
 	contactError    string
 	contactSyncMu   sync.Mutex
+	radioMu         sync.Mutex // serialises radio IPC, contact sync, and keepalive probes
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -158,6 +159,8 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
+		s.radioMu.Lock()
+		defer s.radioMu.Unlock()
 		s.watch(conn, req.ID)
 		return
 	}
@@ -166,11 +169,21 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
+		s.radioMu.Lock()
+		defer s.radioMu.Unlock()
 		s.watchRaw(conn, req.ID)
 		return
 	}
 
-	result, err := s.dispatch(connContext(), req.Method, req.Params)
+	var result any
+	var err error
+	if req.Method == "status" || req.Method == "stop" {
+		result, err = s.dispatch(connContext(), req.Method, req.Params)
+	} else {
+		s.radioMu.Lock()
+		defer s.radioMu.Unlock()
+		result, err = s.dispatch(connContext(), req.Method, req.Params)
+	}
 	resp := response{ID: req.ID, OK: err == nil}
 	if err != nil {
 		resp.Error = err.Error()
@@ -266,10 +279,10 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return nil, err
 		}
 		ct, err := s.contact(ctx, client, p.Recipient)
-		if err == nil {
-			return client.SendTextToContact(ctx, ct, p.Text)
+		if err != nil {
+			return nil, err
 		}
-		return client.SendText(ctx, p.Recipient, p.Text)
+		return client.SendTextToContact(ctx, ct, p.Text)
 	case "wait_ack":
 		var receipt meshcore.Receipt
 		if err := json.Unmarshal(params, &receipt); err != nil {
@@ -283,9 +296,10 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		if _, ok := parseBackendHashPath(p.Query); !ok {
 			ct, err := s.contact(ctx, client, p.Query)
-			if err == nil {
-				return client.TraceContact(ctx, ct)
+			if err != nil {
+				return nil, err
 			}
+			return client.TraceContact(ctx, ct)
 		}
 		return client.Trace(ctx, p.Query)
 	case "channels":
@@ -317,7 +331,17 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		active, err := client.RepeaterHasConnection(ctx, p.Query)
+		ct, err := s.replicaContact(ctx, p.Query)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "mc backend: radio send op=has_connection cmd=0x1c repeater=%q source=local_replica\n", p.Query)
+		active, err := client.RepeaterHasConnectionContact(ctx, ct)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mc backend: radio done op=has_connection repeater=%q error=%v\n", p.Query, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "mc backend: radio done op=has_connection repeater=%q active=%t\n", p.Query, active)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -327,16 +351,43 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return s.repeaterLogin(ctx, client, p.Repeater, p.Password)
+		fmt.Fprintf(os.Stderr, "mc backend: radio send op=send_login cmd=0x1a repeater=%q password_len=%d\n", p.Repeater, len(p.Password))
+		session, err := s.repeaterLogin(ctx, client, p.Repeater, p.Password)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mc backend: radio done op=send_login repeater=%q error=%v\n", p.Repeater, err)
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "mc backend: radio done op=send_login repeater=%q expires_at=%s\n", p.Repeater, session.ExpiresAt.Format(time.RFC3339))
+		return session, nil
 	case "repeater_status":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
+		statusStart := time.Now()
+		fmt.Fprintf(os.Stderr, "mc backend: repeater status start repeater=%q at=%s\n", p.Query, statusStart.Format(time.RFC3339))
+		sessionStart := time.Now()
 		if err := s.ensureRepeaterSession(ctx, client, p.Query, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "mc backend: repeater status ensure_session failed repeater=%q elapsed=%s error=%v\n", p.Query, time.Since(sessionStart).Round(time.Millisecond), err)
 			return nil, err
 		}
-		return client.RepeaterStatus(ctx, p.Query)
+		fmt.Fprintf(os.Stderr, "mc backend: repeater status ensure_session ok repeater=%q elapsed=%s\n", p.Query, time.Since(sessionStart).Round(time.Millisecond))
+		lookupStart := time.Now()
+		ct, err := s.replicaContact(ctx, p.Query)
+		fmt.Fprintf(os.Stderr, "mc backend: repeater status contact_lookup repeater=%q source=local_replica elapsed=%s error=%v\n", p.Query, time.Since(lookupStart).Round(time.Millisecond), err)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "mc backend: radio send op=send_status_req cmd=0x1b repeater=%q at=%s\n", p.Query, time.Now().Format(time.RFC3339))
+		statusCallStart := time.Now()
+		resp, err := client.RepeaterStatusContact(ctx, ct)
+		fmt.Fprintf(os.Stderr, "mc backend: repeater status radio elapsed=%s\n", time.Since(statusCallStart).Round(time.Millisecond))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mc backend: repeater status done repeater=%q elapsed=%s error=%v\n", p.Query, time.Since(statusStart).Round(time.Millisecond), err)
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "mc backend: repeater status done repeater=%q elapsed=%s stats=%t bytes=%d\n", p.Query, time.Since(statusStart).Round(time.Millisecond), resp.Stats != nil, len(resp.Text))
+		return resp, nil
 	case "repeater_neighbours":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -345,7 +396,11 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := s.ensureRepeaterSession(ctx, client, p.Query, ""); err != nil {
 			return nil, err
 		}
-		return client.RepeaterNeighbours(ctx, p.Query)
+		ct, err := s.replicaContact(ctx, p.Query)
+		if err != nil {
+			return nil, err
+		}
+		return client.RepeaterNeighboursContact(ctx, ct)
 	case "repeater_exec":
 		var p repeaterExecParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -354,7 +409,11 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := s.ensureRepeaterSession(ctx, client, p.Repeater, ""); err != nil {
 			return nil, err
 		}
-		return client.RepeaterExec(ctx, p.Repeater, p.Command)
+		ct, err := s.replicaContact(ctx, p.Repeater)
+		if err != nil {
+			return nil, err
+		}
+		return client.RepeaterExecContact(ctx, ct, p.Command)
 	default:
 		return nil, fmt.Errorf("unknown backend method %q", method)
 	}
@@ -367,32 +426,20 @@ func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts con
 		}
 		return s.refreshContactsNow(ctx, client)
 	}
-	return s.cachedContacts(ctx)
+	return s.replicaContacts(ctx)
 }
 
+// contact returns a contact from the backend's local replica. Contacts are
+// synced from the radio explicitly via contacts --refresh, not fetched per request.
 func (s *Server) contact(ctx context.Context, client *meshcore.Client, query string) (meshcore.Contact, error) {
-	if s.store != nil {
-		entry, err := s.store.Contact(ctx, s.uri, query)
-		if err == nil {
-			return entry.Contact, nil
-		}
-		if err != nil && !IsNotFound(err) {
-			return meshcore.Contact{}, err
-		}
-	}
-	if client != nil && s.healthy() {
-		ct, err := client.Contact(ctx, query)
-		if err == nil {
-			return ct, nil
-		}
-	}
+	_ = client
 	if s.store == nil {
-		return meshcore.Contact{}, fmt.Errorf("backend contact cache is unavailable")
+		return meshcore.Contact{}, fmt.Errorf("backend contact replica is unavailable")
 	}
 	entry, err := s.store.Contact(ctx, s.uri, query)
 	if err != nil {
 		if IsNotFound(err) {
-			return meshcore.Contact{}, fmt.Errorf("no cached contact matching %q", query)
+			return meshcore.Contact{}, fmt.Errorf("no local contact matching %q; run `mc contacts --refresh` to sync from radio", query)
 		}
 		return meshcore.Contact{}, err
 	}
@@ -403,9 +450,9 @@ func (s *Server) refreshContactsNow(ctx context.Context, client *meshcore.Client
 	return s.syncContacts(ctx, client)
 }
 
-func (s *Server) cachedContacts(ctx context.Context) ([]meshcore.Contact, error) {
+func (s *Server) replicaContacts(ctx context.Context) ([]meshcore.Contact, error) {
 	if s.store == nil {
-		return nil, fmt.Errorf("backend contact cache is unavailable")
+		return nil, fmt.Errorf("backend contact replica is unavailable")
 	}
 	entries, err := s.store.Contacts(ctx, s.uri)
 	if err != nil {
@@ -420,6 +467,9 @@ func (s *Server) cachedContacts(ctx context.Context) ([]meshcore.Contact, error)
 
 func (s *Server) scheduleInitialContactSync() {
 	go func() {
+		s.radioMu.Lock()
+		defer s.radioMu.Unlock()
+
 		ctx, cancel := context.WithTimeout(context.Background(), initialContactSyncTimeout)
 		defer cancel()
 		client := s.clientSnapshot()
@@ -431,13 +481,13 @@ func (s *Server) scheduleInitialContactSync() {
 			fmt.Fprintf(os.Stderr, "mc backend: contact sync failed: %v\n", err)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "mc backend: contacts synced: %d\n", len(contacts))
+		fmt.Fprintf(os.Stderr, "mc backend: contacts replicated: %d\n", len(contacts))
 	}()
 }
 
 func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {
 	if s.store == nil {
-		return nil, fmt.Errorf("backend contact cache is unavailable")
+		return nil, fmt.Errorf("backend contact replica is unavailable")
 	}
 	if client == nil {
 		err := fmt.Errorf("backend radio unavailable: no active client")
@@ -485,7 +535,11 @@ func (s *Server) finishContactSync() {
 }
 
 func (s *Server) repeaterLogin(ctx context.Context, client *meshcore.Client, repeater, password string) (meshcore.RepeaterSession, error) {
-	session, err := client.RepeaterLogin(ctx, repeater, password)
+	ct, err := s.replicaContact(ctx, repeater)
+	if err != nil {
+		return meshcore.RepeaterSession{}, err
+	}
+	session, err := client.RepeaterLoginContact(ctx, ct, password)
 	if err != nil {
 		if s.store != nil {
 			_ = s.store.ClearRepeaterSession(ctx, s.uri, repeater)
@@ -498,6 +552,10 @@ func (s *Server) repeaterLogin(ctx context.Context, client *meshcore.Client, rep
 	return session, nil
 }
 
+func (s *Server) replicaContact(ctx context.Context, query string) (meshcore.Contact, error) {
+	return s.contact(ctx, nil, query)
+}
+
 func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Client, repeater, password string) error {
 	if s.store != nil {
 		session, err := s.store.RepeaterSession(ctx, s.uri, repeater)
@@ -505,19 +563,31 @@ func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Cli
 			return nil
 		}
 	}
+	if sess, ok := loadConfigRepeaterSession(repeater); ok {
+		fmt.Fprintf(os.Stderr, "mc backend: repeater session from config repeater=%q expires_at=%s\n", sess.Repeater, sess.ExpiresAt.Format(time.RFC3339))
+		if s.store != nil {
+			_ = s.store.UpsertRepeaterSession(ctx, s.uri, sess)
+		}
+		return nil
+	}
 
-	active, err := client.RepeaterHasConnection(ctx, repeater)
+	ct, contactErr := s.replicaContact(ctx, repeater)
+	if contactErr != nil {
+		if password == "" {
+			return nil
+		}
+		_, err := s.repeaterLogin(ctx, client, repeater, password)
+		return err
+	}
+	active, err := client.RepeaterHasConnectionContact(ctx, ct)
 	if err == nil && active {
 		if s.store != nil {
-			ct, contactErr := s.contact(ctx, client, repeater)
-			if contactErr == nil {
-				_ = s.store.UpsertRepeaterSession(ctx, s.uri, meshcore.RepeaterSession{
-					Repeater:   ct.Name,
-					PublicKey:  ct.PublicKey,
-					LoggedInAt: time.Now(),
-					ExpiresAt:  time.Now().Add(30 * time.Minute),
-				})
-			}
+			_ = s.store.UpsertRepeaterSession(ctx, s.uri, meshcore.RepeaterSession{
+				Repeater:   ct.Name,
+				PublicKey:  ct.PublicKey,
+				LoggedInAt: time.Now(),
+				ExpiresAt:  time.Now().Add(30 * time.Minute),
+			})
 		}
 		return nil
 	}
@@ -541,23 +611,30 @@ func (s *Server) keepAlive() {
 			if s.stateSnapshot() == stateBridge {
 				continue
 			}
+			if !s.radioMu.TryLock() {
+				continue
+			}
 			if !s.healthy() {
 				s.tryReconnect()
+				s.radioMu.Unlock()
 				continue
 			}
 			client := s.clientSnapshot()
 			if client == nil {
 				s.markDegraded(fmt.Errorf("no active client"))
+				s.radioMu.Unlock()
 				continue
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), keepAliveTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), s.keepAliveTimeout())
 			_, err := client.DeviceTime(ctx)
 			cancel()
 			if err != nil {
 				s.markDegraded(err)
+				s.radioMu.Unlock()
 				continue
 			}
 			s.markReady()
+			s.radioMu.Unlock()
 		}
 	}
 }
@@ -710,11 +787,18 @@ func (s *Server) upsertObservedContact(contact meshcore.Contact) {
 		s.recordContactSyncError(err)
 		return
 	}
-	if contacts, err := s.cachedContacts(ctx); err == nil {
+	if contacts, err := s.replicaContacts(ctx); err == nil {
 		s.mu.Lock()
 		s.contactCount = len(contacts)
 		s.mu.Unlock()
 	}
+}
+
+func (s *Server) keepAliveTimeout() time.Duration {
+	if strings.HasPrefix(s.uri, "ble://") {
+		return 20 * time.Second
+	}
+	return keepAliveTimeout
 }
 
 func connContext() context.Context {
