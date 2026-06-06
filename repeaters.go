@@ -15,11 +15,12 @@ type RepeaterStats = companion.RepeaterStats
 
 // RepeaterResponse is a text response returned by a remote repeater CLI.
 type RepeaterResponse struct {
-	Repeater string
-	Command  string
-	Text     string          // plain-text CLI or sensor output
-	Stats    *RepeaterStats  // populated for binary status responses
-	Received time.Time
+	Repeater   string
+	Command    string
+	Text       string               // plain-text CLI or sensor output
+	Stats      *RepeaterStats       // populated for binary status responses
+	Neighbours []RepeaterNeighbour  // populated for neighbors responses
+	Received   time.Time
 }
 
 // RepeaterSession records a successful repeater login. It is a hint for when a
@@ -220,7 +221,12 @@ func (c *Client) waitForRepeaterStatus(ctx context.Context, ct Contact, prefix [
 
 // RepeaterNeighbours requests the repeater's CLI neighbour list.
 func (c *Client) RepeaterNeighbours(ctx context.Context, repeater string) (RepeaterResponse, error) {
-	return c.RepeaterExec(ctx, repeater, "neighbours")
+	resp, err := c.RepeaterExec(ctx, repeater, "neighbors")
+	if err != nil {
+		return resp, err
+	}
+	resp.Neighbours = ParseRepeaterNeighbours(resp.Text)
+	return resp, nil
 }
 
 // RepeaterExec sends a command to a remote repeater CLI and waits for a text

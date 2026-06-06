@@ -419,10 +419,30 @@ func printRepeaterResponse(e *env, resp meshcore.RepeaterResponse) error {
 				"stats":    resp.Stats.JSONValue(),
 			})
 		}
+		if resp.Command == "neighbors" {
+			neighbours := resp.Neighbours
+			if neighbours == nil {
+				neighbours = []meshcore.RepeaterNeighbour{}
+			}
+			return e.out.JSONValue(map[string]any{
+				"repeater":   resp.Repeater,
+				"command":    resp.Command,
+				"received":   resp.Received,
+				"neighbours": neighbours,
+			})
+		}
 		return e.out.JSONValue(resp)
 	}
 	if resp.Stats != nil {
 		e.out.Human("Repeater: %s\n\n%s\n", resp.Repeater, resp.Stats.Human())
+		return nil
+	}
+	if resp.Command == "neighbors" {
+		neighbours := resp.Neighbours
+		if neighbours == nil {
+			neighbours = []meshcore.RepeaterNeighbour{}
+		}
+		e.out.Human("%s", meshcore.FormatRepeaterNeighbours(resp.Repeater, neighbours))
 		return nil
 	}
 	e.out.Human("%s\n", resp.Text)
