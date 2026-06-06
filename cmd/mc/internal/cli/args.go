@@ -10,9 +10,10 @@ var valueFlags = map[string]bool{
 	"uri":    true,
 	"device": true,
 	"as":     true,
-	"baud":   true,
-	"lines":  true,
-	"n":      true,
+	"baud":    true,
+	"lines":   true,
+	"n":       true,
+	"timeout": true,
 }
 
 // parsedArgs holds flags and positional arguments extracted from anywhere in

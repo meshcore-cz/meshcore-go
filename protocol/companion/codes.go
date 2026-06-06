@@ -39,6 +39,17 @@ const (
 	cmdGetChannel       byte = 31
 	cmdSetChannel       byte = 32
 	cmdSendTracePath    byte = 36
+	// cmdSendControlData wraps binary control-plane requests such as node
+	// discovery. Value 55 follows the meshcore_py reference (SEND_CONTROL_DATA);
+	// a hardware capture showed a 0x2e-prefixed framing, so this is provisional
+	// and may need adjustment once verified on-device.
+	cmdSendControlData byte = 55
+)
+
+// Control-plane sub-types carried inside SEND_CONTROL_DATA / PUSH_CODE_CONTROL_DATA.
+const (
+	controlNodeDiscoverReq  byte = 0x80 // request; low bit set = prefix-only keys
+	controlNodeDiscoverResp byte = 0x90 // response; low nibble carries node_type
 )
 
 // Response codes sent device -> host in reply to a command. The code is the
@@ -79,6 +90,7 @@ const (
 	pushLogRxData     byte = 0x88
 	pushTraceData     byte = 0x89
 	pushNewAdvert     byte = 0x8A
+	pushControlData   byte = 0x8E
 )
 
 // Device error codes carried in RESP_CODE_ERR frames (second byte).

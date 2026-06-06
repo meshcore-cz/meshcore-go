@@ -111,6 +111,19 @@ type SendTracePath struct {
 	Path  []byte // optional repeater hashes to trace through; empty = flood
 }
 
+// SendNodeDiscoverReq broadcasts a node-discovery control packet. The device
+// replies immediately with OK and then emits a ControlData push per node that
+// answers, each tagged with Tag.
+//
+// Filter is a node-type bitmask (bit = 1<<node_type): repeater=4, companion=2,
+// room=8, sensor=16; 0xFF requests all types. Wire format derived from the
+// meshcore_py reference (send_node_discover_req); not yet hardware-verified.
+type SendNodeDiscoverReq struct {
+	Filter     byte
+	PrefixOnly bool // request 8-byte key prefixes instead of full public keys
+	Tag        uint32
+}
+
 // encode serialises a command to its wire payload (without transport framing).
 func encode(cmd protocol.Command) ([]byte, error) {
 	switch c := cmd.(type) {
@@ -229,6 +242,17 @@ func encode(cmd protocol.Command) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, c.Auth)
 		buf = append(buf, c.Flags)
 		buf = append(buf, c.Path...)
+		return buf, nil
+
+	case SendNodeDiscoverReq:
+		// [cmd][control_type | prefix flag][filter][tag(4 LE)]
+		ctrl := controlNodeDiscoverReq
+		if c.PrefixOnly {
+			ctrl |= 0x01
+		}
+		buf := make([]byte, 0, 7)
+		buf = append(buf, cmdSendControlData, ctrl, c.Filter)
+		buf = binary.LittleEndian.AppendUint32(buf, c.Tag)
 		return buf, nil
 
 	default:

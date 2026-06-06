@@ -89,6 +89,12 @@ type advertParams struct {
 	Flood bool `json:"flood"`
 }
 
+type discoverParams struct {
+	Filter     byte `json:"filter,omitempty"`
+	PrefixOnly bool `json:"prefix_only,omitempty"`
+	TimeoutMs  int  `json:"timeout_ms,omitempty"`
+}
+
 type repeaterLoginParams struct {
 	Repeater string `json:"repeater"`
 	Password string `json:"password"`

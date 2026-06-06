@@ -62,6 +62,10 @@ func (s *Service) Advertise(ctx context.Context, flood bool) error {
 	return s.client.Advertise(ctx, flood)
 }
 
+func (s *Service) DiscoverNodes(ctx context.Context, opts meshcore.NodeDiscoverOptions, onNode func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error) {
+	return s.client.DiscoverNodes(ctx, opts, onNode)
+}
+
 func (s *Service) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
 	return s.client.RepeaterHasConnection(ctx, repeater)
 }

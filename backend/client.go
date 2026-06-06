@@ -207,6 +207,64 @@ func (c *Client) Advertise(ctx context.Context, flood bool) error {
 	return c.call(ctx, "advert", advertParams{Flood: flood}, nil)
 }
 
+// Discover streams discovered nodes from a node-discovery scan until the
+// backend closes the stream (after the discovery window elapses) or ctx is
+// cancelled.
+func (c *Client) Discover(ctx context.Context, filter byte, prefixOnly bool, timeout time.Duration) (<-chan meshcore.DiscoveredNode, error) {
+	d := net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "unix", c.socket)
+	if err != nil {
+		return nil, err
+	}
+
+	params := discoverParams{Filter: filter, PrefixOnly: prefixOnly, TimeoutMs: int(timeout.Milliseconds())}
+	req := request{ID: c.nextID.Add(1), Method: "discover"}
+	if req.Params, err = json.Marshal(params); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	dec := json.NewDecoder(bufio.NewReader(conn))
+	var resp response
+	if err := dec.Decode(&resp); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if !resp.OK {
+		conn.Close()
+		if resp.Error == "" {
+			resp.Error = "unknown backend error"
+		}
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+
+	out := make(chan meshcore.DiscoveredNode)
+	go func() {
+		defer conn.Close()
+		defer close(out)
+		go func() {
+			<-ctx.Done()
+			_ = conn.Close()
+		}()
+		for {
+			var n meshcore.DiscoveredNode
+			if err := dec.Decode(&n); err != nil {
+				return
+			}
+			select {
+			case out <- n:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
 func (c *Client) RawSend(ctx context.Context, payload []byte) (RawResult, error) {
 	var out RawResult
 	err := c.call(ctx, "raw_send", rawParams{Payload: payload}, &out)

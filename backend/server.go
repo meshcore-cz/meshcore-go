@@ -184,6 +184,16 @@ func (s *Server) handle(conn net.Conn) {
 		s.watchRaw(conn, req.ID)
 		return
 	}
+	if req.Method == "discover" {
+		if !s.healthy() {
+			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			return
+		}
+		s.radioMu.Lock()
+		defer s.radioMu.Unlock()
+		s.discover(conn, req.ID, req.Params)
+		return
+	}
 
 	var result any
 	var err error
@@ -243,6 +253,41 @@ func (s *Server) watchRaw(conn net.Conn, id uint64) {
 			return
 		}
 	}
+}
+
+func (s *Server) discover(conn net.Conn, id uint64, params json.RawMessage) {
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
+		return
+	}
+	client := s.clientSnapshot()
+	if client == nil {
+		return
+	}
+
+	var p discoverParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return
+		}
+	}
+	opts := meshcore.NodeDiscoverOptions{
+		Filter:     p.Filter,
+		PrefixOnly: p.PrefixOnly,
+	}
+	if p.TimeoutMs > 0 {
+		opts.Timeout = time.Duration(p.TimeoutMs) * time.Millisecond
+	}
+
+	Logf("radio send op=discover filter=0x%02x prefix_only=%t", p.Filter, p.PrefixOnly)
+	nodes, err := client.DiscoverNodes(context.Background(), opts, func(n meshcore.DiscoveredNode) {
+		_ = enc.Encode(n)
+	})
+	if err != nil {
+		Logf("radio done op=discover error=%v", err)
+		return
+	}
+	Logf("radio done op=discover nodes=%d", len(nodes))
 }
 
 func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {

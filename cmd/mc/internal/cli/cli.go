@@ -18,6 +18,19 @@ var (
 	Commit  = "unknown"
 )
 
+// commandAliases maps short command names to their canonical form.
+var commandAliases = map[string]string{
+	"rep": "repeater",
+}
+
+// resolveAlias returns the canonical command name for cmd, or cmd unchanged.
+func resolveAlias(cmd string) string {
+	if canonical, ok := commandAliases[cmd]; ok {
+		return canonical
+	}
+	return cmd
+}
+
 // Run parses arguments and dispatches to a subcommand. It returns a process
 // exit code.
 func Run(args []string) int {
@@ -27,7 +40,7 @@ func Run(args []string) int {
 		return 2
 	}
 
-	cmd := pa.arg(0)
+	cmd := resolveAlias(pa.arg(0))
 	wantHelp := pa.has("help") || pa.has("h")
 
 	// `mc help [command]`
@@ -86,6 +99,8 @@ func Run(args []string) int {
 		runErr = cmdChannel(ctx, env)
 	case "advert":
 		runErr = cmdAdvert(ctx, env)
+	case "discover":
+		runErr = cmdDiscover(ctx, env)
 	case "repeater":
 		runErr = cmdRepeater(ctx, env)
 	case "use":
@@ -149,6 +164,7 @@ Commands:
   channel list       List channels
   channel send <c> <text>  Send a channel message
   advert             Broadcast this device's advert (--flood for mesh-wide)
+  discover           Scan for nearby nodes (repeaters by default)
   repeater list      List saved repeaters
   repeater add <n>   Save/login to a repeater
   repeater del [n]   Remove a saved repeater

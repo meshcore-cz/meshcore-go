@@ -41,8 +41,9 @@ type Client struct {
 	timeout time.Duration
 	log     *slog.Logger
 
-	acks      chan uint32              // SendConfirmed ack codes, for WaitForAcknowledgement
-	traces    chan companion.TraceData // TraceData pushes, for Trace
+	acks        chan uint32                     // SendConfirmed ack codes, for WaitForAcknowledgement
+	traces      chan companion.TraceData        // TraceData pushes, for Trace
+	discoveries chan companion.NodeDiscoverResp // NodeDiscoverResp pushes, for Discover
 	autoSync  bool                     // drain inbound messages on MSG_WAITING
 	syncReq   chan struct{}            // signals the sync loop
 	eventHook func(Event)              // optional observer called before Events emits
@@ -103,9 +104,10 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 		raw:     dispatcher.New[RawPacket](256),
 		timeout: DefaultTimeout,
 		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		acks:    make(chan uint32, 16),
-		traces:  make(chan companion.TraceData, 8),
-		syncReq: make(chan struct{}, 1),
+		acks:        make(chan uint32, 16),
+		traces:      make(chan companion.TraceData, 8),
+		discoveries: make(chan companion.NodeDiscoverResp, 32),
+		syncReq:     make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -201,6 +203,11 @@ func (c *Client) handleAsync(msg protocol.Message) {
 	case companion.TraceData:
 		select {
 		case c.traces <- m:
+		default:
+		}
+	case companion.NodeDiscoverResp:
+		select {
+		case c.discoveries <- m:
 		default:
 		}
 	case companion.MsgWaiting:

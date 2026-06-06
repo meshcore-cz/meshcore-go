@@ -282,6 +282,66 @@ func TestEncodeSendTracePath(t *testing.T) {
 	}
 }
 
+func TestEncodeSendNodeDiscoverReq(t *testing.T) {
+	// Matches a hardware capture: control type 0x80 (no prefix flag), filter
+	// 0x04 (repeater), tag 0x0131d618 little-endian.
+	const filterRepeater = 0x04 // 1<<node_type (repeater = 2)
+	got, err := encode(SendNodeDiscoverReq{Filter: filterRepeater, Tag: 0x0131d618})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{cmdSendControlData, 0x80, 0x04, 0x18, 0xd6, 0x31, 0x01}
+	if !bytes.Equal(got, want) {
+		t.Errorf("SendNodeDiscoverReq = %x, want %x", got, want)
+	}
+
+	// prefix-only sets the low bit of the control type.
+	gotPrefix, _ := encode(SendNodeDiscoverReq{Filter: filterRepeater, PrefixOnly: true, Tag: 0x0131d618})
+	if gotPrefix[1] != 0x81 {
+		t.Errorf("prefix-only control type = %#x, want 0x81", gotPrefix[1])
+	}
+}
+
+func TestDecodeNodeDiscoverResp(t *testing.T) {
+	// CONTROL_DATA push carrying a repeater discover reply.
+	// 8e | SNR=0x2f(11.75dB) | RSSI=0xd6(-42) | path_len=0 |
+	// payload: 0x92(type 0x90|node_type 2) | SNR_in=0x2f | tag(0131d618 LE) |
+	// 8-byte key prefix 252525ce4b72f090.
+	pkt := mustHex(t, "8e 2f d6 00 92 2f 18 d6 31 01 25 25 25 ce 4b 72 f0 90")
+	r := mustDecode(t, pkt).(NodeDiscoverResp)
+	if r.NodeType != 2 {
+		t.Errorf("node_type = %d, want 2 (repeater)", r.NodeType)
+	}
+	if r.Tag != 0x0131d618 {
+		t.Errorf("tag = %08x, want 0131d618", r.Tag)
+	}
+	if r.PublicKey != "252525ce4b72f090" {
+		t.Errorf("pubkey = %q, want 252525ce4b72f090", r.PublicKey)
+	}
+	if r.SNRDown != 11.75 || r.SNRUp != 11.75 {
+		t.Errorf("snr down/up = %v/%v, want 11.75/11.75", r.SNRDown, r.SNRUp)
+	}
+	if r.RSSI != -42 {
+		t.Errorf("rssi = %d, want -42", r.RSSI)
+	}
+	if !r.Async() {
+		t.Error("node discover response must be async")
+	}
+}
+
+func TestDecodeControlDataUnknownSubtype(t *testing.T) {
+	// A control-data push whose sub-type is not a discover response degrades to
+	// a generic ControlData rather than being lost.
+	pkt := mustHex(t, "8e 2f d6 00 01 aa bb")
+	cd := mustDecode(t, pkt).(ControlData)
+	if cd.PayloadType != 0x01 {
+		t.Errorf("payload_type = %#x, want 0x01", cd.PayloadType)
+	}
+	if !bytes.Equal(cd.Payload, []byte{0xaa, 0xbb}) {
+		t.Errorf("payload = %x, want aabb", cd.Payload)
+	}
+}
+
 func TestDecodeTraceDataGolden(t *testing.T) {
 	// Captured verbatim from MeshCore v1.15: trace through repeater 0x25.
 	// flags, path_len=1, rsvd, tag, auth, hash 0x25, two SNR bytes (0x30, 0x2e).

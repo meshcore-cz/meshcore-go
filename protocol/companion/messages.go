@@ -172,6 +172,36 @@ type TraceData struct {
 
 func (TraceData) Async() bool { return true }
 
+// ControlData is a PUSH_CODE_CONTROL_DATA push carrying a binary control-plane
+// reply the SDK does not decode into a more specific type. SNR/RSSI describe the
+// link the reply arrived on. (Firmware-derived layout, not hardware-verified.)
+type ControlData struct {
+	SNR         float64
+	RSSI        int
+	PathLen     byte
+	PayloadType byte
+	Payload     []byte
+}
+
+func (ControlData) Async() bool { return true }
+
+// NodeDiscoverResp is a PUSH_CODE_CONTROL_DATA push answering a node-discovery
+// request: one record per node that heard the request and replied.
+//
+// SNRDown is how the local radio heard the reply; SNRUp is how the remote node
+// heard our request. (Firmware-derived layout, not hardware-verified.)
+type NodeDiscoverResp struct {
+	Tag       uint32
+	NodeType  byte    // 1=chat, 2=repeater, 3=room, 4=sensor
+	PublicKey string  // hex; 8-byte prefix or full 32-byte key
+	SNRUp     float64 // dB, remote-heard
+	SNRDown   float64 // dB, locally-heard
+	RSSI      int     // dBm
+	PathLen   byte
+}
+
+func (NodeDiscoverResp) Async() bool { return true }
+
 // LoginSuccess is PUSH_CODE_LOGIN_SUCCESS: a repeater or room server accepted
 // the login request.
 type LoginSuccess struct {

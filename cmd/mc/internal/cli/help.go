@@ -182,9 +182,30 @@ Flags:
   --flood          Send a flood advert instead of the default zero-hop one
 ` + globalFlags,
 
+	"discover": `Usage: mc discover [flags]
+
+Broadcast a node-discovery request and print nodes as they reply. Each reply
+reports the round-trip signal: ↑ is how the remote node heard the request, ↓ is
+how this device heard the reply. With no type flag, only repeaters are scanned.
+
+  mc discover                  scan for nearby repeaters
+  mc discover --all            scan for every node type
+  mc discover --room --sensor  scan for rooms and sensors
+  mc discover --timeout 10     listen for 10 seconds
+
+Flags:
+  --all            Discover every node type
+  --repeater       Discover repeaters
+  --companion      Discover companion (client) nodes
+  --room           Discover room servers
+  --sensor         Discover sensors
+  --full           Request full public keys instead of 8-byte prefixes
+  --timeout <sec>  How long to listen for replies (default ~6s)
+` + globalFlags,
+
 	"repeater": `Usage: mc repeater <list|add|del|status|neighbours|exec> [args] [flags]
 
-Manage remote repeaters through the active companion radio.
+Manage remote repeaters through the active companion radio. Aliased as "mc rep".
 
   mc repeater list                 list saved repeaters
   mc repeater add mc.kololec.cz [password]
@@ -271,7 +292,7 @@ Print version information.
 
 // printCommandHelp writes a command's help to stdout and returns an exit code.
 func printCommandHelp(cmd string) int {
-	h, ok := commandHelp[cmd]
+	h, ok := commandHelp[resolveAlias(cmd)]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "mc: no help available for %q\n", cmd)
 		usage()

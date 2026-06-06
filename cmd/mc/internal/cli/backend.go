@@ -29,6 +29,7 @@ type Backend interface {
 	Channel(context.Context, string) (meshcore.Channel, error)
 	SendChannelText(context.Context, string, string) (meshcore.Receipt, error)
 	Advertise(context.Context, bool) error
+	DiscoverNodes(context.Context, meshcore.NodeDiscoverOptions, func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error)
 	RawSend(context.Context, []byte) (localbackend.RawResult, error)
 	RepeaterHasConnection(context.Context, string) (bool, error)
 	RepeaterLogin(context.Context, string, string) (meshcore.RepeaterSession, error)
@@ -174,6 +175,10 @@ func (b *directBackend) Advertise(ctx context.Context, flood bool) error {
 	return b.svc.Advertise(ctx, flood)
 }
 
+func (b *directBackend) DiscoverNodes(ctx context.Context, opts meshcore.NodeDiscoverOptions, onNode func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error) {
+	return b.svc.DiscoverNodes(ctx, opts, onNode)
+}
+
 func (b *directBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {
 	msg, err := b.client.RawSend(ctx, payload)
 	if err != nil {
@@ -269,6 +274,21 @@ func (b *ipcBackend) SendChannelText(ctx context.Context, channel, text string) 
 
 func (b *ipcBackend) Advertise(ctx context.Context, flood bool) error {
 	return b.client.Advertise(ctx, flood)
+}
+
+func (b *ipcBackend) DiscoverNodes(ctx context.Context, opts meshcore.NodeDiscoverOptions, onNode func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error) {
+	nodes, err := b.client.Discover(ctx, opts.Filter, opts.PrefixOnly, opts.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	var out []meshcore.DiscoveredNode
+	for n := range nodes {
+		out = append(out, n)
+		if onNode != nil {
+			onNode(n)
+		}
+	}
+	return out, nil
 }
 
 func (b *ipcBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {

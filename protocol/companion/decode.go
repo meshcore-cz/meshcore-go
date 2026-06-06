@@ -90,6 +90,9 @@ func decode(packet []byte) (protocol.Message, error) {
 	case pushTraceData:
 		return decodeTraceData(body), nil
 
+	case pushControlData:
+		return decodeControlData(body), nil
+
 	case pushLoginSuccess:
 		return decodeLoginSuccess(body), nil
 
@@ -444,6 +447,65 @@ func decodeStatusResponse(b []byte) StatusResponse {
 		s.Stats, s.Text = decodeStatusData(b[7:])
 	}
 	return s
+}
+
+// decodeControlData parses PUSH_CODE_CONTROL_DATA.
+//
+// Layout (firmware-derived from the meshcore_py reader, not hardware-verified):
+//
+//	[0]    SNR (int8, 0.25 dB units)
+//	[1]    RSSI (int8, dBm)
+//	[2]    path_len
+//	[3:]   payload; payload[0] is a sub-type whose high nibble identifies it
+//
+// A payload sub-type with high nibble 0x90 is a node-discovery response.
+func decodeControlData(b []byte) protocol.Message {
+	if len(b) < 4 {
+		return protocol.RawMessage{Type: pushControlData, Payload: append([]byte(nil), b...), Push: true}
+	}
+	snr := float64(int8(b[0])) / 4
+	rssi := int(int8(b[1]))
+	pathLen := b[2]
+	payload := b[3:]
+	if payload[0]&0xF0 == controlNodeDiscoverResp {
+		return decodeNodeDiscoverResp(payload, snr, rssi, pathLen)
+	}
+	return ControlData{
+		SNR:         snr,
+		RSSI:        rssi,
+		PathLen:     pathLen,
+		PayloadType: payload[0],
+		Payload:     append([]byte(nil), payload[1:]...),
+	}
+}
+
+// decodeNodeDiscoverResp parses a node-discovery reply carried in CONTROL_DATA.
+//
+// Payload layout (firmware-derived):
+//
+//	[0]    sub-type: high nibble 0x90, low nibble node_type
+//	[1]    SNR_in (int8, 0.25 dB units) — how the remote heard our request
+//	[2:6]  tag (uint32 LE) matching the request
+//	[6:]   public key (8-byte prefix or full 32-byte key)
+func decodeNodeDiscoverResp(payload []byte, snr float64, rssi int, pathLen byte) NodeDiscoverResp {
+	r := NodeDiscoverResp{SNRDown: snr, RSSI: rssi, PathLen: pathLen}
+	r.NodeType = payload[0] & 0x0F
+	if len(payload) >= 2 {
+		r.SNRUp = float64(int8(payload[1])) / 4
+	}
+	if len(payload) >= 6 {
+		r.Tag = binary.LittleEndian.Uint32(payload[2:6])
+	}
+	if len(payload) > 6 {
+		key := payload[6:]
+		if len(key) >= 32 {
+			key = key[:32]
+		} else if len(key) >= 8 {
+			key = key[:8]
+		}
+		r.PublicKey = hex.EncodeToString(key)
+	}
+	return r
 }
 
 func decodeTraceData(b []byte) TraceData {
