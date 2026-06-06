@@ -58,6 +58,20 @@ automatically; when it is not running, commands dial the radio directly.
   mcr backend start --uri ...   start the backend for an explicit endpoint
   mcr backend status            show backend socket, pid and endpoint
   mcr backend stop              stop the running backend
+
+Bridge listeners are configured in config.yaml:
+
+backend:
+  bridges:
+    - enabled: true
+      type: tcp
+      listen: 127.0.0.1:4403
+    - enabled: true
+      type: pty
+
+Note: on macOS, Chrome/Web Serial does not list PTY bridges. The pty bridge is
+for native serial clients; use tcp only with clients that explicitly support a
+TCP MeshCore bridge.
 ` + globalFlags,
 
 	"contacts": `Usage: mcr contacts [flags]
@@ -221,6 +235,8 @@ Common command bytes (host → device):
 
 Output shows the decoded response type and fields for known opcodes,
 or a hex dump for unrecognised ones.
+
+With --debug, logs the resolved endpoint, outbound frame, and decoded response.
 ` + globalFlags,
 
 	"version": `Usage: mcr version [--json]

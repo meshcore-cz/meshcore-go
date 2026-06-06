@@ -10,6 +10,7 @@ import (
 
 	meshcore "github.com/meshcore-dev/meshcore-go"
 	localbackend "github.com/meshcore-dev/meshcore-go/backend"
+	"github.com/meshcore-dev/meshcore-go/cmd/mcr/internal/config"
 )
 
 func cmdBackend(ctx context.Context, e *env) error {
@@ -134,6 +135,22 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	e.out.Human("Endpoint: %s\n", st.URI)
 	e.out.Human("Transport: %s\n", st.Transport)
 	e.out.Human("Socket:   %s\n", st.Socket)
+	for _, bridge := range st.Bridges {
+		switch bridge.Type {
+		case "tcp":
+			e.out.Human("Bridge:   tcp %s active=%t\n", bridge.Listen, bridge.Active)
+		case "pty":
+			e.out.Human("Bridge:   pty %s active=%t\n", bridge.Path, bridge.Active)
+		default:
+			e.out.Human("Bridge:   %s active=%t\n", bridge.Type, bridge.Active)
+		}
+		if bridge.Error != "" {
+			e.out.Human("Bridge err: %s\n", bridge.Error)
+		}
+		if bridge.Note != "" {
+			e.out.Human("Bridge note: %s\n", bridge.Note)
+		}
+	}
 	if st.LastError != "" {
 		e.out.Human("Last err: %s\n", st.LastError)
 	}
@@ -146,7 +163,11 @@ func backendServe(ctx context.Context, e *env) error {
 		return err
 	}
 	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
-	server, err := localbackend.NewServer(ctx, uri, opts...)
+	bridges, err := configuredBridges()
+	if err != nil {
+		return err
+	}
+	server, err := localbackend.NewServerWithBridges(ctx, uri, bridges, opts...)
 	if err != nil {
 		return err
 	}
@@ -192,5 +213,23 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"socket":     st.Socket,
 		"last_seen":  st.LastSeen,
 		"last_error": st.LastError,
+		"bridges":    st.Bridges,
 	}
+}
+
+func configuredBridges() ([]localbackend.BridgeConfig, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]localbackend.BridgeConfig, 0, len(cfg.Backend.Bridges))
+	for _, bridge := range cfg.Backend.Bridges {
+		out = append(out, localbackend.BridgeConfig{
+			Enabled: bridge.Enabled,
+			Type:    bridge.Type,
+			Listen:  bridge.Listen,
+			Name:    bridge.Name,
+		})
+	}
+	return out, nil
 }

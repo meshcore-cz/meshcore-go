@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 
+	localbackend "github.com/meshcore-dev/meshcore-go/backend"
 	meshcore "github.com/meshcore-dev/meshcore-go"
 )
 
@@ -59,4 +61,29 @@ func (d Debug) Contact(ct meshcore.Contact) {
 		"public_key", shortKey(ct.PublicKey),
 		"has_path", ct.HasPath,
 	)
+}
+
+// RawSend logs an outbound raw companion frame.
+func (d Debug) RawSend(payload []byte) {
+	args := []any{"bytes", len(payload), "hex", hexLine(payload)}
+	if len(payload) > 0 {
+		args = append(args, "cmd", fmt.Sprintf("0x%02x", payload[0]))
+	}
+	d.Log("raw send", args...)
+}
+
+// RawResult logs a decoded raw response.
+func (d Debug) RawResult(result localbackend.RawResult) {
+	if result.Type == "raw" {
+		frame := append([]byte{result.Code}, result.Payload...)
+		d.Log("raw response",
+			"type", "raw",
+			"code", fmt.Sprintf("0x%02x", result.Code),
+			"push", result.Push,
+			"bytes", len(frame),
+			"hex", hexLine(frame),
+		)
+		return
+	}
+	d.Log("raw response", "type", result.Type, "decoded", result.Decoded)
 }

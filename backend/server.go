@@ -23,14 +23,16 @@ type Server struct {
 	uri      string
 	socket   string
 	opts     []meshcore.DialOption
+	bridges  []BridgeConfig
 	client   *meshcore.Client
 	listener net.Listener
 	store    Store
 
-	mu        sync.RWMutex
-	state     string
-	lastSeen  time.Time
-	lastError string
+	mu             sync.RWMutex
+	state          string
+	lastSeen       time.Time
+	lastError      string
+	bridgeStatuses map[string]BridgeStatus
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -39,10 +41,17 @@ type Server struct {
 const (
 	stateReady    = "ready"
 	stateDegraded = "degraded"
+	stateBridge   = "bridge"
 )
 
 // NewServer dials uri and prepares a local backend server.
 func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*Server, error) {
+	return NewServerWithBridges(ctx, uri, nil, opts...)
+}
+
+// NewServerWithBridges dials uri and prepares a backend with configured bridge
+// listeners.
+func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfig, opts ...meshcore.DialOption) (*Server, error) {
 	client, err := meshcore.Dial(ctx, uri, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
@@ -56,6 +65,7 @@ func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*S
 		uri:      uri,
 		socket:   SocketPath(),
 		opts:     append([]meshcore.DialOption(nil), opts...),
+		bridges:  append([]BridgeConfig(nil), bridges...),
 		client:   client,
 		store:    store,
 		state:    stateReady,
@@ -83,6 +93,7 @@ func (s *Server) Serve() error {
 	}
 	s.listener = ln
 	go s.keepAlive()
+	s.startBridges()
 	go s.refreshContacts(context.Background())
 	defer func() {
 		ln.Close()
@@ -478,6 +489,9 @@ func (s *Server) keepAlive() {
 		case <-s.stopped:
 			return
 		case <-ticker.C:
+			if s.stateSnapshot() == stateBridge {
+				continue
+			}
 			if !s.healthy() {
 				s.tryReconnect()
 				continue
@@ -515,6 +529,7 @@ func (s *Server) status() statusResult {
 		PID:       os.Getpid(),
 		LastSeen:  s.lastSeen,
 		LastError: s.lastError,
+		Bridges:   s.bridgeStatusLocked(),
 	}
 }
 
@@ -548,10 +563,19 @@ func (s *Server) healthy() bool {
 	return s.state == stateReady
 }
 
+func (s *Server) stateSnapshot() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state
+}
+
 func (s *Server) lastErr() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.lastError == "" {
+		if s.state == stateBridge {
+			return "bridge is active"
+		}
 		return "radio is not responding"
 	}
 	return s.lastError
@@ -564,6 +588,9 @@ func (s *Server) clientSnapshot() *meshcore.Client {
 }
 
 func (s *Server) tryReconnect() {
+	if s.stateSnapshot() == stateBridge {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	client, err := meshcore.Dial(ctx, s.uri, s.opts...)
 	cancel()

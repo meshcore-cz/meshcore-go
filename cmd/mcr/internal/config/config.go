@@ -16,8 +16,22 @@ type Config struct {
 	Version         int                 `yaml:"version"`
 	Current         string              `yaml:"current,omitempty"`
 	CurrentRepeater string              `yaml:"current_repeater,omitempty"`
+	Backend         Backend             `yaml:"backend,omitempty"`
 	Devices         map[string]Device   `yaml:"devices,omitempty"`
 	Repeaters       map[string]Repeater `yaml:"repeaters,omitempty"`
+}
+
+// Backend configures the local backend process.
+type Backend struct {
+	Bridges []Bridge `yaml:"bridges,omitempty"`
+}
+
+// Bridge configures one local bridge listener exposed by the backend.
+type Bridge struct {
+	Enabled bool   `yaml:"enabled"`
+	Type    string `yaml:"type"`             // tcp or pty
+	Listen  string `yaml:"listen,omitempty"` // tcp listen address
+	Name    string `yaml:"name,omitempty"`
 }
 
 // Device is a saved profile. A logical device may carry multiple endpoints.

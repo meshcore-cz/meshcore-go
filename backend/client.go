@@ -25,6 +25,7 @@ type Status struct {
 	Socket    string
 	LastSeen  time.Time
 	LastError string
+	Bridges   []BridgeStatus
 }
 
 // Client talks to a running local backend process.
@@ -64,6 +65,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		Socket:    c.socket,
 		LastSeen:  res.LastSeen,
 		LastError: res.LastError,
+		Bridges:   res.Bridges,
 	}, nil
 }
 

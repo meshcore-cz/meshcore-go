@@ -19,14 +19,15 @@ type response struct {
 }
 
 type statusResult struct {
-	Running   bool      `json:"running"`
-	Healthy   bool      `json:"healthy"`
-	State     string    `json:"state"`
-	URI       string    `json:"uri"`
-	Transport string    `json:"transport"`
-	PID       int       `json:"pid"`
-	LastSeen  time.Time `json:"last_seen,omitempty"`
-	LastError string    `json:"last_error,omitempty"`
+	Running   bool           `json:"running"`
+	Healthy   bool           `json:"healthy"`
+	State     string         `json:"state"`
+	URI       string         `json:"uri"`
+	Transport string         `json:"transport"`
+	PID       int            `json:"pid"`
+	LastSeen  time.Time      `json:"last_seen,omitempty"`
+	LastError string         `json:"last_error,omitempty"`
+	Bridges   []BridgeStatus `json:"bridges,omitempty"`
 }
 
 type sendTextParams struct {

@@ -46,7 +46,7 @@ type directBackend struct {
 }
 
 func openBackend(ctx context.Context, e *env) (Backend, error) {
-	if !e.args.has("direct") {
+	if preferIPCBackend(e) {
 		b, err := openIPCBackend(ctx)
 		if err == nil {
 			e.dbg.Backend("ipc", b)
@@ -62,6 +62,14 @@ func openBackend(ctx context.Context, e *env) (Backend, error) {
 		e.dbg.Backend("direct", b)
 	}
 	return b, err
+}
+
+// preferIPCBackend reports whether a command should use the local daemon when
+// available. Explicit --uri, --device, or --direct always dial directly.
+func preferIPCBackend(e *env) bool {
+	return !e.args.has("direct") &&
+		e.args.flag("uri") == "" &&
+		e.args.flag("device") == ""
 }
 
 func openIPCBackend(ctx context.Context) (*ipcBackend, error) {

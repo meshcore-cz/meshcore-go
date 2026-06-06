@@ -49,6 +49,24 @@ func TestReadFrameResync(t *testing.T) {
 	}
 }
 
+func TestReadHostFrameResyncSkipsBadLength(t *testing.T) {
+	payload := []byte{0x7f, 0x01}
+	var frame bytes.Buffer
+	frame.WriteByte(frameToDevice)
+	frame.Write([]byte{0x39, 0x54}) // impossible length from PTY/control noise
+	frame.WriteByte(frameToDevice)
+	frame.Write([]byte{0x02, 0x00})
+	frame.Write(payload)
+
+	got, err := ReadHostFrameResync(bufio.NewReader(&frame))
+	if err != nil {
+		t.Fatalf("ReadHostFrameResync: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("got %x, want %x", got, payload)
+	}
+}
+
 func TestWriteFrameTooLarge(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeFrame(&buf, make([]byte, maxFrameLen+1)); err == nil {

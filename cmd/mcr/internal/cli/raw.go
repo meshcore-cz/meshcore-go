@@ -19,6 +19,19 @@ func cmdRaw(ctx context.Context, e *env) error {
 		return fmt.Errorf("usage: mcr raw <hex bytes>")
 	}
 
+	e.dbg.RawSend(payload)
+	if !preferIPCBackend(e) {
+		if uri, profile, err := resolveURI(e); err == nil {
+			if profile != "" {
+				e.dbg.Log("raw endpoint", "uri", uri, "profile", profile)
+			} else {
+				e.dbg.Log("raw endpoint", "uri", uri)
+			}
+		} else {
+			e.dbg.Log("raw endpoint", "error", err)
+		}
+	}
+
 	backend, err := openBackend(ctx, e)
 	if err != nil {
 		return err
@@ -29,8 +42,10 @@ func cmdRaw(ctx context.Context, e *env) error {
 
 	result, err := backend.RawSend(ctx, payload)
 	if err != nil {
+		e.dbg.Log("raw failed", "error", err)
 		return err
 	}
+	e.dbg.RawResult(result)
 
 	if e.out.JSON {
 		return e.out.JSONValue(rawMsgJSON(result))
