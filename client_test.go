@@ -75,6 +75,39 @@ func newConnectedClient(t *testing.T) (*meshcore.Client, *testutil.FakeTransport
 	return client, ft
 }
 
+func TestDeviceInfoRefreshesMissingFirmwareVersion(t *testing.T) {
+	ft := testutil.NewFakeTransport(32)
+	key := bytes.Repeat([]byte{0xab}, 32)
+	ft.ReadPackets <- selfInfoPacket("EFF01EF2", key)
+
+	client := meshcore.New(ft, meshcore.WithTimeout(2*time.Second))
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer client.Close()
+
+	<-ft.WrittenPackets // APP_START
+	for i := 0; i < 3; i++ {
+		<-ft.WrittenPackets // DEVICE_QUERY retries
+	}
+
+	go func() {
+		<-ft.WrittenPackets
+		ft.ReadPackets <- deviceInfoPacket("Heltec V3", "19-Apr-2026", "v1.15.0-dee3e26")
+	}()
+
+	info, err := client.DeviceInfo(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.FirmwareVersion != "v1.15.0-dee3e26" {
+		t.Fatalf("version = %q", info.FirmwareVersion)
+	}
+	if info.FirmwareName != "MeshCore (Heltec V3)" {
+		t.Fatalf("firmware = %q", info.FirmwareName)
+	}
+}
+
 func TestClientHandshake(t *testing.T) {
 	client, _ := newConnectedClient(t)
 	defer client.Close()

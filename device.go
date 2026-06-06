@@ -29,13 +29,14 @@ type ExtensionInfo struct {
 // Transport returns the underlying transport's endpoint description.
 func (c *Client) Transport() string { return c.conn.String() }
 
-// DeviceInfo returns the identity learned during the handshake.
+// DeviceInfo returns the identity learned during the handshake, refreshing
+// firmware details from the device when the initial connect-time query failed.
 func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
 	c.mu.RLock()
 	s := c.session
 	c.mu.RUnlock()
 
-	return DeviceInfo{
+	info := DeviceInfo{
 		Name:            s.Name,
 		PublicKey:       s.PublicKey,
 		FirmwareName:    s.FirmwareName,
@@ -43,7 +44,42 @@ func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
 		ProtocolVersion: s.ProtocolVersion,
 		Capabilities:    s.Capabilities,
 		Extensions:      map[string]ExtensionInfo{},
-	}, nil
+	}
+	if info.FirmwareVersion != "" {
+		return info, nil
+	}
+
+	dev, err := c.queryDeviceInfo(ctx)
+	if err != nil {
+		return info, nil
+	}
+	info.FirmwareVersion = companion.FirmwareVersion(dev)
+	if dev.Model != "" {
+		info.FirmwareName = "MeshCore (" + dev.Model + ")"
+	}
+
+	c.mu.Lock()
+	if c.session.FirmwareVersion == "" {
+		c.session.FirmwareVersion = info.FirmwareVersion
+		if dev.Model != "" {
+			c.session.FirmwareName = info.FirmwareName
+		}
+	}
+	c.mu.Unlock()
+
+	return info, nil
+}
+
+func (c *Client) queryDeviceInfo(ctx context.Context) (companion.DeviceInfo, error) {
+	msg, err := c.request(ctx, companion.DeviceQuery{})
+	if err != nil {
+		return companion.DeviceInfo{}, err
+	}
+	dev, ok := msg.(companion.DeviceInfo)
+	if !ok {
+		return companion.DeviceInfo{}, protocol.ErrUnexpectedResponse
+	}
+	return dev, nil
 }
 
 // FirmwareVersion returns the firmware version string reported by the device.

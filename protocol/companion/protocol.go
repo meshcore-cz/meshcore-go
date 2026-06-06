@@ -55,6 +55,9 @@ func (p *Protocol) Capabilities() protocol.Capabilities {
 // (DTR toggling), so the first command(s) may be lost while the device boots.
 const handshakeAttemptTimeout = 1500 * time.Millisecond
 
+// deviceQueryTimeout bounds each DEVICE_QUERY attempt during connect.
+const deviceQueryTimeout = 750 * time.Millisecond
+
 // Initialize performs the APP_START handshake, reads the SelfInfo identity and
 // best-effort device details, and returns the resulting SessionInfo. It resends
 // APP_START until the device replies or the context expires.
@@ -79,9 +82,10 @@ func (p *Protocol) Initialize(ctx context.Context, conn transport.PacketConn) (p
 		Capabilities:    p.Capabilities(),
 	}
 
-	// Device query is best-effort: older firmware may not implement it.
-	if dev, err := p.deviceQuery(ctx, conn); err == nil {
-		si.FirmwareVersion = firmwareVersion(dev)
+	// Device query is best-effort: older firmware may not implement it and the
+	// first attempt can be lost while the MCU is still booting.
+	if dev, err := p.deviceQueryWithRetry(ctx, conn); err == nil {
+		si.FirmwareVersion = FirmwareVersion(dev)
 		if dev.Model != "" {
 			si.FirmwareName = "MeshCore (" + dev.Model + ")"
 		}
@@ -122,6 +126,18 @@ func (p *Protocol) handshake(ctx context.Context, conn transport.PacketConn, sta
 	}
 }
 
+func (p *Protocol) deviceQueryWithRetry(ctx context.Context, conn transport.PacketConn) (DeviceInfo, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		dev, err := p.deviceQuery(ctx, conn)
+		if err == nil {
+			return dev, nil
+		}
+		lastErr = err
+	}
+	return DeviceInfo{}, lastErr
+}
+
 // deviceQuery issues CMD_DEVICE_QUERY and returns the parsed DeviceInfo.
 func (p *Protocol) deviceQuery(ctx context.Context, conn transport.PacketConn) (DeviceInfo, error) {
 	q, err := encode(DeviceQuery{})
@@ -131,7 +147,7 @@ func (p *Protocol) deviceQuery(ctx context.Context, conn transport.PacketConn) (
 	if err := conn.WritePacket(ctx, q); err != nil {
 		return DeviceInfo{}, err
 	}
-	qctx, cancel := context.WithTimeout(ctx, handshakeAttemptTimeout)
+	qctx, cancel := context.WithTimeout(ctx, deviceQueryTimeout)
 	defer cancel()
 	msg, err := p.readNext(qctx, conn)
 	if err != nil {
@@ -162,7 +178,8 @@ func (p *Protocol) readNext(ctx context.Context, conn transport.PacketConn) (pro
 	}
 }
 
-func firmwareVersion(d DeviceInfo) string {
+// FirmwareVersion returns a display version from a device info response.
+func FirmwareVersion(d DeviceInfo) string {
 	if d.Version != "" {
 		return d.Version
 	}
