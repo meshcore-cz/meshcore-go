@@ -86,6 +86,8 @@ func Run(args []string) int {
 		runErr = cmdDevice(ctx, env)
 	case "config":
 		runErr = cmdConfig(env)
+	case "raw":
+		runErr = cmdRaw(ctx, env)
 	default:
 		fmt.Fprintf(os.Stderr, "mcr: unknown command %q\n", cmd)
 		usage()
@@ -141,6 +143,7 @@ Commands:
   device remove <n>  Remove a profile
   config path        Print the config file path
   config show        Print the current configuration
+  raw <hex>          Send raw bytes and print the decoded response
   version            Show version information
 
 Global flags:

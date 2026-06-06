@@ -281,6 +281,26 @@ func (c *Client) requestStream(ctx context.Context, raw []byte, collect func(pro
 	return streamErr
 }
 
+// RawSend transmits payload directly to the device without any companion
+// encoding and returns the decoded response. It is intended for protocol
+// exploration and debugging; the caller is responsible for framing the bytes
+// correctly for the active protocol.
+//
+// The returned message is whatever the protocol's decoder produces: a known
+// typed response or a protocol.RawMessage for unrecognised opcodes.
+func (c *Client) RawSend(ctx context.Context, payload []byte) (protocol.Message, error) {
+	tctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	c.log.Debug("raw send", "bytes", len(payload))
+	v, err := c.queue.Do(tctx, func() error {
+		return c.conn.WritePacket(tctx, payload)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(protocol.Message), nil
+}
+
 // Events returns the asynchronous event stream. The channel is closed when the
 // connection ends.
 func (c *Client) Events() <-chan Event {

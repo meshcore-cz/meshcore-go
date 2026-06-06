@@ -132,6 +132,39 @@ Flags:
   --json           Machine-readable JSON output
 `,
 
+	"raw": `Usage: mcr raw <hex bytes...> [flags]
+
+Send raw bytes directly to the device and print the decoded response.
+Useful for protocol exploration and verifying undocumented commands.
+
+The payload is the bare companion-protocol bytes (command byte + body).
+Transport framing is added automatically; do not include it.
+Bytes can be given as separate tokens or concatenated:
+
+  mcr raw 16 03              DeviceQuery  (cmd=0x16, app_ver=0x03)
+  mcr raw 14                 GetBatteryVoltage
+  mcr raw 05                 GetDeviceTime
+  mcr raw 04                 GetContacts (streaming — only first frame shown)
+  mcr raw 1f 00              GetChannel index 0
+  mcr raw ab cd ef           unknown three-byte command
+  mcr raw abcdef             same (concatenated)
+  mcr raw 0xab 0xcd          same with 0x prefix
+
+Common command bytes (host → device):
+  0x01  AppStart          0x0a  SyncNextMessage
+  0x02  SendTxtMsg        0x0b  SetRadioParams
+  0x03  SendChannelTxt    0x0c  SetTxPower
+  0x04  GetContacts       0x0d  ResetPath
+  0x05  GetDeviceTime     0x13  Reboot
+  0x06  SetDeviceTime     0x14  GetBatteryVoltage
+  0x07  SendSelfAdvert    0x16  DeviceQuery
+  0x09  AddUpdateContact  0x1f  GetChannel
+  0x0f  RemoveContact     0x24  SendTracePath
+
+Output shows the decoded response type and fields for known opcodes,
+or a hex dump for unrecognised ones.
+` + globalFlags,
+
 	"version": `Usage: mcr version [--json]
 
 Print version information.
