@@ -85,6 +85,10 @@ type channelSendParams struct {
 	Text    string `json:"text"`
 }
 
+type advertParams struct {
+	Flood bool `json:"flood"`
+}
+
 type repeaterLoginParams struct {
 	Repeater string `json:"repeater"`
 	Password string `json:"password"`

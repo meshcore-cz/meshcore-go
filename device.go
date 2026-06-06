@@ -108,12 +108,14 @@ func (c *Client) SyncClock(ctx context.Context) error {
 	return err
 }
 
-// Advertise broadcasts the device's own advertisement (flood).
-func (c *Client) Advertise(ctx context.Context) error {
+// Advertise broadcasts the device's own advertisement. When flood is false the
+// device sends a zero-hop advert (neighbours only); when true it sends a flood
+// advert that propagates across the mesh.
+func (c *Client) Advertise(ctx context.Context, flood bool) error {
 	if err := c.requireCapability(CapabilityAdvertisements); err != nil {
 		return err
 	}
-	_, err := c.request(ctx, companion.SendSelfAdvert{Flood: true})
+	_, err := c.request(ctx, companion.SendSelfAdvert{Flood: flood})
 	return err
 }
 

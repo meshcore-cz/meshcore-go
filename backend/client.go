@@ -203,6 +203,10 @@ func (c *Client) SendChannelText(ctx context.Context, channel, text string) (mes
 	return out, err
 }
 
+func (c *Client) Advertise(ctx context.Context, flood bool) error {
+	return c.call(ctx, "advert", advertParams{Flood: flood}, nil)
+}
+
 func (c *Client) RawSend(ctx context.Context, payload []byte) (RawResult, error) {
 	var out RawResult
 	err := c.call(ctx, "raw_send", rawParams{Payload: payload}, &out)

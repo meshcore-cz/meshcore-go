@@ -339,6 +339,24 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return nil, err
 		}
 		return client.SendChannelText(ctx, p.Channel, p.Text)
+	case "advert":
+		var p advertParams
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+		}
+		mode := "zero-hop"
+		if p.Flood {
+			mode = "flood"
+		}
+		Logf("radio send op=advert cmd=0x07 mode=%s", mode)
+		if err := client.Advertise(ctx, p.Flood); err != nil {
+			Logf("radio done op=advert mode=%s error=%v", mode, err)
+			return nil, err
+		}
+		Logf("radio done op=advert mode=%s", mode)
+		return map[string]bool{"sent": true}, nil
 	case "raw_send":
 		var p rawParams
 		if err := json.Unmarshal(params, &p); err != nil {

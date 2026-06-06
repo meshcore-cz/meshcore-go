@@ -171,6 +171,17 @@ Flags:
   --refresh        Force a radio sync and update the local replica
 ` + globalFlags,
 
+	"advert": `Usage: mc advert [flags]
+
+Broadcast the device's own advertisement so other nodes learn about it.
+
+  mc advert            send a zero-hop advert (direct neighbours only)
+  mc advert --flood    send a flood advert that propagates across the mesh
+
+Flags:
+  --flood          Send a flood advert instead of the default zero-hop one
+` + globalFlags,
+
 	"repeater": `Usage: mc repeater <list|add|del|status|neighbours|exec> [args] [flags]
 
 Manage remote repeaters through the active companion radio.

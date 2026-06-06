@@ -112,6 +112,8 @@ func runShellCommand(ctx context.Context, parent *env, backend Backend, fields [
 		return shellTrace(ctx, e, backend)
 	case "channel":
 		return shellChannel(ctx, e, backend)
+	case "advert":
+		return shellAdvert(ctx, e, backend)
 	case "watch":
 		return shellWatch(ctx, e, backend)
 	default:
@@ -144,6 +146,7 @@ func printShellHelp(e *env) {
   channel list
   channel show <name|index>
   channel send <name|index> <text>
+  advert [--flood]
   watch
   exit
 `)
@@ -354,6 +357,19 @@ func shellChannelSend(ctx context.Context, e *env, backend Backend) error {
 	}
 	e.out.Human("Sent to %s.\n", receipt.To)
 	return e.out.JSONValue(map[string]any{"to": receipt.To, "id": receipt.ID()})
+}
+
+func shellAdvert(ctx context.Context, e *env, backend Backend) error {
+	flood := e.args.has("flood")
+	if err := backend.Advertise(ctx, flood); err != nil {
+		return err
+	}
+	mode := "zero-hop"
+	if flood {
+		mode = "flood"
+	}
+	e.out.Human("Advert sent (%s).\n", mode)
+	return e.out.JSONValue(map[string]any{"sent": true, "flood": flood, "mode": mode})
 }
 
 func shellWatch(ctx context.Context, e *env, backend Backend) error {

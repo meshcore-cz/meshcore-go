@@ -84,6 +84,8 @@ func Run(args []string) int {
 		runErr = cmdTrace(ctx, env)
 	case "channel":
 		runErr = cmdChannel(ctx, env)
+	case "advert":
+		runErr = cmdAdvert(ctx, env)
 	case "repeater":
 		runErr = cmdRepeater(ctx, env)
 	case "use":
@@ -146,6 +148,7 @@ Commands:
   trace <target>     Trace the route to a node
   channel list       List channels
   channel send <c> <text>  Send a channel message
+  advert             Broadcast this device's advert (--flood for mesh-wide)
   repeater list      List saved repeaters
   repeater add <n>   Save/login to a repeater
   repeater del [n]   Remove a saved repeater

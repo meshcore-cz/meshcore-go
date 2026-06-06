@@ -28,6 +28,7 @@ type Backend interface {
 	ChannelsWithOptions(context.Context, bool) ([]meshcore.Channel, error)
 	Channel(context.Context, string) (meshcore.Channel, error)
 	SendChannelText(context.Context, string, string) (meshcore.Receipt, error)
+	Advertise(context.Context, bool) error
 	RawSend(context.Context, []byte) (localbackend.RawResult, error)
 	RepeaterHasConnection(context.Context, string) (bool, error)
 	RepeaterLogin(context.Context, string, string) (meshcore.RepeaterSession, error)
@@ -169,6 +170,10 @@ func (b *directBackend) SendChannelText(ctx context.Context, channel, text strin
 	return b.svc.SendChannelText(ctx, channel, text)
 }
 
+func (b *directBackend) Advertise(ctx context.Context, flood bool) error {
+	return b.svc.Advertise(ctx, flood)
+}
+
 func (b *directBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {
 	msg, err := b.client.RawSend(ctx, payload)
 	if err != nil {
@@ -260,6 +265,10 @@ func (b *ipcBackend) Channel(ctx context.Context, name string) (meshcore.Channel
 
 func (b *ipcBackend) SendChannelText(ctx context.Context, channel, text string) (meshcore.Receipt, error) {
 	return b.client.SendChannelText(ctx, channel, text)
+}
+
+func (b *ipcBackend) Advertise(ctx context.Context, flood bool) error {
+	return b.client.Advertise(ctx, flood)
 }
 
 func (b *ipcBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {

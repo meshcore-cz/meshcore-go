@@ -58,6 +58,10 @@ func (s *Service) SendChannelText(ctx context.Context, channel, text string) (me
 	return s.client.SendChannelText(ctx, channel, text)
 }
 
+func (s *Service) Advertise(ctx context.Context, flood bool) error {
+	return s.client.Advertise(ctx, flood)
+}
+
 func (s *Service) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
 	return s.client.RepeaterHasConnection(ctx, repeater)
 }
