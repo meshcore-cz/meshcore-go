@@ -38,6 +38,7 @@ type statusResult struct {
 	LastError string                `json:"last_error,omitempty"`
 	Bridges   []BridgeStatus        `json:"bridges,omitempty"`
 	Contacts  contactStatus         `json:"contacts,omitempty"`
+	Channels  channelStatus         `json:"channels,omitempty"`
 	Device    *deviceStatusSnapshot `json:"device,omitempty"`
 }
 
@@ -48,6 +49,13 @@ type contactStatus struct {
 	Count        int       `json:"count"`
 	SyncedAt     time.Time `json:"synced_at,omitempty"`
 	Error        string    `json:"error,omitempty"`
+}
+
+type channelStatus struct {
+	Syncing  bool      `json:"syncing"`
+	Count    int       `json:"count"`
+	SyncedAt time.Time `json:"synced_at,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 type sendTextParams struct {
@@ -65,6 +73,10 @@ type queryParams struct {
 
 type contactsParams struct {
 	Cached  bool `json:"cached"`
+	Refresh bool `json:"refresh"`
+}
+
+type channelsParams struct {
 	Refresh bool `json:"refresh"`
 }
 

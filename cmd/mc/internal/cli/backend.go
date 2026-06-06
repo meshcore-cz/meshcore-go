@@ -25,6 +25,7 @@ type Backend interface {
 	WaitForAcknowledgement(context.Context, meshcore.Receipt) (meshcore.Ack, error)
 	Trace(context.Context, string) (meshcore.Trace, error)
 	Channels(context.Context) ([]meshcore.Channel, error)
+	ChannelsWithOptions(context.Context, bool) ([]meshcore.Channel, error)
 	Channel(context.Context, string) (meshcore.Channel, error)
 	SendChannelText(context.Context, string, string) (meshcore.Receipt, error)
 	RawSend(context.Context, []byte) (localbackend.RawResult, error)
@@ -156,6 +157,10 @@ func (b *directBackend) Channels(ctx context.Context) ([]meshcore.Channel, error
 	return b.svc.Channels(ctx)
 }
 
+func (b *directBackend) ChannelsWithOptions(ctx context.Context, refresh bool) ([]meshcore.Channel, error) {
+	return b.svc.Channels(ctx)
+}
+
 func (b *directBackend) Channel(ctx context.Context, name string) (meshcore.Channel, error) {
 	return b.svc.Channel(ctx, name)
 }
@@ -243,6 +248,10 @@ func (b *ipcBackend) Trace(ctx context.Context, target string) (meshcore.Trace, 
 
 func (b *ipcBackend) Channels(ctx context.Context) ([]meshcore.Channel, error) {
 	return b.client.Channels(ctx)
+}
+
+func (b *ipcBackend) ChannelsWithOptions(ctx context.Context, refresh bool) ([]meshcore.Channel, error) {
+	return b.client.ChannelsWithOptions(ctx, refresh)
 }
 
 func (b *ipcBackend) Channel(ctx context.Context, name string) (meshcore.Channel, error) {

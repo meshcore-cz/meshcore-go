@@ -93,6 +93,7 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 			e.out.Human("Backend started for %s (pid %d).\n", st.URI, st.PID)
 			e.out.Human("Socket: %s\n", st.Socket)
 			printContactStatus(e, st)
+			printChannelStatus(e, st)
 			return e.out.JSONValue(backendStatusJSON(st))
 		}
 		select {
@@ -282,6 +283,7 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	e.out.Human("Transport: %s\n", st.Transport)
 	e.out.Human("Socket:   %s\n", st.Socket)
 	printContactStatus(e, st)
+	printChannelStatus(e, st)
 	for _, bridge := range st.Bridges {
 		switch bridge.Type {
 		case "tcp":
@@ -368,6 +370,7 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"last_error": st.LastError,
 		"bridges":    st.Bridges,
 		"contacts": contactStatusJSON(st.Contacts),
+		"channels": channelStatusJSON(st.Channels),
 	}
 	if st.Device.Available() {
 		out["device"] = map[string]any{
@@ -429,6 +432,29 @@ func printContactStatus(e *env, st localbackend.Status) {
 	}
 	if st.Contacts.Error != "" {
 		e.out.Human(" (error: %s)", st.Contacts.Error)
+	}
+	e.out.Human("\n")
+}
+
+func channelStatusJSON(cs localbackend.ChannelStatus) map[string]any {
+	return map[string]any{
+		"syncing":   cs.Syncing,
+		"count":     cs.Count,
+		"synced_at": cs.SyncedAt,
+		"error":     cs.Error,
+	}
+}
+
+func printChannelStatus(e *env, st localbackend.Status) {
+	if st.Channels.Syncing {
+		e.out.Human("Channels:     replicating")
+	} else if !st.Channels.SyncedAt.IsZero() {
+		e.out.Human("Channels:     %d in local replica (updated %s)", st.Channels.Count, st.Channels.SyncedAt.Format("2006-01-02 15:04:05"))
+	} else {
+		e.out.Human("Channels:     not replicated")
+	}
+	if st.Channels.Error != "" {
+		e.out.Human(" (error: %s)", st.Channels.Error)
 	}
 	e.out.Human("\n")
 }

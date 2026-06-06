@@ -43,6 +43,7 @@ type Status struct {
 	LastError string
 	Bridges   []BridgeStatus
 	Contacts  ContactStatus
+	Channels  ChannelStatus
 	Device    DeviceStatus
 }
 
@@ -54,6 +55,14 @@ type ContactStatus struct {
 	Count        int
 	SyncedAt     time.Time
 	Error        string
+}
+
+// ChannelStatus describes the backend's local channel replica.
+type ChannelStatus struct {
+	Syncing  bool
+	Count    int
+	SyncedAt time.Time
+	Error    string
 }
 
 // Client talks to a running local backend process.
@@ -101,6 +110,12 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 			Count:        res.Contacts.Count,
 			SyncedAt:     res.Contacts.SyncedAt,
 			Error:        res.Contacts.Error,
+		},
+		Channels: ChannelStatus{
+			Syncing:  res.Channels.Syncing,
+			Count:    res.Channels.Count,
+			SyncedAt: res.Channels.SyncedAt,
+			Error:    res.Channels.Error,
 		},
 	}
 	if res.Device != nil {
@@ -167,8 +182,12 @@ func (c *Client) Trace(ctx context.Context, target string) (meshcore.Trace, erro
 }
 
 func (c *Client) Channels(ctx context.Context) ([]meshcore.Channel, error) {
+	return c.ChannelsWithOptions(ctx, false)
+}
+
+func (c *Client) ChannelsWithOptions(ctx context.Context, refresh bool) ([]meshcore.Channel, error) {
 	var out []meshcore.Channel
-	err := c.call(ctx, "channels", nil, &out)
+	err := c.call(ctx, "channels", channelsParams{Refresh: refresh}, &out)
 	return out, err
 }
 

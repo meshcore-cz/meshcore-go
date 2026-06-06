@@ -163,6 +163,12 @@ Work with channel slots.
   mc channel list                  list configured channels
   mc channel show Public           show a channel by name or index
   mc channel send Public "hello"   send a message to a channel
+
+Channels are served from the backend's local replica. Use --refresh to force a
+radio sync and update the replica.
+
+Flags:
+  --refresh        Force a radio sync and update the local replica
 ` + globalFlags,
 
 	"repeater": `Usage: mc repeater <list|add|del|status|neighbours|exec> [args] [flags]

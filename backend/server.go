@@ -40,6 +40,11 @@ type Server struct {
 	contactSyncedAt   time.Time
 	contactError      string
 	contactSyncMu   sync.Mutex
+	channelSyncing  bool
+	channelCount    int
+	channelSyncedAt time.Time
+	channelError    string
+	channelSyncMu   sync.Mutex
 	radioMu         sync.Mutex // serialises live radio I/O
 	deviceInfo      meshcore.DeviceInfo
 	deviceInfoOK    bool
@@ -262,6 +267,21 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		client := s.clientSnapshot()
 		return s.contact(ctx, client, p.Query)
+	case "channels":
+		var p channelsParams
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+		}
+		client := s.clientSnapshot()
+		return s.channels(ctx, client, p)
+	case "channel":
+		var p queryParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		return s.channel(ctx, p.Query)
 	}
 	if !s.healthy() {
 		return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
@@ -313,14 +333,6 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return client.TraceContact(ctx, ct)
 		}
 		return client.Trace(ctx, p.Query)
-	case "channels":
-		return client.Channels(ctx)
-	case "channel":
-		var p queryParams
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, err
-		}
-		return client.Channel(ctx, p.Query)
 	case "send_channel_text":
 		var p channelSendParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -490,9 +502,15 @@ func (s *Server) scheduleInitialContactSync() {
 		contacts, err := s.syncContacts(ctx, client)
 		if err != nil {
 			Logf("contact sync failed: %v", err)
+		} else {
+			Logf("contacts replicated: %d", len(contacts))
+		}
+		channels, err := s.syncChannels(ctx, client)
+		if err != nil {
+			Logf("channel sync failed: %v", err)
 			return
 		}
-		Logf("contacts replicated: %d", len(contacts))
+		Logf("channels replicated: %d", len(channels))
 	}()
 }
 
@@ -536,6 +554,97 @@ func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]m
 	s.contactError = ""
 	s.mu.Unlock()
 	return contacts, nil
+}
+
+func (s *Server) syncChannels(ctx context.Context, client *meshcore.Client) ([]meshcore.Channel, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("backend channel replica is unavailable")
+	}
+	if client == nil {
+		err := fmt.Errorf("backend radio unavailable: no active client")
+		s.recordChannelSyncError(err)
+		return nil, err
+	}
+	s.channelSyncMu.Lock()
+	defer s.channelSyncMu.Unlock()
+	s.mu.Lock()
+	s.channelSyncing = true
+	s.channelError = ""
+	s.mu.Unlock()
+	Logf("channels sync started")
+	defer s.finishChannelSync()
+
+	channels, err := client.Channels(ctx)
+	if err != nil {
+		s.recordChannelSyncError(err)
+		return nil, err
+	}
+	if err := s.store.UpsertChannels(ctx, s.uri, channels); err != nil {
+		s.recordChannelSyncError(err)
+		return nil, err
+	}
+	s.mu.Lock()
+	s.channelCount = len(channels)
+	s.channelSyncedAt = time.Now()
+	s.channelError = ""
+	s.mu.Unlock()
+	return channels, nil
+}
+
+func (s *Server) recordChannelSyncError(err error) {
+	if err == nil {
+		return
+	}
+	s.mu.Lock()
+	s.channelError = err.Error()
+	s.mu.Unlock()
+}
+
+func (s *Server) finishChannelSync() {
+	s.mu.Lock()
+	s.channelSyncing = false
+	s.mu.Unlock()
+}
+
+func (s *Server) channels(ctx context.Context, client *meshcore.Client, opts channelsParams) ([]meshcore.Channel, error) {
+	if opts.Refresh {
+		if client == nil || !s.healthy() {
+			return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
+		}
+		return s.syncChannels(ctx, client)
+	}
+	return s.replicaChannels(ctx)
+}
+
+func (s *Server) replicaChannels(ctx context.Context) ([]meshcore.Channel, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("backend channel replica is unavailable")
+	}
+	entries, err := s.store.Channels(ctx, s.uri)
+	if err != nil {
+		return nil, err
+	}
+	channels := make([]meshcore.Channel, len(entries))
+	for i, entry := range entries {
+		channels[i] = entry.Channel
+	}
+	return channels, nil
+}
+
+// channel returns a channel from the backend's local replica. Channels are
+// synced from the radio explicitly via channels --refresh, not fetched per request.
+func (s *Server) channel(ctx context.Context, query string) (meshcore.Channel, error) {
+	if s.store == nil {
+		return meshcore.Channel{}, fmt.Errorf("backend channel replica is unavailable")
+	}
+	entry, err := s.store.Channel(ctx, s.uri, query)
+	if err != nil {
+		if IsNotFound(err) {
+			return meshcore.Channel{}, fmt.Errorf("no local channel matching %q; run `mc channel list --refresh` to sync from radio", query)
+		}
+		return meshcore.Channel{}, err
+	}
+	return entry.Channel, nil
 }
 
 func (s *Server) recordContactSyncError(err error) {
@@ -684,6 +793,12 @@ func (s *Server) status() statusResult {
 			Count:        s.contactCount,
 			SyncedAt:     s.contactSyncedAt,
 			Error:        s.contactError,
+		},
+		Channels: channelStatus{
+			Syncing:  s.channelSyncing,
+			Count:    s.channelCount,
+			SyncedAt: s.channelSyncedAt,
+			Error:    s.channelError,
 		},
 	}
 	if snap := s.deviceStatusSnapshotLocked(); snap != nil {
@@ -839,7 +954,13 @@ func (s *Server) methodUsesRadio(method string, params json.RawMessage) bool {
 			_ = json.Unmarshal(params, &p)
 		}
 		return p.Refresh
-	case "contact", "device_info":
+	case "channels":
+		var p channelsParams
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		return p.Refresh
+	case "contact", "channel", "device_info":
 		return false
 	default:
 		return true

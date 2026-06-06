@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,13 @@ CREATE TABLE IF NOT EXISTS contacts (
 	PRIMARY KEY (device, public_key)
 );
 CREATE INDEX IF NOT EXISTS idx_contacts_device_name ON contacts(device, name);
+CREATE TABLE IF NOT EXISTS channels (
+	device TEXT NOT NULL,
+	idx INTEGER NOT NULL,
+	name TEXT NOT NULL,
+	cached_at TEXT NOT NULL,
+	PRIMARY KEY (device, idx)
+);
 CREATE TABLE IF NOT EXISTS repeater_sessions (
 	device TEXT NOT NULL,
 	repeater TEXT NOT NULL,
@@ -174,6 +182,87 @@ func (s *SQLiteStore) Contact(ctx context.Context, device, query string) (Contac
 	default:
 		return ContactCacheEntry{}, fmt.Errorf("cached contact %q is ambiguous (%d matches)", query, len(partial))
 	}
+}
+
+// UpsertChannels replaces the replicated channel set for device. Channels are
+// slot-based, so a full sync clears stale slots (renamed or removed channels)
+// before inserting the current set.
+func (s *SQLiteStore) UpsertChannels(ctx context.Context, device string, channels []meshcore.Channel) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM channels WHERE device = ?`, device); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	stmt, err := tx.PrepareContext(ctx, `
+INSERT INTO channels(device, idx, name, cached_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(device, idx) DO UPDATE SET
+	name=excluded.name,
+	cached_at=excluded.cached_at
+`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, ch := range channels {
+		if _, err := stmt.ExecContext(ctx, device, ch.Index, ch.Name, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) Channels(ctx context.Context, device string) ([]ChannelCacheEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT idx, name, cached_at
+FROM channels
+WHERE device = ?
+ORDER BY idx
+`, device)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ChannelCacheEntry
+	for rows.Next() {
+		var ch meshcore.Channel
+		var cachedAt string
+		if err := rows.Scan(&ch.Index, &ch.Name, &cachedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, ChannelCacheEntry{Channel: ch, Device: device, CachedAt: cachedAt})
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) Channel(ctx context.Context, device, query string) (ChannelCacheEntry, error) {
+	channels, err := s.Channels(ctx, device)
+	if err != nil {
+		return ChannelCacheEntry{}, err
+	}
+	q := strings.TrimPrefix(strings.TrimSpace(query), "#")
+	if idx, err := strconv.Atoi(q); err == nil {
+		for _, entry := range channels {
+			if entry.Channel.Index == idx {
+				return entry, nil
+			}
+		}
+		return ChannelCacheEntry{}, sql.ErrNoRows
+	}
+	for _, entry := range channels {
+		if strings.EqualFold(entry.Channel.Name, q) {
+			return entry, nil
+		}
+	}
+	return ChannelCacheEntry{}, sql.ErrNoRows
 }
 
 type contactScanner interface {

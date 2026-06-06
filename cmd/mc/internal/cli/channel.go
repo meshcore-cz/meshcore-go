@@ -26,7 +26,7 @@ func channelList(ctx context.Context, e *env) error {
 	}
 	defer backend.Close()
 
-	channels, err := backend.Channels(ctx)
+	channels, err := backend.ChannelsWithOptions(ctx, e.args.has("refresh"))
 	if err != nil {
 		return err
 	}

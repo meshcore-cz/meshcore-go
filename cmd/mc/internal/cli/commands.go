@@ -53,6 +53,7 @@ func cmdStatus(ctx context.Context, e *env) error {
 		e.out.Human("Transport:    %s\n", st.URI)
 		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
 		printContactStatus(e, st)
+		printChannelStatus(e, st)
 		if st.LastError != "" {
 			e.out.Human("Last error:   %s\n", st.LastError)
 		}
@@ -123,6 +124,7 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 	if backendRunning {
 		e.out.Human("Backend:      %s (pid %d)\n", st.State, st.PID)
 		printContactStatus(e, st)
+		printChannelStatus(e, st)
 	} else {
 		e.out.Human("Backend:      not running\n")
 	}
