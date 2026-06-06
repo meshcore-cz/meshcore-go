@@ -159,3 +159,24 @@ func TestPrimaryURIPrefersTransport(t *testing.T) {
 		t.Errorf("PrimaryURI = %q", got)
 	}
 }
+
+func TestRepeaterRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfg := &Config{Version: 1}
+	cfg.PutRepeater("mc.kololec.cz", Repeater{Name: "mc.kololec.cz", Password: "secret"}, true)
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.CurrentRepeater != "mc.kololec.cz" {
+		t.Errorf("current repeater = %q", loaded.CurrentRepeater)
+	}
+	if got := loaded.Repeaters["mc.kololec.cz"].Password; got != "secret" {
+		t.Errorf("password = %q", got)
+	}
+}

@@ -78,8 +78,12 @@ func (c *Client) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
 }
 
 func (c *Client) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
+	return c.ContactsWithOptions(ctx, false, false)
+}
+
+func (c *Client) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
 	var out []meshcore.Contact
-	err := c.call(ctx, "contacts", nil, &out)
+	err := c.call(ctx, "contacts", contactsParams{Cached: cached, Refresh: refresh}, &out)
 	return out, err
 }
 

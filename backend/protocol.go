@@ -42,6 +42,11 @@ type queryParams struct {
 	Query string `json:"query"`
 }
 
+type contactsParams struct {
+	Cached  bool `json:"cached"`
+	Refresh bool `json:"refresh"`
+}
+
 type channelSendParams struct {
 	Channel string `json:"channel"`
 	Text    string `json:"text"`

@@ -2,12 +2,14 @@ package backend
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ type Server struct {
 	opts     []meshcore.DialOption
 	client   *meshcore.Client
 	listener net.Listener
+	store    Store
 
 	mu        sync.RWMutex
 	state     string
@@ -44,11 +47,17 @@ func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*S
 	if err != nil {
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
 	}
+	store, err := OpenSQLiteStore("")
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("opening backend store: %w", err)
+	}
 	return &Server{
 		uri:      uri,
 		socket:   SocketPath(),
 		opts:     append([]meshcore.DialOption(nil), opts...),
 		client:   client,
+		store:    store,
 		state:    stateReady,
 		lastSeen: time.Now(),
 		stopped:  make(chan struct{}),
@@ -74,11 +83,15 @@ func (s *Server) Serve() error {
 	}
 	s.listener = ln
 	go s.keepAlive()
+	go s.refreshContacts(context.Background())
 	defer func() {
 		ln.Close()
 		os.Remove(s.socket)
 		if client := s.clientSnapshot(); client != nil {
 			client.Close()
+		}
+		if s.store != nil {
+			s.store.Close()
 		}
 		close(s.stopped)
 	}()
@@ -195,6 +208,22 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		return s.status(), nil
 	case "stop":
 		return map[string]bool{"stopping": true}, nil
+	case "contacts":
+		var p contactsParams
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+		}
+		client := s.clientSnapshot()
+		return s.contacts(ctx, client, p)
+	case "contact":
+		var p queryParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		client := s.clientSnapshot()
+		return s.contact(ctx, client, p.Query)
 	}
 	if !s.healthy() {
 		return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
@@ -207,20 +236,16 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 	switch method {
 	case "device_info":
 		return client.DeviceInfo(ctx)
-	case "contacts":
-		return client.Contacts(ctx)
-	case "contact":
-		var p queryParams
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, err
-		}
-		return client.Contact(ctx, p.Query)
 	case "inbox":
 		return client.SyncMessages(ctx)
 	case "send_text":
 		var p sendTextParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
+		}
+		ct, err := s.contact(ctx, client, p.Recipient)
+		if err == nil {
+			return client.SendTextToContact(ctx, ct, p.Text)
 		}
 		return client.SendText(ctx, p.Recipient, p.Text)
 	case "wait_ack":
@@ -233,6 +258,12 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
+		}
+		if _, ok := parseBackendHashPath(p.Query); !ok {
+			ct, err := s.contact(ctx, client, p.Query)
+			if err == nil {
+				return client.TraceContact(ctx, ct)
+			}
 		}
 		return client.Trace(ctx, p.Query)
 	case "channels":
@@ -274,10 +305,13 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return client.RepeaterLogin(ctx, p.Repeater, p.Password)
+		return s.repeaterLogin(ctx, client, p.Repeater, p.Password)
 	case "repeater_status":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if err := s.ensureRepeaterSession(ctx, client, p.Query, ""); err != nil {
 			return nil, err
 		}
 		return client.RepeaterStatus(ctx, p.Query)
@@ -286,16 +320,153 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
+		if err := s.ensureRepeaterSession(ctx, client, p.Query, ""); err != nil {
+			return nil, err
+		}
 		return client.RepeaterNeighbours(ctx, p.Query)
 	case "repeater_exec":
 		var p repeaterExecParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
+		if err := s.ensureRepeaterSession(ctx, client, p.Repeater, ""); err != nil {
+			return nil, err
+		}
 		return client.RepeaterExec(ctx, p.Repeater, p.Command)
 	default:
 		return nil, fmt.Errorf("unknown backend method %q", method)
 	}
+}
+
+func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts contactsParams) ([]meshcore.Contact, error) {
+	if opts.Refresh {
+		if client == nil || !s.healthy() {
+			return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
+		}
+		return s.refreshContactsNow(ctx, client)
+	}
+
+	cached, err := s.cachedContacts(ctx)
+	if err == nil && len(cached) > 0 {
+		if client != nil && s.healthy() && !opts.Cached {
+			go s.refreshContacts(context.Background())
+		}
+		return cached, nil
+	}
+
+	if opts.Cached {
+		return cached, err
+	}
+	if client == nil || !s.healthy() {
+		if err != nil {
+			return nil, err
+		}
+		return cached, nil
+	}
+	return s.refreshContactsNow(ctx, client)
+}
+
+func (s *Server) contact(ctx context.Context, client *meshcore.Client, query string) (meshcore.Contact, error) {
+	if s.store != nil {
+		entry, err := s.store.Contact(ctx, s.uri, query)
+		if err == nil {
+			if client != nil && s.healthy() {
+				go s.refreshContacts(context.Background())
+			}
+			return entry.Contact, nil
+		}
+		if err != nil && !IsNotFound(err) {
+			return meshcore.Contact{}, err
+		}
+	}
+	if client != nil && s.healthy() {
+		ct, err := client.Contact(ctx, query)
+		if err == nil {
+			return ct, nil
+		}
+	}
+	if s.store == nil {
+		return meshcore.Contact{}, fmt.Errorf("backend contact cache is unavailable")
+	}
+	entry, err := s.store.Contact(ctx, s.uri, query)
+	if err != nil {
+		if IsNotFound(err) {
+			return meshcore.Contact{}, fmt.Errorf("no cached contact matching %q", query)
+		}
+		return meshcore.Contact{}, err
+	}
+	return entry.Contact, nil
+}
+
+func (s *Server) refreshContactsNow(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {
+	contacts, err := client.Contacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.store != nil {
+		_ = s.store.UpsertContacts(ctx, s.uri, contacts)
+	}
+	return contacts, nil
+}
+
+func (s *Server) cachedContacts(ctx context.Context) ([]meshcore.Contact, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("backend contact cache is unavailable")
+	}
+	entries, err := s.store.Contacts(ctx, s.uri)
+	if err != nil {
+		return nil, err
+	}
+	contacts := make([]meshcore.Contact, len(entries))
+	for i, entry := range entries {
+		contacts[i] = entry.Contact
+	}
+	return contacts, nil
+}
+
+func (s *Server) repeaterLogin(ctx context.Context, client *meshcore.Client, repeater, password string) (meshcore.RepeaterSession, error) {
+	session, err := client.RepeaterLogin(ctx, repeater, password)
+	if err != nil {
+		if s.store != nil {
+			_ = s.store.ClearRepeaterSession(ctx, s.uri, repeater)
+		}
+		return meshcore.RepeaterSession{}, err
+	}
+	if s.store != nil {
+		_ = s.store.UpsertRepeaterSession(ctx, s.uri, session)
+	}
+	return session, nil
+}
+
+func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Client, repeater, password string) error {
+	if s.store != nil {
+		session, err := s.store.RepeaterSession(ctx, s.uri, repeater)
+		if err == nil && session.Active() {
+			return nil
+		}
+	}
+
+	active, err := client.RepeaterHasConnection(ctx, repeater)
+	if err == nil && active {
+		if s.store != nil {
+			ct, contactErr := s.contact(ctx, client, repeater)
+			if contactErr == nil {
+				_ = s.store.UpsertRepeaterSession(ctx, s.uri, meshcore.RepeaterSession{
+					Repeater:   ct.Name,
+					PublicKey:  ct.PublicKey,
+					LoggedInAt: time.Now(),
+					ExpiresAt:  time.Now().Add(30 * time.Minute),
+				})
+			}
+		}
+		return nil
+	}
+
+	if password == "" {
+		return nil
+	}
+	_, err = s.repeaterLogin(ctx, client, repeater, password)
+	return err
 }
 
 func (s *Server) keepAlive() {
@@ -349,10 +520,11 @@ func (s *Server) status() statusResult {
 
 func (s *Server) markReady() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.state = stateReady
 	s.lastSeen = time.Now()
 	s.lastError = ""
+	s.mu.Unlock()
+	go s.refreshContacts(context.Background())
 }
 
 func (s *Server) markDegraded(err error) {
@@ -410,6 +582,7 @@ func (s *Server) tryReconnect() {
 	if old != nil {
 		old.Close()
 	}
+	go s.refreshContacts(context.Background())
 }
 
 func (s *Server) markReconnectFailed(err error) {
@@ -419,6 +592,23 @@ func (s *Server) markReconnectFailed(err error) {
 	if err != nil {
 		s.lastError = err.Error()
 	}
+}
+
+func (s *Server) refreshContacts(ctx context.Context) {
+	if s.store == nil {
+		return
+	}
+	client := s.clientSnapshot()
+	if client == nil || !s.healthy() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	contacts, err := client.Contacts(ctx)
+	if err != nil {
+		return
+	}
+	_ = s.store.UpsertContacts(ctx, s.uri, contacts)
 }
 
 func connContext() context.Context {
@@ -465,4 +655,23 @@ func RawResultFromMessage(msg protocol.Message) RawResult {
 			Decoded: fmt.Sprintf("%+v", msg),
 		}
 	}
+}
+
+func parseBackendHashPath(s string) ([]byte, bool) {
+	fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
+	if len(fields) == 0 {
+		return nil, false
+	}
+	path := make([]byte, 0, len(fields))
+	for _, f := range fields {
+		if len(f) != 2 {
+			return nil, false
+		}
+		b, err := hex.DecodeString(f)
+		if err != nil {
+			return nil, false
+		}
+		path = append(path, b[0])
+	}
+	return path, true
 }

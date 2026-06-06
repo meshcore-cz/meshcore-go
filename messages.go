@@ -49,6 +49,14 @@ func (c *Client) SendText(ctx context.Context, recipient, text string) (Receipt,
 	if err != nil {
 		return Receipt{}, err
 	}
+	return c.SendTextToContact(ctx, contact, text)
+}
+
+// SendTextToContact sends a direct text message to an already-resolved contact.
+func (c *Client) SendTextToContact(ctx context.Context, contact Contact, text string) (Receipt, error) {
+	if err := c.requireCapability(CapabilityMessages); err != nil {
+		return Receipt{}, err
+	}
 	key, err := decodeKey(contact.PublicKey)
 	if err != nil {
 		return Receipt{}, err

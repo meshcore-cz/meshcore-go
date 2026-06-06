@@ -63,6 +63,10 @@ automatically; when it is not running, commands dial the radio directly.
 	"contacts": `Usage: mcr contacts [flags]
 
 List the contacts stored on the device.
+
+Flags:
+  --cached         Read contacts from the backend's local replica only
+  --refresh        Force a radio sync and update the local replica
 ` + globalFlags,
 
 	"contact": `Usage: mcr contact show <name> [flags]

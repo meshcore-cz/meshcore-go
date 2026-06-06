@@ -14,13 +14,13 @@ import (
 
 // cmdContacts implements `mcr contacts`.
 func cmdContacts(ctx context.Context, e *env) error {
-	backend, err := openBackend(ctx, e)
+	backend, err := openContactsBackend(ctx, e)
 	if err != nil {
 		return err
 	}
 	defer backend.Close()
 
-	contacts, err := backend.Contacts(ctx)
+	contacts, err := backend.ContactsWithOptions(ctx, e.args.has("cached"), e.args.has("refresh"))
 	if err != nil {
 		return err
 	}
@@ -28,8 +28,15 @@ func cmdContacts(ctx context.Context, e *env) error {
 		return e.out.JSONValue(contacts)
 	}
 	if len(contacts) == 0 {
-		e.out.Human("No contacts.\n")
+		if e.args.has("cached") {
+			e.out.Human("No cached contacts.\n")
+		} else {
+			e.out.Human("No contacts.\n")
+		}
 		return nil
+	}
+	if e.args.has("cached") {
+		e.out.Human("Cached contacts:\n")
 	}
 	e.out.Human("%-26s %-9s %-5s %s\n", "NAME", "TYPE", "PATH", "PUBLIC KEY")
 	for _, ct := range contacts {
@@ -40,6 +47,13 @@ func cmdContacts(ctx context.Context, e *env) error {
 		e.out.Human("%-26s %-9s %-5s %s\n", ct.Name, ct.Type, path, shortKey(ct.PublicKey))
 	}
 	return nil
+}
+
+func openContactsBackend(ctx context.Context, e *env) (Backend, error) {
+	if e.args.has("cached") {
+		return openIPCBackendAllowDegraded(ctx)
+	}
+	return openBackend(ctx, e)
 }
 
 // cmdContact implements `mcr contact show <name>`.

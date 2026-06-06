@@ -38,7 +38,22 @@ func (c *Client) Trace(ctx context.Context, target string) (Trace, error) {
 	if err != nil {
 		return Trace{}, err
 	}
+	return c.tracePath(ctx, path, name)
+}
 
+// TraceContact traces a route to an already-resolved contact.
+func (c *Client) TraceContact(ctx context.Context, contact Contact) (Trace, error) {
+	if err := c.requireCapability(CapabilityTracing); err != nil {
+		return Trace{}, err
+	}
+	key, err := hex.DecodeString(contact.PublicKey)
+	if err != nil || len(key) == 0 {
+		return Trace{}, fmt.Errorf("trace: contact %q has no usable key", contact.Name)
+	}
+	return c.tracePath(ctx, []byte{key[0]}, contact.Name)
+}
+
+func (c *Client) tracePath(ctx context.Context, path []byte, name string) (Trace, error) {
 	tag := rand.Uint32()
 	started := time.Now()
 

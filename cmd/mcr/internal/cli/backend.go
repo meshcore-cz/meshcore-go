@@ -18,6 +18,7 @@ type Backend interface {
 	Transport() string
 	DeviceInfo(context.Context) (meshcore.DeviceInfo, error)
 	Contacts(context.Context) ([]meshcore.Contact, error)
+	ContactsWithOptions(context.Context, bool, bool) ([]meshcore.Contact, error)
 	Contact(context.Context, string) (meshcore.Contact, error)
 	Inbox(context.Context) ([]meshcore.Message, error)
 	SendText(context.Context, string, string) (meshcore.Receipt, error)
@@ -79,6 +80,15 @@ func openIPCBackend(ctx context.Context) (*ipcBackend, error) {
 	return &ipcBackend{client: client, status: status}, nil
 }
 
+func openIPCBackendAllowDegraded(ctx context.Context) (*ipcBackend, error) {
+	client := localbackend.NewClient("")
+	status, err := client.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ipcBackend{client: client, status: status}, nil
+}
+
 func openDirectBackend(ctx context.Context, e *env) (*directBackend, error) {
 	client, uri, err := connect(ctx, e)
 	if err != nil {
@@ -104,6 +114,13 @@ func (b *directBackend) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, er
 }
 
 func (b *directBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
+	return b.svc.Contacts(ctx)
+}
+
+func (b *directBackend) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
+	if cached {
+		return nil, fmt.Errorf("cached contacts require the local backend")
+	}
 	return b.svc.Contacts(ctx)
 }
 
@@ -190,6 +207,10 @@ func (b *ipcBackend) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error
 
 func (b *ipcBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
 	return b.client.Contacts(ctx)
+}
+
+func (b *ipcBackend) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
+	return b.client.ContactsWithOptions(ctx, cached, refresh)
 }
 
 func (b *ipcBackend) Contact(ctx context.Context, name string) (meshcore.Contact, error) {
