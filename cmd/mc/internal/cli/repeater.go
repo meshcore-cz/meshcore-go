@@ -316,6 +316,15 @@ func runRepeaterQuery(ctx context.Context, e *env, op string, nameIndex int, que
 	}
 	e.dbg.CommandDone("repeater "+op, cmdStart, "stats", resp.Stats != nil, "bytes", len(resp.Text))
 	e.dbg.Log("repeater "+op+" ok", "name", name, "bytes", len(resp.Text), "stats", resp.Stats != nil)
+	if resp.Command == "neighbors" {
+		var repeater meshcore.Contact
+		if ct, err := backend.Contact(ctx, name); err == nil {
+			repeater = ct
+		}
+		if contacts, err := backend.Contacts(ctx); err == nil {
+			resp.Neighbours = meshcore.EnrichRepeaterNeighbours(resp.Neighbours, repeater, contacts)
+		}
+	}
 	return printRepeaterResponse(e, resp)
 }
 
