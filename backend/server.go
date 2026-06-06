@@ -104,6 +104,10 @@ func (s *Server) handle(conn net.Conn) {
 		s.watch(conn, req.ID)
 		return
 	}
+	if req.Method == "watch_raw" {
+		s.watchRaw(conn, req.ID)
+		return
+	}
 
 	result, err := s.dispatch(connContext(), req.Method, req.Params)
 	resp := response{ID: req.ID, OK: err == nil}
@@ -134,6 +138,18 @@ func (s *Server) watch(conn net.Conn, id uint64) {
 			continue
 		}
 		if err := enc.Encode(out); err != nil {
+			return
+		}
+	}
+}
+
+func (s *Server) watchRaw(conn net.Conn, id uint64) {
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
+		return
+	}
+	for pkt := range s.client.RawPackets() {
+		if err := enc.Encode(pkt); err != nil {
 			return
 		}
 	}

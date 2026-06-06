@@ -252,6 +252,10 @@ func printTrace(e *env, trace meshcore.Trace) {
 
 // cmdWatch implements `mcr watch`: stream asynchronous events.
 func cmdWatch(ctx context.Context, e *env) error {
+	if e.args.has("raw") {
+		return cmdWatchRaw(ctx, e)
+	}
+
 	if !e.args.has("direct") {
 		if err := cmdWatchBackend(ctx, e); err == nil {
 			return nil
@@ -286,6 +290,63 @@ func cmdWatch(ctx context.Context, e *env) error {
 			printEvent(e, ev, names)
 		}
 	}
+}
+
+func cmdWatchRaw(ctx context.Context, e *env) error {
+	e.out.JSON = true
+	if !e.args.has("direct") {
+		if err := cmdWatchRawBackend(ctx, e); err == nil {
+			return nil
+		}
+	}
+
+	uri, _, err := resolveURI(e)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	client, err := meshcore.Dial(ctx, uri, dialOptions(e)...)
+	if err != nil {
+		return fmt.Errorf("connecting to %s: %w", uri, err)
+	}
+	defer client.Close()
+
+	e.out.Human("Watching raw packets from %s (Ctrl-C to stop)...\n", uri)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case pkt, ok := <-client.RawPackets():
+			if !ok {
+				return nil
+			}
+			printRawPacket(e, pkt)
+		}
+	}
+}
+
+func cmdWatchRawBackend(ctx context.Context, e *env) error {
+	client := localbackend.NewClient("")
+	st, err := client.Status(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	packets, err := client.WatchRaw(ctx)
+	if err != nil {
+		return err
+	}
+	e.out.Human("Watching raw packets from backend %s (Ctrl-C to stop)...\n", st.URI)
+	for pkt := range packets {
+		printRawPacket(e, pkt)
+	}
+	return nil
 }
 
 func cmdWatchBackend(ctx context.Context, e *env) error {
@@ -360,5 +421,29 @@ func printBackendEvent(e *env, ev localbackend.Event) {
 		e.out.Human("advert: %s\n", ev.Name)
 	case "disconnected":
 		e.out.Human("disconnected: %s\n", ev.Error)
+	}
+}
+
+func printRawPacket(e *env, pkt meshcore.RawPacket) {
+	row := map[string]any{
+		"timestamp":    pkt.Timestamp,
+		"direction":    pkt.Direction,
+		"type":         fmt.Sprintf("0x%02x", pkt.Type),
+		"async":        pkt.Async,
+		"decoded_type": pkt.DecodedType,
+		"length":       len(pkt.Bytes),
+		"bytes":        hexLine(pkt.Bytes),
+	}
+	if pkt.DecodeError != "" {
+		row["decode_error"] = pkt.DecodeError
+	}
+	if e.out.JSON {
+		_ = e.out.Line(row)
+		return
+	}
+	e.out.Human("%s %-3s type=0x%02x async=%t len=%d %s\n",
+		pkt.Timestamp.Format("15:04:05.000"), pkt.Direction, pkt.Type, pkt.Async, len(pkt.Bytes), hexLine(pkt.Bytes))
+	if pkt.DecodeError != "" {
+		e.out.Human("  decode error: %s\n", pkt.DecodeError)
 	}
 }

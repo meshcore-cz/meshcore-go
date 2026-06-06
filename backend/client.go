@@ -181,6 +181,58 @@ func (c *Client) Watch(ctx context.Context) (<-chan Event, error) {
 	return out, nil
 }
 
+// WatchRaw streams inbound raw packets until ctx is cancelled or the backend
+// closes the stream.
+func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error) {
+	d := net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "unix", c.socket)
+	if err != nil {
+		return nil, err
+	}
+
+	req := request{ID: c.nextID.Add(1), Method: "watch_raw"}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	dec := json.NewDecoder(bufio.NewReader(conn))
+	var resp response
+	if err := dec.Decode(&resp); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if !resp.OK {
+		conn.Close()
+		if resp.Error == "" {
+			resp.Error = "unknown backend error"
+		}
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+
+	out := make(chan meshcore.RawPacket)
+	go func() {
+		defer conn.Close()
+		defer close(out)
+		go func() {
+			<-ctx.Done()
+			_ = conn.Close()
+		}()
+		for {
+			var pkt meshcore.RawPacket
+			if err := dec.Decode(&pkt); err != nil {
+				return
+			}
+			select {
+			case out <- pkt:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
 func (c *Client) call(ctx context.Context, method string, params, out any) error {
 	d := net.Dialer{Timeout: dialTimeout}
 

@@ -92,6 +92,11 @@ Flags:
 
 Stream incoming messages and events until interrupted (Ctrl-C). With --json,
 each event is emitted as a newline-delimited JSON object.
+
+  mcr watch --raw                 stream every inbound packet as JSON lines
+
+Flags:
+  --raw           Stream all inbound companion packets as JSON lines
 ` + globalFlags,
 
 	"shell": `Usage: mcr shell [flags]

@@ -50,6 +50,18 @@ type RawEvent struct {
 	Payload []byte
 }
 
+// RawPacket is an inbound companion-protocol packet observed before the client
+// routes it as a response or asynchronous event.
+type RawPacket struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Direction   string    `json:"direction"`
+	Bytes       []byte    `json:"bytes"`
+	Type        byte      `json:"type"`
+	Async       bool      `json:"async"`
+	DecodedType string    `json:"decoded_type,omitempty"`
+	DecodeError string    `json:"decode_error,omitempty"`
+}
+
 func (MessageReceived) isMeshCoreEvent()       {}
 func (MessageAcknowledged) isMeshCoreEvent()   {}
 func (AdvertisementReceived) isMeshCoreEvent() {}

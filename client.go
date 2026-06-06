@@ -35,6 +35,7 @@ type Client struct {
 
 	queue  *queue.Queue
 	events *dispatcher.Dispatcher[Event]
+	raw    *dispatcher.Dispatcher[RawPacket]
 
 	timeout time.Duration
 	log     *slog.Logger
@@ -91,6 +92,7 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 		proto:   companion.New(),
 		queue:   queue.New(),
 		events:  dispatcher.New[Event](64),
+		raw:     dispatcher.New[RawPacket](256),
 		timeout: DefaultTimeout,
 		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		acks:    make(chan uint32, 16),
@@ -158,13 +160,16 @@ func (c *Client) readLoop(ctx context.Context) {
 				c.events.Emit(Disconnected{Err: err})
 			}
 			c.events.Close()
+			c.raw.Close()
 			return
 		}
 		msg, err := c.proto.Decode(pkt)
 		if err != nil {
+			c.raw.Emit(rawPacket(pkt, nil, err))
 			c.log.Debug("decode error", "bytes", len(pkt), "error", err)
 			continue
 		}
+		c.raw.Emit(rawPacket(pkt, msg, nil))
 		if msg.Async() {
 			c.log.Debug("event", "type", msgType(msg))
 			c.handleAsync(msg)
@@ -228,6 +233,25 @@ func msgType(msg protocol.Message) string {
 		return fmt.Sprintf("raw(0x%02x)", raw.Type)
 	}
 	return fmt.Sprintf("%T", msg)
+}
+
+func rawPacket(pkt []byte, msg protocol.Message, decodeErr error) RawPacket {
+	out := RawPacket{
+		Timestamp: time.Now(),
+		Direction: "in",
+		Bytes:     append([]byte(nil), pkt...),
+	}
+	if len(pkt) > 0 {
+		out.Type = pkt[0]
+	}
+	if msg != nil {
+		out.Async = msg.Async()
+		out.DecodedType = msgType(msg)
+	}
+	if decodeErr != nil {
+		out.DecodeError = decodeErr.Error()
+	}
+	return out
 }
 
 // request sends a command and waits for the matching response, bounded by the
@@ -305,6 +329,12 @@ func (c *Client) RawSend(ctx context.Context, payload []byte) (protocol.Message,
 // connection ends.
 func (c *Client) Events() <-chan Event {
 	return c.events.Events()
+}
+
+// RawPackets returns inbound packets observed by the read loop before response
+// matching or event translation.
+func (c *Client) RawPackets() <-chan RawPacket {
+	return c.raw.Events()
 }
 
 // Close shuts down the read loop and the transport.
