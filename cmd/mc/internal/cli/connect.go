@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
@@ -31,21 +32,29 @@ func cmdConnect(ctx context.Context, e *env) error {
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", uri, err)
 	}
-	defer client.Close()
-
 	info, err := client.DeviceInfo(ctx)
 	if err != nil {
+		client.Close()
 		return err
 	}
+	client.Close()
+	if schemeOf(uri) == "ble" {
+		// Let the OS release the BLE connection before the backend dials again.
+		time.Sleep(time.Second)
+	}
+
 	e.out.Human("Connected successfully.\n")
 
 	if e.args.has("no-save") {
+		if err := maybeOfferBackendStart(ctx, e, uri); err != nil {
+			return err
+		}
 		return e.out.JSONValue(map[string]string{"uri": uri, "name": info.Name, "saved": "false"})
 	}
 
 	name := e.args.flag("as")
 	if name == "" {
-		name = profileName(info.Name)
+		name = defaultProfileName(info.PublicKey, uri)
 		if !e.out.JSON {
 			name = promptDefault("Profile name", name)
 		}
@@ -67,7 +76,26 @@ func cmdConnect(ctx context.Context, e *env) error {
 
 	e.out.Human("Saved profile %q.\n", name)
 	e.out.Human("Using %q as the default device.\n", name)
+	if err := maybeOfferBackendStart(ctx, e, uri); err != nil {
+		return err
+	}
 	return e.out.JSONValue(map[string]string{"uri": uri, "name": info.Name, "profile": name, "saved": "true"})
+}
+
+func maybeOfferBackendStart(ctx context.Context, e *env, uri string) error {
+	if e.out.JSON {
+		return nil
+	}
+	if st, ok := backendStatus(ctx); ok {
+		if st.Healthy && st.Contacts.SyncedAt.IsZero() && !st.Contacts.Syncing {
+			syncBackendContacts(ctx, e)
+		}
+		return nil
+	}
+	if !promptYes("Start backend?", true) {
+		return nil
+	}
+	return backendStartURI(ctx, e, uri)
 }
 
 // discoverInteractive scans for endpoints and prompts the user to pick one.
@@ -118,13 +146,30 @@ func promptDefault(label, def string) string {
 	return line
 }
 
-func profileName(deviceName string) string {
-	n := strings.TrimPrefix(deviceName, "MeshCore-")
-	n = strings.ToLower(strings.TrimSpace(n))
-	if n == "" {
-		return "radio"
+func promptYes(label string, defaultYes bool) bool {
+	def := "Y/n"
+	if !defaultYes {
+		def = "y/N"
 	}
-	return n
+	fmt.Fprintf(os.Stderr, "%s [%s]: ", label, def)
+	r := bufio.NewReader(os.Stdin)
+	line, _ := r.ReadString('\n')
+	line = strings.ToLower(strings.TrimSpace(line))
+	if line == "" {
+		return defaultYes
+	}
+	return line == "y" || line == "yes"
+}
+
+func defaultProfileName(publicKey, uri string) string {
+	prefix := strings.ToLower(keyPrefix(publicKey))
+	if prefix == "" {
+		prefix = "radio"
+	}
+	if transport := schemeOf(uri); transport != "" {
+		return transport + ":" + prefix
+	}
+	return prefix
 }
 
 func schemeOf(uri string) string {

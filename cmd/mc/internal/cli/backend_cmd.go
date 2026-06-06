@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
@@ -13,7 +15,12 @@ import (
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 )
 
-const backendContactSyncTimeout = 90 * time.Second
+const (
+	backendContactSyncTimeout = 90 * time.Second
+	backendReadySerial        = 15 * time.Second
+	backendReadyBLE           = 45 * time.Second
+	backendReadyDefault       = 30 * time.Second
+)
 
 func cmdBackend(ctx context.Context, e *env) error {
 	switch e.restArg(0) {
@@ -35,6 +42,12 @@ func cmdBackend(ctx context.Context, e *env) error {
 func backendStart(ctx context.Context, e *env) error {
 	if st, ok := backendStatus(ctx); ok {
 		e.out.Human("Backend already running for %s (pid %d).\n", st.URI, st.PID)
+		if st.Healthy && st.Contacts.SyncedAt.IsZero() && !st.Contacts.Syncing {
+			syncBackendContacts(ctx, e)
+			if synced, ok := backendStatus(ctx); ok {
+				st = synced
+			}
+		}
 		return e.out.JSONValue(backendStatusJSON(st))
 	}
 
@@ -70,11 +83,21 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 	if err := startBackground(cmd); err != nil {
 		return err
 	}
+	fmt.Fprintf(logFile, "\n--- backend start %s uri=%s pid=%d ---\n", time.Now().Format(time.RFC3339), uri, cmd.Process.Pid)
+	_ = logFile.Sync()
 	_ = cmd.Process.Release()
 
-	deadline := time.Now().Add(5 * time.Second)
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- cmd.Wait() }()
+
+	deadline := time.Now().Add(backendReadyTimeout(uri))
 	for time.Now().Before(deadline) {
-		if st, ok := backendStatus(ctx); ok {
+		select {
+		case err := <-waitDone:
+			return backendStartFailed(logPath, uri, fmt.Errorf("backend exited: %w", err))
+		default:
+		}
+		if st, ok := backendStatus(ctx); ok && st.Healthy {
 			e.out.Human("Backend started for %s (pid %d).\n", st.URI, st.PID)
 			e.out.Human("Socket: %s\n", st.Socket)
 			e.out.Human("Log:    %s\n", logPath)
@@ -86,7 +109,55 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("backend did not become ready; see %s", logPath)
+	return backendStartFailed(logPath, uri, fmt.Errorf("timed out after %s", backendReadyTimeout(uri)))
+}
+
+func backendReadyTimeout(uri string) time.Duration {
+	switch schemeOf(uri) {
+	case "ble":
+		return backendReadyBLE
+	case "serial":
+		return backendReadySerial
+	default:
+		return backendReadyDefault
+	}
+}
+
+func backendStartFailed(logPath, uri string, err error) error {
+	msg := fmt.Sprintf("backend did not become ready: %v", err)
+	if tail := readLogTail(logPath, 4096); tail != "" {
+		msg += "\nlog:\n" + tail
+	} else {
+		msg += fmt.Sprintf("; see %s", logPath)
+		if schemeOf(uri) == "ble" {
+			msg += " (BLE connect can take up to ~30s; retry with `mc backend start`)"
+		}
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func readLogTail(path string, maxBytes int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return ""
+	}
+	start := int64(0)
+	if info.Size() > maxBytes {
+		start = info.Size() - maxBytes
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return ""
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func backendStop(ctx context.Context, e *env) error {
@@ -169,6 +240,7 @@ func backendServe(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "mc backend: connecting to %s\n", uri)
 	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(
 		meshcore.WithMessageSync(),
 		meshcore.WithTimeout(backendContactSyncTimeout),
@@ -179,8 +251,10 @@ func backendServe(ctx context.Context, e *env) error {
 	}
 	server, err := localbackend.NewServerWithBridges(ctx, uri, bridges, opts...)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "mc backend: connect failed: %v\n", err)
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "mc backend: ready on %s\n", localbackend.SocketPath())
 	return server.Serve()
 }
 

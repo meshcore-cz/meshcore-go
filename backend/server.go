@@ -50,6 +50,8 @@ const (
 
 	keepAliveInterval = 30 * time.Second
 	keepAliveTimeout  = 8 * time.Second
+
+	initialContactSyncTimeout = 90 * time.Second
 )
 
 // NewServer dials uri and prepares a local backend server.
@@ -103,6 +105,7 @@ func (s *Server) Serve() error {
 	s.listener = ln
 	go s.keepAlive()
 	s.startBridges()
+	s.scheduleInitialContactSync()
 	defer func() {
 		ln.Close()
 		os.Remove(s.socket)
@@ -413,6 +416,23 @@ func (s *Server) cachedContacts(ctx context.Context) ([]meshcore.Contact, error)
 		contacts[i] = entry.Contact
 	}
 	return contacts, nil
+}
+
+func (s *Server) scheduleInitialContactSync() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), initialContactSyncTimeout)
+		defer cancel()
+		client := s.clientSnapshot()
+		if client == nil || !s.healthy() {
+			return
+		}
+		contacts, err := s.syncContacts(ctx, client)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mc backend: contact sync failed: %v\n", err)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "mc backend: contacts synced: %d\n", len(contacts))
+	}()
 }
 
 func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {

@@ -21,7 +21,8 @@ var commandHelp = map[string]string{
 	"connect": `Usage: mc connect [uri] [flags]
 
 Discover or connect to a companion radio, verify it with a handshake, and
-(unless --no-save) save a profile and make it the default.
+(unless --no-save) save a profile and make it the default. In interactive mode,
+mc then offers to start the local backend for that endpoint.
 
   mc connect                       scan USB + BLE and choose interactively
   mc connect --usb                 scan USB serial only
