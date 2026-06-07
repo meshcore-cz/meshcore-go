@@ -3,7 +3,9 @@ package backend
 import "time"
 
 func (s *Server) lockRadio(method string) {
+	s.trackRadioWaiter(1)
 	s.radioMu.Lock()
+	s.trackRadioWaiter(-1)
 	s.mu.Lock()
 	s.radioActive = true
 	s.radioMethod = method

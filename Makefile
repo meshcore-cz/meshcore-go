@@ -7,7 +7,8 @@ BINDIR  := bin
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 PKG     := github.com/meshcore-cz/meshcore-go/cmd/mc/internal/cli
-LDFLAGS := -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT)
+BACKEND := github.com/meshcore-cz/meshcore-go/backend
+LDFLAGS := -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(BACKEND).Version=$(VERSION)
 
 .DEFAULT_GOAL := build
 

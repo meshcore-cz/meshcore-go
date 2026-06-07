@@ -9,6 +9,7 @@ import (
 	"net"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
 	meshcore "github.com/meshcore-cz/meshcore-go"
@@ -233,6 +234,7 @@ func (s *Server) leaveBridge(rt *bridgeRuntime) {
 	if s.state == stateBridge {
 		s.state = stateDegraded
 		s.lastError = "bridge disconnected; reconnecting SDK client"
+		s.lastErrorAt = time.Now()
 	}
 	rt.status.Active = false
 	s.bridgeStatuses[rt.status.Name] = rt.status

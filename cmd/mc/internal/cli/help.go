@@ -68,7 +68,8 @@ automatically; when it is not running, commands dial the radio directly.
   mc backend restart --reset   restart and delete local replica state first
   mc backend restart --uri ... restart onto an explicit endpoint
   mc backend start --uri ...   start the backend for an explicit endpoint
-  mc backend status            show backend socket, pid and endpoint
+  mc backend status            show backend daemon, radio and diagnostics
+  mc backend status --verbose  include poll config, requests and log path
   mc backend log               show recent backend log output
   mc backend log --follow      stream new log lines
   mc backend stop              stop the running backend

@@ -335,37 +335,11 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 		e.out.Human("Backend: not running\n")
 		return e.out.JSONValue(map[string]any{"running": false, "socket": localbackend.SocketPath()})
 	}
-	e.out.Human("Backend:  running\n")
-	e.out.Human("State:    %s\n", st.State)
-	e.out.Human("PID:      %d\n", st.PID)
-	if st.UptimeSec > 0 {
-		e.out.Human("Uptime:   %s\n", ui.FormatDurationSecs(uint32(st.UptimeSec)))
+	if !e.out.JSON {
+		data := backendStatusDataFromStatus(st, e.args.has("verbose"))
+		printer := ui.NewPrinter(e.out.Out)
+		printer.Print(ui.RenderBackendStatus(data, printer))
 	}
-	e.out.Human("Endpoint: %s\n", st.URI)
-	e.out.Human("Transport: %s\n", st.Transport)
-	e.out.Human("Socket:   %s\n", st.Socket)
-	printContactStatus(e, st)
-	printChannelStatus(e, st)
-	for _, bridge := range st.Bridges {
-		switch bridge.Type {
-		case "tcp":
-			e.out.Human("Bridge:   tcp %s active=%t\n", bridge.Listen, bridge.Active)
-		case "pty":
-			e.out.Human("Bridge:   pty %s active=%t\n", bridge.Path, bridge.Active)
-		default:
-			e.out.Human("Bridge:   %s active=%t\n", bridge.Type, bridge.Active)
-		}
-		if bridge.Error != "" {
-			e.out.Human("Bridge err: %s\n", bridge.Error)
-		}
-		if bridge.Note != "" {
-			e.out.Human("Bridge note: %s\n", bridge.Note)
-		}
-	}
-	if st.LastError != "" {
-		e.out.Human("Last err: %s\n", st.LastError)
-	}
-	e.out.Human("Activity: %s\n", ui.ActivityLabel(radioIOFromStatus(st.Radio), ui.NewTheme(e.out.Out)))
 	return e.out.JSONValue(backendStatusJSON(st))
 }
 
@@ -426,21 +400,28 @@ func backendStatus(ctx context.Context) (localbackend.Status, bool) {
 
 func backendStatusJSON(st localbackend.Status) map[string]any {
 	out := map[string]any{
-		"running":    st.Running,
-		"healthy":    st.Healthy,
-		"state":      st.State,
-		"pid":        st.PID,
-		"started_at": st.StartedAt,
-		"uptime_sec": st.UptimeSec,
-		"uri":        st.URI,
-		"transport":  st.Transport,
-		"socket":     st.Socket,
-		"last_seen":  st.LastSeen,
-		"last_error": st.LastError,
-		"bridges":    st.Bridges,
-		"contacts":   contactStatusJSON(st.Contacts),
-		"channels":   channelStatusJSON(st.Channels),
-		"radio":      radioStatusJSON(st.Radio),
+		"running":            st.Running,
+		"healthy":            st.Healthy,
+		"state":              st.State,
+		"pid":                st.PID,
+		"started_at":         st.StartedAt,
+		"uptime_sec":         st.UptimeSec,
+		"uri":                st.URI,
+		"transport":          st.Transport,
+		"socket":             st.Socket,
+		"last_seen":          st.LastSeen,
+		"last_error":         st.LastError,
+		"last_error_at":      st.LastErrorAt,
+		"bridges":            st.Bridges,
+		"contacts":           contactStatusJSON(st.Contacts),
+		"channels":           channelStatusJSON(st.Channels),
+		"radio":              radioStatusJSON(st.Radio),
+		"queue_pending":      st.QueuePending,
+		"reconnects":         st.Reconnects,
+		"clients":            st.Clients,
+		"requests_completed": st.RequestsCompleted,
+		"requests_failed":    st.RequestsFailed,
+		"version":            st.Version,
 	}
 	if st.Device.Available() {
 		out["device"] = map[string]any{
@@ -507,20 +488,6 @@ func printBackendStartSummary(e *env, st localbackend.Status) {
 	e.out.Human("Socket: %s\n", st.Socket)
 }
 
-func printContactStatus(e *env, st localbackend.Status) {
-	if st.Contacts.Syncing {
-		e.out.Human("Contacts:     %s", formatContactSyncStatus(st.Contacts))
-	} else if !st.Contacts.SyncedAt.IsZero() {
-		e.out.Human("Contacts:     %d in local replica (updated %s)", st.Contacts.Count, st.Contacts.SyncedAt.Format("2006-01-02 15:04:05"))
-	} else {
-		e.out.Human("Contacts:     not replicated")
-	}
-	if st.Contacts.Error != "" {
-		e.out.Human(" (error: %s)", st.Contacts.Error)
-	}
-	e.out.Human("\n")
-}
-
 func channelStatusJSON(cs localbackend.ChannelStatus) map[string]any {
 	return map[string]any{
 		"syncing":   cs.Syncing,
@@ -554,20 +521,6 @@ func radioStatusJSON(r localbackend.RadioStatus) map[string]any {
 		out["last_duration_ms"] = r.LastDurationMs
 	}
 	return out
-}
-
-func printChannelStatus(e *env, st localbackend.Status) {
-	if st.Channels.Syncing {
-		e.out.Human("Channels:     replicating")
-	} else if !st.Channels.SyncedAt.IsZero() {
-		e.out.Human("Channels:     %d in local replica (updated %s)", st.Channels.Count, st.Channels.SyncedAt.Format("2006-01-02 15:04:05"))
-	} else {
-		e.out.Human("Channels:     not replicated")
-	}
-	if st.Channels.Error != "" {
-		e.out.Human(" (error: %s)", st.Channels.Error)
-	}
-	e.out.Human("\n")
 }
 
 func configuredBridges() ([]localbackend.BridgeConfig, error) {

@@ -37,23 +37,30 @@ type deviceStatusSnapshot struct {
 }
 
 type statusResult struct {
-	Running   bool                  `json:"running"`
-	Healthy   bool                  `json:"healthy"`
-	State     string                `json:"state"`
-	URI       string                `json:"uri"`
-	Transport string                `json:"transport"`
-	PID       int                   `json:"pid"`
-	StartedAt time.Time             `json:"started_at,omitempty"`
-	UptimeSec int64                 `json:"uptime_sec,omitempty"`
-	LastSeen  time.Time             `json:"last_seen,omitempty"`
-	LastError string                `json:"last_error,omitempty"`
-	Bridges   []BridgeStatus        `json:"bridges,omitempty"`
-	Contacts  contactStatus         `json:"contacts,omitempty"`
-	Channels  channelStatus         `json:"channels,omitempty"`
-	Device    *deviceStatusSnapshot `json:"device,omitempty"`
-	Stats     *meshcore.LocalStats  `json:"stats,omitempty"`
-	StatsAt   time.Time             `json:"stats_at,omitempty"`
-	Radio     radioStatus           `json:"radio,omitempty"`
+	Running           bool                  `json:"running"`
+	Healthy           bool                  `json:"healthy"`
+	State             string                `json:"state"`
+	URI               string                `json:"uri"`
+	Transport         string                `json:"transport"`
+	PID               int                   `json:"pid"`
+	StartedAt         time.Time             `json:"started_at,omitempty"`
+	UptimeSec         int64                 `json:"uptime_sec,omitempty"`
+	LastSeen          time.Time             `json:"last_seen,omitempty"`
+	LastError         string                `json:"last_error,omitempty"`
+	LastErrorAt       time.Time             `json:"last_error_at,omitempty"`
+	Bridges           []BridgeStatus        `json:"bridges,omitempty"`
+	Contacts          contactStatus         `json:"contacts,omitempty"`
+	Channels          channelStatus         `json:"channels,omitempty"`
+	Device            *deviceStatusSnapshot `json:"device,omitempty"`
+	Stats             *meshcore.LocalStats  `json:"stats,omitempty"`
+	StatsAt           time.Time             `json:"stats_at,omitempty"`
+	Radio             radioStatus           `json:"radio,omitempty"`
+	QueuePending      int                   `json:"queue_pending,omitempty"`
+	Reconnects        int                   `json:"reconnects,omitempty"`
+	Clients           int                   `json:"clients,omitempty"`
+	RequestsCompleted int64                 `json:"requests_completed,omitempty"`
+	RequestsFailed    int64                 `json:"requests_failed,omitempty"`
+	Version           string                `json:"version,omitempty"`
 }
 
 type contactStatus struct {

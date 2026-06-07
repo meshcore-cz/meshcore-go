@@ -39,25 +39,32 @@ func (d DeviceStatus) Available() bool {
 
 // Status describes a running backend process.
 type Status struct {
-	Running   bool
-	Healthy   bool
-	State     string
-	URI       string
-	Transport string
-	PID       int
-	StartedAt time.Time
-	UptimeSec int64
-	Socket    string
-	LastSeen  time.Time
-	LastError string
-	Bridges   []BridgeStatus
-	Contacts  ContactStatus
-	Channels  ChannelStatus
-	Device    DeviceStatus
-	Stats     meshcore.LocalStats
-	StatsOK   bool
-	StatsAt   time.Time
-	Radio     RadioStatus
+	Running           bool
+	Healthy           bool
+	State             string
+	URI               string
+	Transport         string
+	PID               int
+	StartedAt         time.Time
+	UptimeSec         int64
+	Socket            string
+	LastSeen          time.Time
+	LastError         string
+	LastErrorAt       time.Time
+	Bridges           []BridgeStatus
+	Contacts          ContactStatus
+	Channels          ChannelStatus
+	Device            DeviceStatus
+	Stats             meshcore.LocalStats
+	StatsOK           bool
+	StatsAt           time.Time
+	Radio             RadioStatus
+	QueuePending      int
+	Reconnects        int
+	Clients           int
+	RequestsCompleted int64
+	RequestsFailed    int64
+	Version           string
 }
 
 // ContactStatus describes the backend's local contact replica.
@@ -118,18 +125,25 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		return Status{Socket: c.socket}, err
 	}
 	st := Status{
-		Running:   res.Running,
-		Healthy:   res.Healthy,
-		State:     res.State,
-		URI:       res.URI,
-		Transport: res.Transport,
-		PID:       res.PID,
-		StartedAt: res.StartedAt,
-		UptimeSec: res.UptimeSec,
-		Socket:    c.socket,
-		LastSeen:  res.LastSeen,
-		LastError: res.LastError,
-		Bridges:   res.Bridges,
+		Running:           res.Running,
+		Healthy:           res.Healthy,
+		State:             res.State,
+		URI:               res.URI,
+		Transport:         res.Transport,
+		PID:               res.PID,
+		StartedAt:         res.StartedAt,
+		UptimeSec:         res.UptimeSec,
+		Socket:            c.socket,
+		LastSeen:          res.LastSeen,
+		LastError:         res.LastError,
+		LastErrorAt:       res.LastErrorAt,
+		Bridges:           res.Bridges,
+		QueuePending:      res.QueuePending,
+		Reconnects:        res.Reconnects,
+		Clients:           res.Clients,
+		RequestsCompleted: res.RequestsCompleted,
+		RequestsFailed:    res.RequestsFailed,
+		Version:           res.Version,
 		Contacts: ContactStatus{
 			Syncing:      res.Contacts.Syncing,
 			SyncReceived: res.Contacts.SyncReceived,

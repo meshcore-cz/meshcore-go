@@ -61,9 +61,16 @@ type Server struct {
 	deviceStatsAt       time.Time
 
 	startedAt   time.Time
+	lastErrorAt time.Time
 	logRequests bool
 	stopOnce    sync.Once
 	stopped     chan struct{}
+
+	ipcClients        int32
+	radioQueuePending int32
+	reconnects        int32
+	requestsOK        int64
+	requestsFailed    int64
 }
 
 const (
@@ -177,6 +184,8 @@ func (s *Server) Stop() {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	s.trackIPCClient(1)
+	defer s.trackIPCClient(-1)
 
 	var req request
 	enc := json.NewEncoder(conn)
@@ -185,6 +194,7 @@ func (s *Server) handle(conn net.Conn) {
 			Logf("ipc request decode error: %v", err)
 		}
 		_ = enc.Encode(response{OK: false, Error: err.Error()})
+		s.trackRequestFailed()
 		return
 	}
 	start := time.Now()
@@ -195,26 +205,32 @@ func (s *Server) handle(conn net.Conn) {
 	if req.Method == "watch" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			s.trackRequestFailed()
 			return
 		}
+		s.trackRequestOK()
 		s.watch(conn, req.ID)
 		return
 	}
 	if req.Method == "watch_raw" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			s.trackRequestFailed()
 			return
 		}
+		s.trackRequestOK()
 		s.watchRaw(conn, req.ID)
 		return
 	}
 	if req.Method == "discover" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			s.trackRequestFailed()
 			return
 		}
 		s.lockRadio("discover")
 		defer s.unlockRadio()
+		s.trackRequestOK()
 		s.discover(conn, req.ID, req.Params)
 		return
 	}
@@ -238,6 +254,12 @@ func (s *Server) handle(conn net.Conn) {
 		}
 	}
 	_ = enc.Encode(resp)
+
+	if resp.OK {
+		s.trackRequestOK()
+	} else {
+		s.trackRequestFailed()
+	}
 
 	if s.logRequests && !streaming {
 		logIPCResponse(req.ID, req.Method, err, time.Since(start))
@@ -924,17 +946,25 @@ func (s *Server) status() statusResult {
 	if s.client != nil {
 		transport = s.client.Transport()
 	}
+	reqOK, reqFailed := s.requestCounts()
 	out := statusResult{
-		Running:   true,
-		Healthy:   s.state == stateReady,
-		State:     s.state,
-		URI:       s.uri,
-		Transport: transport,
-		PID:       os.Getpid(),
-		StartedAt: s.startedAt,
-		LastSeen:  s.lastSeen,
-		LastError: s.lastError,
-		Bridges:   s.bridgeStatusLocked(),
+		Running:           true,
+		Healthy:           s.state == stateReady,
+		State:             s.state,
+		URI:               s.uri,
+		Transport:         transport,
+		PID:               os.Getpid(),
+		StartedAt:         s.startedAt,
+		LastSeen:          s.lastSeen,
+		LastError:         s.lastError,
+		LastErrorAt:       s.lastErrorAt,
+		Bridges:           s.bridgeStatusLocked(),
+		QueuePending:      s.radioQueueCount(),
+		Reconnects:        s.reconnectCount(),
+		Clients:           s.ipcClientCount(),
+		RequestsCompleted: reqOK,
+		RequestsFailed:    reqFailed,
+		Version:           Version,
 		Contacts: contactStatus{
 			Syncing:      s.contactSyncing,
 			SyncReceived: s.contactSyncRecv,
@@ -969,6 +999,7 @@ func (s *Server) markReady() {
 	s.state = stateReady
 	s.lastSeen = time.Now()
 	s.lastError = ""
+	s.lastErrorAt = time.Time{}
 	s.mu.Unlock()
 }
 
@@ -978,6 +1009,7 @@ func (s *Server) markDegraded(err error) {
 	s.state = stateDegraded
 	if err != nil {
 		s.lastError = err.Error()
+		s.lastErrorAt = time.Now()
 	}
 	old = s.client
 	s.client = nil
@@ -1021,6 +1053,7 @@ func (s *Server) tryReconnect() {
 	if s.stateSnapshot() == stateBridge {
 		return
 	}
+	s.trackReconnect()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	client, err := s.dialClient(ctx)
 	cancel()
@@ -1054,6 +1087,7 @@ func (s *Server) markReconnectFailed(err error) {
 	s.state = stateDegraded
 	if err != nil {
 		s.lastError = err.Error()
+		s.lastErrorAt = time.Now()
 	}
 }
 
