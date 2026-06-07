@@ -279,7 +279,6 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	e.out.Human("PID:      %d\n", st.PID)
 	e.out.Human("Endpoint: %s\n", st.URI)
 	e.out.Human("Transport: %s\n", st.Transport)
-	e.out.Human("Activity: %s\n", ui.RadioIOLabel(radioIOFromStatus(st.Radio)))
 	e.out.Human("Socket:   %s\n", st.Socket)
 	printContactStatus(e, st)
 	printChannelStatus(e, st)
@@ -302,6 +301,7 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	if st.LastError != "" {
 		e.out.Human("Last err: %s\n", st.LastError)
 	}
+	e.out.Human("Activity: %s\n", ui.ActivityLabel(radioIOFromStatus(st.Radio), ui.NewTheme(e.out.Out)))
 	return e.out.JSONValue(backendStatusJSON(st))
 }
 
@@ -381,6 +381,10 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 			"protocol":         st.Device.Protocol,
 			"capabilities":     st.Device.Capabilities,
 		}
+	}
+	if st.StatsOK {
+		out["stats"] = st.Stats
+		out["stats_at"] = st.StatsAt
 	}
 	return out
 }
@@ -469,6 +473,15 @@ func radioStatusJSON(r localbackend.RadioStatus) map[string]any {
 	}
 	if r.DurationMs > 0 {
 		out["duration_ms"] = r.DurationMs
+	}
+	if !r.LastAt.IsZero() {
+		out["last_at"] = r.LastAt
+	}
+	if r.LastMethod != "" {
+		out["last_method"] = r.LastMethod
+	}
+	if r.LastDurationMs > 0 {
+		out["last_duration_ms"] = r.LastDurationMs
 	}
 	return out
 }

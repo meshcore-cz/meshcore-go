@@ -7,6 +7,7 @@ import (
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 )
 
 func cmdStats(ctx context.Context, e *env) error {
@@ -36,7 +37,7 @@ func printStats(e *env, s meshcore.LocalStats) {
 
 	e.out.Human("\nRadio\n")
 	statsLine(e, "Frequency", formatFrequencyMHz(s.Radio.FrequencyKHz))
-	statsLine(e, "Bandwidth", formatBandwidthKHz(s.Radio.BandwidthKHz))
+	statsLine(e, "Bandwidth", orDashBandwidth(s.Radio.BandwidthKHz))
 	statsLine(e, "Spreading", formatSpreading(s.Radio.Spreading))
 	statsLine(e, "Coding rate", formatCodingRate(s.Radio.CodingRate))
 	statsLine(e, "TX power", formatTxPower(s.Radio.TxPowerDBm))
@@ -67,18 +68,18 @@ func formatErrorFlags(flags uint16) string {
 	return fmt.Sprintf("0x%04x", flags)
 }
 
+func orDashBandwidth(hz uint32) string {
+	if v := ui.FormatBandwidthHz(hz); v != "" {
+		return v
+	}
+	return "-"
+}
+
 func formatFrequencyMHz(khz uint32) string {
 	if khz == 0 {
 		return "-"
 	}
 	return fmt.Sprintf("%.3f MHz", float64(khz)/1000)
-}
-
-func formatBandwidthKHz(khz uint32) string {
-	if khz == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%d kHz", khz)
 }
 
 func formatSpreading(sf byte) string {

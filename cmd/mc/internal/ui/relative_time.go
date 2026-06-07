@@ -15,6 +15,12 @@ func RelativeTime(t time.Time) string {
 		d = -d
 	}
 	switch {
+	case d < time.Second:
+		ms := d.Round(time.Millisecond).Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		return fmt.Sprintf("%dms ago", ms)
 	case d < time.Minute:
 		return fmt.Sprintf("%ds ago", int(d.Seconds()))
 	case d < time.Hour:

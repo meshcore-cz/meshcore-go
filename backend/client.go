@@ -50,6 +50,9 @@ type Status struct {
 	Contacts  ContactStatus
 	Channels  ChannelStatus
 	Device    DeviceStatus
+	Stats     meshcore.LocalStats
+	StatsOK   bool
+	StatsAt   time.Time
 	Radio     RadioStatus
 }
 
@@ -77,7 +80,10 @@ type RadioStatus struct {
 	Idle       bool
 	Method     string
 	Since      time.Time
-	DurationMs int64
+	DurationMs     int64
+	LastAt         time.Time
+	LastMethod     string
+	LastDurationMs int64
 }
 
 // Client talks to a running local backend process.
@@ -133,11 +139,14 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 			Error:    res.Channels.Error,
 		},
 		Radio: RadioStatus{
-			Active:     res.Radio.Active,
-			Idle:       res.Radio.Idle,
-			Method:     res.Radio.Method,
-			Since:      res.Radio.Since,
-			DurationMs: res.Radio.DurationMs,
+			Active:         res.Radio.Active,
+			Idle:           res.Radio.Idle,
+			Method:         res.Radio.Method,
+			Since:          res.Radio.Since,
+			DurationMs:     res.Radio.DurationMs,
+			LastAt:         res.Radio.LastAt,
+			LastMethod:     res.Radio.LastMethod,
+			LastDurationMs: res.Radio.LastDurationMs,
 		},
 	}
 	if res.Device != nil {
@@ -155,6 +164,11 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 			TxPowerDBm:      res.Device.TxPowerDBm,
 		}
 	}
+	if res.Stats != nil {
+		st.Stats = *res.Stats
+		st.StatsOK = true
+		st.StatsAt = res.StatsAt
+	}
 	return st, nil
 }
 
@@ -169,8 +183,12 @@ func (c *Client) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
 }
 
 func (c *Client) Stats(ctx context.Context) (meshcore.LocalStats, error) {
+	return c.StatsWithOptions(ctx, false)
+}
+
+func (c *Client) StatsWithOptions(ctx context.Context, refresh bool) (meshcore.LocalStats, error) {
 	var out meshcore.LocalStats
-	err := c.call(ctx, "stats", nil, &out)
+	err := c.call(ctx, "stats", statsParams{Refresh: refresh}, &out)
 	return out, err
 }
 

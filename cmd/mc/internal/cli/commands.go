@@ -42,20 +42,24 @@ func cmdVersion(e *env) error {
 
 func cmdStatus(ctx context.Context, e *env) error {
 	st, backendRunning := backendStatus(ctx)
-	if backendRunning && !st.Healthy && !e.args.has("direct") {
-		if e.out.JSON {
-			return e.out.JSONValue(map[string]any{
-				"device":  map[string]any{"available": false},
-				"backend": backendStatusForOutput(st, true),
-			})
+	if backendRunning && !e.args.has("direct") {
+		if !st.Healthy {
+			if e.out.JSON {
+				return e.out.JSONValue(map[string]any{
+					"device":  map[string]any{"available": false},
+					"backend": backendStatusForOutput(st, true),
+				})
+			}
+			return printStyledUnavailableStatus(e, st)
 		}
-		return printStyledUnavailableStatus(e, st)
-	}
-
-	if backendRunning && st.Healthy && !e.args.has("direct") && st.Device.Available() {
+		// Use only the cached status snapshot — no live radio I/O.
 		dev := st.Device
 		dev.Transport = st.Transport
-		return printMCStatus(e, st, dev)
+		stats, statsOK, statsAt, err := statusStats(ctx, e, st)
+		if err != nil {
+			return err
+		}
+		return printMCStatus(e, st, dev, stats, statsOK, statsAt)
 	}
 
 	backend, err := openBackend(ctx, e)
@@ -68,10 +72,26 @@ func cmdStatus(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	return printMCStatus(e, st, deviceStatusFromInfo(info, backend.Transport(), backendRunning))
+	stats, statsErr := backend.Stats(ctx)
+	statsAt := time.Time{}
+	if statsErr == nil {
+		statsAt = time.Now()
+	}
+	return printMCStatus(e, st, deviceStatusFromInfo(info, backend.Transport(), backendRunning), stats, statsErr == nil, statsAt)
 }
 
-func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus) error {
+func statusStats(ctx context.Context, e *env, st localbackend.Status) (meshcore.LocalStats, bool, time.Time, error) {
+	if !e.args.has("live") {
+		return st.Stats, st.StatsOK, st.StatsAt, nil
+	}
+	stats, err := localbackend.NewClient("").StatsWithOptions(ctx, true)
+	if err != nil {
+		return meshcore.LocalStats{}, false, time.Time{}, fmt.Errorf("live stats: %w", err)
+	}
+	return stats, true, time.Now(), nil
+}
+
+func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) error {
 	type statusJSON struct {
 		Name            string   `json:"name"`
 		Firmware        string   `json:"firmware"`
@@ -81,6 +101,7 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 		PublicKey       string   `json:"public_key"`
 		Capabilities    []string `json:"capabilities"`
 		Radio           any      `json:"radio,omitempty"`
+		Stats           any      `json:"stats,omitempty"`
 		Backend         any      `json:"backend"`
 	}
 	transport := dev.Transport
@@ -89,7 +110,7 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 	}
 	backendRunning := st.Running && st.Healthy
 	if e.out.JSON {
-		return e.out.JSONValue(statusJSON{
+		out := statusJSON{
 			Name:            dev.Name,
 			Firmware:        dev.Firmware,
 			FirmwareVersion: dev.FirmwareVersion,
@@ -99,10 +120,14 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 			Capabilities:    dev.Capabilities,
 			Radio:           radioStatusForOutput(dev),
 			Backend:         backendStatusForOutput(st, backendRunning),
-		})
+		}
+		if statsOK {
+			out.Stats = stats
+		}
+		return e.out.JSONValue(out)
 	}
 
-	return printStyledStatus(e, st, dev)
+	return printStyledStatus(e, st, dev, stats, statsOK, statsAt)
 }
 
 func deviceStatusFromInfo(info meshcore.DeviceInfo, transport string, backendRunning bool) localbackend.DeviceStatus {

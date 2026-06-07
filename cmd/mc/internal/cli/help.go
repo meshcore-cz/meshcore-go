@@ -41,6 +41,8 @@ Flags:
 
 Show the connected device's identity, firmware, transport, backend replica
 freshness and capabilities.
+
+  --live           Refresh radio stats before showing status (may block on radio I/O)
 ` + globalFlags,
 
 	"stats": `Usage: mc stats [flags]

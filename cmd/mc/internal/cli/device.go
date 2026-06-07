@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
+	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
@@ -124,7 +126,7 @@ func deviceShowConnected(ctx context.Context, e *env) error {
 }
 
 func printDeviceShow(e *env, st localbackend.Status, dev localbackend.DeviceStatus) error {
-	info := deviceInfoFromBackend(st, dev)
+	info := deviceInfoFromBackend(st, dev, meshcore.LocalStats{}, false, time.Time{})
 	if e.out.JSON {
 		return e.out.JSONValue(map[string]any{
 			"name":             info.Name,

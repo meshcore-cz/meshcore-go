@@ -3,6 +3,8 @@ package backend
 import (
 	"encoding/json"
 	"time"
+
+	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
 type request struct {
@@ -45,6 +47,8 @@ type statusResult struct {
 	Contacts  contactStatus         `json:"contacts,omitempty"`
 	Channels  channelStatus         `json:"channels,omitempty"`
 	Device    *deviceStatusSnapshot `json:"device,omitempty"`
+	Stats     *meshcore.LocalStats  `json:"stats,omitempty"`
+	StatsAt   time.Time             `json:"stats_at,omitempty"`
 	Radio     radioStatus           `json:"radio,omitempty"`
 }
 
@@ -69,7 +73,10 @@ type radioStatus struct {
 	Idle       bool      `json:"idle"`
 	Method     string    `json:"method,omitempty"`
 	Since      time.Time `json:"since,omitempty"`
-	DurationMs int64     `json:"duration_ms,omitempty"`
+	DurationMs     int64     `json:"duration_ms,omitempty"`
+	LastAt         time.Time `json:"last_at,omitempty"`
+	LastMethod     string    `json:"last_method,omitempty"`
+	LastDurationMs int64     `json:"last_duration_ms,omitempty"`
 }
 
 type sendTextParams struct {
@@ -91,6 +98,10 @@ type contactsParams struct {
 }
 
 type channelsParams struct {
+	Refresh bool `json:"refresh"`
+}
+
+type statsParams struct {
 	Refresh bool `json:"refresh"`
 }
 

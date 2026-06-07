@@ -1,18 +1,24 @@
 package cli
 
 import (
+	"time"
+
+	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 )
 
-func printStyledStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus) error {
-	data := statusDataFromBackend(st, dev)
+func printStyledStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) error {
+	data := statusDataFromBackend(st, dev, stats, statsOK, statsAt)
 	printer := ui.NewPrinter(e.out.Out)
 	printer.Print(ui.RenderStatus(data, printer))
 	return nil
 }
 
-func deviceInfoFromBackend(st localbackend.Status, dev localbackend.DeviceStatus) ui.DeviceInfo {
+func deviceInfoFromBackend(st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) ui.DeviceInfo {
+	if statsAt.IsZero() {
+		statsAt = st.StatsAt
+	}
 	transport := dev.Transport
 	if transport == "" {
 		transport = st.Transport
@@ -34,12 +40,13 @@ func deviceInfoFromBackend(st localbackend.Status, dev localbackend.DeviceStatus
 			TxPowerDBm:   dev.TxPowerDBm,
 		},
 		Available: dev.Available(),
+		Stats:     ui.DeviceStatsFromLocal(stats, statsOK, statsAt),
 	}
 }
 
-func statusDataFromBackend(st localbackend.Status, dev localbackend.DeviceStatus) ui.StatusData {
+func statusDataFromBackend(st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) ui.StatusData {
 	return ui.StatusData{
-		Device: deviceInfoFromBackend(st, dev),
+		Device: deviceInfoFromBackend(st, dev, stats, statsOK, statsAt),
 		Backend: ui.BackendInfo{
 			Running:   st.Running,
 			Healthy:   st.Healthy,
@@ -57,9 +64,12 @@ func statusDataFromBackend(st localbackend.Status, dev localbackend.DeviceStatus
 
 func radioIOFromStatus(r localbackend.RadioStatus) ui.RadioIOInfo {
 	return ui.RadioIOInfo{
-		Active:     r.Active,
-		Method:     r.Method,
-		DurationMs: r.DurationMs,
+		Active:         r.Active,
+		Method:         r.Method,
+		DurationMs:     r.DurationMs,
+		LastAt:         r.LastAt,
+		LastMethod:     r.LastMethod,
+		LastDurationMs: r.LastDurationMs,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 )
 
 const statusLabelWidth = 14
+const statusIndent = "  "
 
 // DeviceInfo is the connected radio identity shown in status output.
 type DeviceInfo struct {
@@ -20,6 +21,7 @@ type DeviceInfo struct {
 	TransportURI    string
 	Capabilities    []string
 	Radio           RadioInfo
+	Stats           DeviceStatsInfo
 	Available       bool
 }
 
@@ -44,9 +46,12 @@ type ReplicaInfo struct {
 
 // RadioIOInfo describes backend transport lock state for status output.
 type RadioIOInfo struct {
-	Active     bool
-	Method     string
-	DurationMs int64
+	Active         bool
+	Method         string
+	DurationMs     int64
+	LastAt         time.Time
+	LastMethod     string
+	LastDurationMs int64
 }
 
 // BackendInfo is backend daemon state for status output.
@@ -79,11 +84,9 @@ func RenderStatus(data StatusData, printer Printer) string {
 		b.WriteString(statusLine("Firmware", firmwareLabel(data.Device)))
 		b.WriteString(statusLine("Protocol", orDash(data.Device.Protocol)))
 		b.WriteString(statusLine("Transport", transportLabel(data.Device)))
-		b.WriteString("\n")
 		b.WriteString(statusLine("Public key", orDash(strings.ToLower(strings.TrimSpace(data.Device.PublicKey)))))
-		if radio := radioLabel(data.Device.Radio); radio != "" {
-			b.WriteString(statusLine("Radio", radio))
-		}
+		b.WriteString("\n")
+		writeRadioSection(&b, data.Device, data.Backend, theme)
 	} else {
 		b.WriteString(statusLine("Device", "unavailable"))
 		if data.Backend.URI != "" {
@@ -94,16 +97,11 @@ func RenderStatus(data StatusData, printer Printer) string {
 
 	if data.Backend.Running {
 		b.WriteString(statusLine("Backend", backendLabel(data.Backend, theme)))
+		b.WriteString(statusSubLine("Activity", ActivityLabel(data.Backend.RadioIO, theme)))
+		b.WriteString(statusSubLine("Replica", replicaLabel(data.Backend, theme)))
+		b.WriteString("\n")
 	} else if data.Device.Available {
 		b.WriteString(statusLine("Backend", "not running"))
-	}
-
-	if data.Backend.Running {
-		b.WriteString(statusLine("Replica", replicaLabel(data.Backend, theme)))
-		b.WriteString(statusLine("Activity", RadioIOLabel(data.Backend.RadioIO)))
-		b.WriteString(statusLine("Contacts", contactsLabel(data.Backend.Contacts)))
-		b.WriteString(statusLine("Channels", channelsLabel(data.Backend.Channels)))
-		b.WriteString("\n")
 	}
 
 	if data.Backend.LastError != "" {
@@ -130,6 +128,72 @@ func RenderDeviceShow(dev DeviceInfo, printer Printer) string {
 
 func statusLine(label, value string) string {
 	return fmt.Sprintf("%-*s %s\n", statusLabelWidth, label+":", value)
+}
+
+func statusSubLine(label, value string) string {
+	return fmt.Sprintf("%s%-*s %s\n", statusIndent, statusLabelWidth-len(statusIndent), label+":", value)
+}
+
+func writeRadioSection(b *strings.Builder, dev DeviceInfo, backend BackendInfo, theme Theme) {
+	if !hasRadioSection(dev) {
+		return
+	}
+	health, word := radioSectionHealth(dev, backend)
+	header := theme.StatusWord(health, word)
+	if dev.Stats.Available && !dev.Stats.UpdatedAt.IsZero() {
+		header += " · updated " + RelativeTime(dev.Stats.UpdatedAt)
+	} else if !dev.Stats.Available {
+		header += " · not synced"
+	}
+	b.WriteString(statusLine("Radio", header))
+	if modem := modemLabel(dev.Radio); modem != "" {
+		b.WriteString(statusSubLine("Modem", modem))
+	}
+	for _, line := range deviceStatsLines(dev.Stats) {
+		b.WriteString(line)
+	}
+}
+
+func hasRadioSection(dev DeviceInfo) bool {
+	return modemLabel(dev.Radio) != "" || dev.Stats.Available
+}
+
+func radioSectionHealth(dev DeviceInfo, backend BackendInfo) (Health, string) {
+	if dev.Stats.Available {
+		if dev.Stats.Core.ErrorFlags != 0 {
+			return HealthError, "error"
+		}
+		if backend.Running && !backend.Healthy {
+			return HealthError, "error"
+		}
+		if !dev.Stats.UpdatedAt.IsZero() && time.Since(dev.Stats.UpdatedAt) > 90*time.Second {
+			return HealthWarning, "stale"
+		}
+		return HealthOK, "ok"
+	}
+	if backend.Running && !backend.Healthy {
+		return HealthError, "unavailable"
+	}
+	return HealthWarning, "pending"
+}
+
+func deviceStatsLines(stats DeviceStatsInfo) []string {
+	if !stats.Available {
+		return nil
+	}
+	var lines []string
+	add := func(label, value string) {
+		if value != "" {
+			lines = append(lines, statusSubLine(label, value))
+		}
+	}
+	add("Signal", signalLabel(stats))
+	add("Battery", batteryLabel(stats))
+	add("Uptime", uptimeLabel(stats))
+	add("Packets", packetsLabel(stats))
+	add("Airtime", airtimeLabel(stats))
+	add("Queue", queueLabel(stats))
+	return lines
 }
 
 func deviceLabel(dev DeviceInfo) string {
@@ -161,6 +225,10 @@ func transportLabel(dev DeviceInfo) string {
 	return orDash(dev.Transport)
 }
 
+func modemLabel(r RadioInfo) string {
+	return radioLabel(r)
+}
+
 func radioLabel(r RadioInfo) string {
 	if r.FrequencyKHz == 0 && r.BandwidthKHz == 0 && r.Spreading == 0 && r.CodingRate == 0 && r.TxPowerDBm == 0 {
 		return ""
@@ -170,7 +238,7 @@ func radioLabel(r RadioInfo) string {
 		parts = append(parts, fmt.Sprintf("%.3f MHz", float64(r.FrequencyKHz)/1000))
 	}
 	if r.BandwidthKHz > 0 {
-		parts = append(parts, fmt.Sprintf("BW %d kHz", r.BandwidthKHz))
+		parts = append(parts, "BW "+FormatBandwidthHz(r.BandwidthKHz))
 	}
 	if r.Spreading > 0 {
 		parts = append(parts, fmt.Sprintf("SF%d", r.Spreading))
@@ -221,8 +289,11 @@ func backendHealth(be BackendInfo) Health {
 }
 
 func replicaLabel(be BackendInfo, theme Theme) string {
-	word := replicaStateWord(be)
-	return theme.StatusWord(replicaHealth(be), word)
+	word := theme.StatusWord(replicaHealth(be), replicaStateWord(be))
+	if details := replicaDetails(be); details != "" {
+		return word + " · " + details
+	}
+	return word
 }
 
 func replicaHealth(be BackendInfo) Health {
@@ -251,30 +322,50 @@ func replicaStateWord(be BackendInfo) string {
 	return "fresh"
 }
 
-func contactsLabel(c ReplicaInfo) string {
-	if c.Syncing {
-		return replicaSyncProgress(c)
+func replicaDetails(be BackendInfo) string {
+	switch replicaStateWord(be) {
+	case "fresh":
+		parts := []string{
+			fmt.Sprintf("%d contacts", be.Contacts.Count),
+			fmt.Sprintf("%d channels", be.Channels.Count),
+		}
+		if updated := replicaLatestUpdate(be.Contacts, be.Channels); !updated.IsZero() {
+			parts = append(parts, "updated "+RelativeTime(updated))
+		}
+		return strings.Join(parts, " · ")
+	default:
+		return strings.Join([]string{
+			replicaItemDetail("contacts", be.Contacts),
+			replicaItemDetail("channels", be.Channels),
+		}, " · ")
 	}
-	if c.Error != "" {
-		return c.Error
-	}
-	if c.SyncedAt.IsZero() {
-		return "not replicated"
-	}
-	return fmt.Sprintf("%d, updated %s", c.Count, RelativeTime(c.SyncedAt))
 }
 
-func channelsLabel(c ReplicaInfo) string {
+func replicaItemDetail(kind string, c ReplicaInfo) string {
 	if c.Syncing {
-		return "replicating"
+		if kind == "contacts" {
+			return "contacts " + replicaSyncProgress(c)
+		}
+		return "channels replicating"
 	}
 	if c.Error != "" {
-		return c.Error
+		return kind + " " + c.Error
 	}
 	if c.SyncedAt.IsZero() {
-		return "not replicated"
+		return kind + " not replicated"
 	}
-	return fmt.Sprintf("%d, updated %s", c.Count, RelativeTime(c.SyncedAt))
+	if kind == "contacts" {
+		return fmt.Sprintf("%d contacts", c.Count)
+	}
+	return fmt.Sprintf("%d channels", c.Count)
+}
+
+func replicaLatestUpdate(a, b ReplicaInfo) time.Time {
+	latest := a.SyncedAt
+	if b.SyncedAt.After(latest) {
+		latest = b.SyncedAt
+	}
+	return latest
 }
 
 func replicaSyncProgress(contacts ReplicaInfo) string {
@@ -288,15 +379,29 @@ func replicaSyncProgress(contacts ReplicaInfo) string {
 	return "replicating"
 }
 
-func RadioIOLabel(io RadioIOInfo) string {
-	if !io.Active {
-		return "idle"
+func ActivityLabel(io RadioIOInfo, theme Theme) string {
+	if io.Active {
+		word := theme.StatusWord(HealthWarning, radioMethodLabel(io.Method))
+		if io.DurationMs <= 0 {
+			return word
+		}
+		return word + " (" + formatRunningDuration(time.Duration(io.DurationMs)*time.Millisecond) + ")"
 	}
-	label := radioMethodLabel(io.Method)
-	if io.DurationMs <= 0 {
-		return label
+
+	idle := theme.StatusWord(HealthOK, "idle")
+	if io.LastAt.IsZero() {
+		return idle
 	}
-	return fmt.Sprintf("%s (%s)", label, formatDuration(time.Duration(io.DurationMs)*time.Millisecond))
+	parts := []string{idle}
+	if io.LastMethod != "" {
+		last := "last: " + radioMethodLabel(io.LastMethod)
+		if io.LastDurationMs > 0 {
+			last += " (" + formatDuration(time.Duration(io.LastDurationMs)*time.Millisecond) + ")"
+		}
+		parts = append(parts, last)
+	}
+	parts = append(parts, RelativeTime(io.LastAt))
+	return strings.Join(parts, " · ")
 }
 
 func radioMethodLabel(method string) string {
@@ -317,12 +422,21 @@ func radioMethodLabel(method string) string {
 		return "channel send"
 	case "keepalive":
 		return "keepalive"
+	case "stats":
+		return "stats"
 	default:
 		return strings.ReplaceAll(method, "_", " ")
 	}
 }
 
 func formatDuration(d time.Duration) string {
+	if d < time.Second {
+		ms := d.Round(time.Millisecond).Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		return fmt.Sprintf("%dms", ms)
+	}
 	d = d.Round(time.Second)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
@@ -333,6 +447,22 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", m)
 	}
 	return fmt.Sprintf("%dm%ds", m, s)
+}
+
+func formatRunningDuration(d time.Duration) string {
+	if d < time.Second {
+		ms := d.Round(time.Millisecond).Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		return fmt.Sprintf("%dms", ms)
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	m := int(d.Minutes())
+	s := d.Seconds() - float64(m*60)
+	return fmt.Sprintf("%dm%.1fs", m, s)
 }
 
 func formatCapabilities(items []string) string {

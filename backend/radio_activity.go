@@ -13,9 +13,15 @@ func (s *Server) lockRadio(method string) {
 
 func (s *Server) unlockRadio() {
 	s.mu.Lock()
+	now := time.Now()
+	if s.radioActive && !s.radioSince.IsZero() {
+		s.radioLastMethod = s.radioMethod
+		s.radioLastDurationMs = now.Sub(s.radioSince).Milliseconds()
+	}
 	s.radioActive = false
 	s.radioMethod = ""
 	s.radioSince = time.Time{}
+	s.radioLastAt = now
 	s.mu.Unlock()
 	s.radioMu.Unlock()
 }
@@ -34,7 +40,12 @@ func (s *Server) tryLockRadio(method string) bool {
 
 func (s *Server) radioStatusLocked() radioStatus {
 	if !s.radioActive {
-		return radioStatus{Idle: true}
+		return radioStatus{
+			Idle:             true,
+			LastAt:           s.radioLastAt,
+			LastMethod:       s.radioLastMethod,
+			LastDurationMs:   s.radioLastDurationMs,
+		}
 	}
 	st := radioStatus{
 		Active: true,

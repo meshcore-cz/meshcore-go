@@ -39,11 +39,20 @@ func TestRadioStatusLocked(t *testing.T) {
 	if st.Method != "" {
 		t.Fatalf("method = %q", st.Method)
 	}
+	if st.LastAt.IsZero() {
+		t.Fatal("expected last activity timestamp")
+	}
+	if st.LastMethod != "trace" {
+		t.Fatalf("last method = %q", st.LastMethod)
+	}
+	if st.LastDurationMs <= 0 {
+		t.Fatalf("last duration_ms = %d", st.LastDurationMs)
+	}
 }
 
 func TestTryLockRadio(t *testing.T) {
 	s := &Server{}
-	if !s.tryLockRadio("keepalive") {
+	if !s.tryLockRadio("stats") {
 		t.Fatal("expected try lock to succeed")
 	}
 	if s.tryLockRadio("trace") {

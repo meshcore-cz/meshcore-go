@@ -48,9 +48,15 @@ type Server struct {
 	radioMu          sync.Mutex // serialises live radio I/O
 	radioActive      bool
 	radioMethod      string
-	radioSince       time.Time
+	radioSince           time.Time
+	radioLastAt          time.Time
+	radioLastMethod      string
+	radioLastDurationMs  int64
 	deviceInfo       meshcore.DeviceInfo
 	deviceInfoOK     bool
+	deviceStats      meshcore.LocalStats
+	deviceStatsOK    bool
+	deviceStatsAt    time.Time
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -62,7 +68,8 @@ const (
 	stateBridge   = "bridge"
 
 	keepAliveInterval = 30 * time.Second
-	keepAliveTimeout  = 8 * time.Second
+	statsPollTimeout  = 15 * time.Second
+	statsPollTimeoutBLE = 30 * time.Second
 
 	initialContactSyncTimeout = 90 * time.Second
 )
@@ -95,7 +102,7 @@ func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfi
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
 	}
 	s.client = client
-	s.refreshDeviceInfoCache(context.Background(), client)
+	s.refreshStartupCaches(context.Background(), client)
 	return s, nil
 }
 
@@ -117,7 +124,7 @@ func (s *Server) Serve() error {
 		return err
 	}
 	s.listener = ln
-	go s.keepAlive()
+	go s.pollStats()
 	s.startBridges()
 	s.scheduleInitialContactSync()
 	defer func() {
@@ -351,7 +358,21 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		s.storeDeviceInfo(info)
 		return info, nil
 	case "stats":
-		return client.Stats(ctx)
+		var p statsParams
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		if !p.Refresh {
+			if stats, ok := s.deviceStatsSnapshot(); ok {
+				return stats, nil
+			}
+		}
+		stats, err := client.Stats(ctx)
+		if err != nil {
+			return nil, err
+		}
+		s.storeDeviceStats(stats)
+		return stats, nil
 	case "inbox":
 		return client.SyncMessages(ctx)
 	case "send_text":
@@ -797,44 +818,50 @@ func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Cli
 	return err
 }
 
-func (s *Server) keepAlive() {
+func (s *Server) pollStats() {
 	ticker := time.NewTicker(keepAliveInterval)
 	defer ticker.Stop()
 
+	s.runStatsPoll()
 	for {
 		select {
 		case <-s.stopped:
 			return
 		case <-ticker.C:
-			if s.stateSnapshot() == stateBridge {
-				continue
-			}
-			if !s.tryLockRadio("keepalive") {
-				continue
-			}
-			if !s.healthy() {
-				s.tryReconnect()
-				s.unlockRadio()
-				continue
-			}
-			client := s.clientSnapshot()
-			if client == nil {
-				s.markDegraded(fmt.Errorf("no active client"))
-				s.unlockRadio()
-				continue
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), s.keepAliveTimeout())
-			_, err := client.DeviceTime(ctx)
-			cancel()
-			if err != nil {
-				s.markDegraded(err)
-				s.unlockRadio()
-				continue
-			}
-			s.markReady()
-			s.unlockRadio()
+			s.runStatsPoll()
 		}
 	}
+}
+
+func (s *Server) runStatsPoll() {
+	if s.stateSnapshot() == stateBridge {
+		return
+	}
+	if !s.tryLockRadio("stats") {
+		return
+	}
+	if !s.healthy() {
+		s.tryReconnect()
+		s.unlockRadio()
+		return
+	}
+	client := s.clientSnapshot()
+	if client == nil {
+		s.markDegraded(fmt.Errorf("no active client"))
+		s.unlockRadio()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.statsPollTimeout())
+	stats, err := client.Stats(ctx)
+	cancel()
+	if err != nil {
+		s.markDegraded(err)
+		s.unlockRadio()
+		return
+	}
+	s.storeDeviceStats(stats)
+	s.markReady()
+	s.unlockRadio()
 }
 
 func (s *Server) status() statusResult {
@@ -872,6 +899,10 @@ func (s *Server) status() statusResult {
 	}
 	if snap := s.deviceStatusSnapshotLocked(); snap != nil {
 		out.Device = snap
+	}
+	if stats := s.deviceStatsSnapshotLocked(); stats != nil {
+		out.Stats = stats
+		out.StatsAt = s.deviceStatsAt
 	}
 	return out
 }
@@ -951,7 +982,7 @@ func (s *Server) tryReconnect() {
 	if old != nil {
 		old.Close()
 	}
-	s.refreshDeviceInfoCache(context.Background(), client)
+	s.refreshStartupCaches(context.Background(), client)
 }
 
 func (s *Server) dialClient(ctx context.Context) (*meshcore.Client, error) {
@@ -1006,11 +1037,11 @@ func (s *Server) upsertObservedContact(contact meshcore.Contact) {
 	}
 }
 
-func (s *Server) keepAliveTimeout() time.Duration {
+func (s *Server) statsPollTimeout() time.Duration {
 	if strings.HasPrefix(s.uri, "ble://") {
-		return 20 * time.Second
+		return statsPollTimeoutBLE
 	}
-	return keepAliveTimeout
+	return statsPollTimeout
 }
 
 func (s *Server) methodUsesRadio(method string, params json.RawMessage) bool {
@@ -1031,6 +1062,12 @@ func (s *Server) methodUsesRadio(method string, params json.RawMessage) bool {
 		return p.Refresh
 	case "contact", "channel", "device_info":
 		return false
+	case "stats":
+		var p statsParams
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &p)
+		}
+		return p.Refresh
 	default:
 		return true
 	}
