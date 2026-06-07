@@ -147,7 +147,7 @@ func writeRadioSection(b *strings.Builder, dev DeviceInfo, backend BackendInfo, 
 			header += " · " + uptime + " uptime"
 		}
 		if !dev.Stats.UpdatedAt.IsZero() {
-			header += " · updated " + StatsUpdatedRelative(dev.Stats.UpdatedAt)
+			header += " · " + theme.Dim("updated "+StatsUpdatedRelative(dev.Stats.UpdatedAt))
 		}
 	} else {
 		header += " · not synced"
@@ -176,7 +176,7 @@ func radioSectionHealth(dev DeviceInfo, backend BackendInfo) (Health, string) {
 		if !dev.Stats.UpdatedAt.IsZero() && time.Since(dev.Stats.UpdatedAt) > 90*time.Second {
 			return HealthWarning, "stale"
 		}
-		return HealthOK, "ok"
+		return HealthOK, "active"
 	}
 	if backend.Running && !backend.Healthy {
 		return HealthError, "unavailable"
@@ -300,7 +300,7 @@ func backendHealth(be BackendInfo) Health {
 
 func replicaLabel(be BackendInfo, theme Theme) string {
 	word := theme.StatusWord(replicaHealth(be), replicaStateWord(be))
-	if details := replicaDetails(be); details != "" {
+	if details := replicaDetails(be, theme); details != "" {
 		return word + " · " + details
 	}
 	return word
@@ -332,17 +332,18 @@ func replicaStateWord(be BackendInfo) string {
 	return "fresh"
 }
 
-func replicaDetails(be BackendInfo) string {
+func replicaDetails(be BackendInfo, theme Theme) string {
 	switch replicaStateWord(be) {
 	case "fresh":
 		parts := []string{
 			fmt.Sprintf("%d contacts", be.Contacts.Count),
 			fmt.Sprintf("%d channels", be.Channels.Count),
 		}
+		details := strings.Join(parts, " · ")
 		if updated := replicaLatestUpdate(be.Contacts, be.Channels); !updated.IsZero() {
-			parts = append(parts, "updated "+RelativeTime(updated))
+			return details + " · " + theme.Dim("updated "+RelativeTime(updated))
 		}
-		return strings.Join(parts, " · ")
+		return details
 	default:
 		return strings.Join([]string{
 			replicaItemDetail("contacts", be.Contacts),
@@ -395,7 +396,8 @@ func ActivityLabel(io RadioIOInfo, theme Theme) string {
 		if io.DurationMs <= 0 {
 			return word
 		}
-		return word + " (" + formatRunningDuration(time.Duration(io.DurationMs)*time.Millisecond) + ")"
+		duration := formatRunningDuration(time.Duration(io.DurationMs) * time.Millisecond)
+		return word + " " + theme.Dim("("+duration+")")
 	}
 
 	idle := theme.StatusWord(HealthOK, "idle")
@@ -408,9 +410,9 @@ func ActivityLabel(io RadioIOInfo, theme Theme) string {
 		if io.LastDurationMs > 0 {
 			last += " (" + formatDuration(time.Duration(io.LastDurationMs)*time.Millisecond) + ")"
 		}
-		parts = append(parts, last)
+		parts = append(parts, theme.Dim(last))
 	}
-	parts = append(parts, RelativeTime(io.LastAt))
+	parts = append(parts, theme.Dim(RelativeTime(io.LastAt)))
 	return strings.Join(parts, " · ")
 }
 

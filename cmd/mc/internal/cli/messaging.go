@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 	"github.com/meshcore-cz/meshcore-go/protocol/pathhash"
 )
 
@@ -236,15 +238,15 @@ func cmdTrace(ctx context.Context, e *env) error {
 		return err
 	}
 	hopIndex := traceHopIndex(ctx, backend)
-	selfLabel := traceSelfLabel(ctx, backend, trace)
+	origin := traceOriginNode(ctx, backend, trace)
 	var planPtr *meshcore.TracePlan
 	if planErr == nil {
 		planPtr = &plan
 	}
 	if e.out.JSON {
-		return e.out.JSONValue(traceJSON(trace, hopIndex, selfLabel, planPtr))
+		return e.out.JSONValue(traceJSON(trace, hopIndex, origin, planPtr))
 	}
-	printTrace(e, trace, hopIndex, selfLabel, planPtr)
+	printTrace(e, trace, hopIndex, origin, planPtr)
 	return nil
 }
 
@@ -280,17 +282,17 @@ func planTrace(ctx context.Context, backend Backend, target string) (meshcore.Tr
 	return plan, nil
 }
 
-func traceJSON(trace meshcore.Trace, idx traceNameIndex, selfLabel string, plan *meshcore.TracePlan) map[string]any {
+func traceJSON(trace meshcore.Trace, idx traceNameIndex, origin traceNode, plan *meshcore.TracePlan) map[string]any {
 	hops := traceHops(trace)
 	path := make([]map[string]any, len(hops))
 	for i, hop := range hops {
-		match := idx.resolve(hop)
-		item := map[string]any{"hash": match.hash}
-		if match.ambiguous {
+		node := idx.resolveNode(hop)
+		item := map[string]any{"hash": node.Hash}
+		if node.Ambiguous {
 			item["ambiguous"] = true
-			item["names"] = match.names
-		} else if len(match.names) == 1 {
-			item["name"] = match.names[0]
+			item["names"] = node.Names
+		} else if node.Name != "" {
+			item["name"] = node.Name
 		}
 		path[i] = item
 	}
@@ -298,7 +300,7 @@ func traceJSON(trace meshcore.Trace, idx traceNameIndex, selfLabel string, plan 
 	out := map[string]any{
 		"target":          trace.Target,
 		"tag":             fmt.Sprintf("%08x", trace.Tag),
-		"origin":          traceOriginJSON(selfLabel),
+		"origin":          traceOriginJSON(origin),
 		"path":            path,
 		"prefix_bytes":    hashSize,
 		"prefix":          tracePrefixLabel(hashSize),
@@ -316,76 +318,68 @@ func traceJSON(trace meshcore.Trace, idx traceNameIndex, selfLabel string, plan 
 	return out
 }
 
-func traceOriginJSON(selfLabel string) map[string]string {
-	out := map[string]string{"label": selfLabel}
-	if name, hashPart, ok := strings.Cut(selfLabel, " ["); ok && strings.HasSuffix(hashPart, "]") {
-		out["name"] = name
-		out["hash"] = strings.TrimSuffix(hashPart, "]")
-		return out
+func traceOriginJSON(origin traceNode) map[string]string {
+	out := map[string]string{"label": origin.LegacyJSONLabel()}
+	if origin.Name != "" {
+		out["name"] = origin.Name
 	}
-	if strings.HasPrefix(selfLabel, "[") && strings.HasSuffix(selfLabel, "]") {
-		out["hash"] = strings.TrimPrefix(strings.TrimSuffix(selfLabel, "]"), "[")
+	if origin.Hash != "" {
+		out["hash"] = origin.Hash
 	}
 	return out
 }
 
-func printTrace(e *env, trace meshcore.Trace, idx traceNameIndex, selfLabel string, plan *meshcore.TracePlan) {
+func printTrace(e *env, trace meshcore.Trace, idx traceNameIndex, origin traceNode, plan *meshcore.TracePlan) {
+	data := buildTraceData(trace, idx, origin, plan)
+	printer := ui.NewPrinter(e.out.Out)
+	printer.Print(ui.RenderTrace(data, printer))
+}
+
+func buildTraceData(trace meshcore.Trace, idx traceNameIndex, origin traceNode, plan *meshcore.TracePlan) ui.TraceData {
 	hashSize := tracePathHashSize(trace, plan)
-	e.out.Human("Trace to %s  ·  %s  ·  %s  ·  tag %08x\n",
-		trace.Target, tracePrefixLabel(hashSize), trace.RoundTrip.Round(1e6), trace.Tag)
-	if plan != nil && len(plan.Path) > 0 {
-		e.out.Human("  sent %s  ·  %s\n", tracePlanPathLabel(*plan), traceSourceLabel(plan.Source))
-	}
-
 	hops := traceHops(trace)
-	nodes := make([]string, len(hops)+2)
-	matches := make([]traceHopMatch, 0, len(hops))
-	nodes[0] = selfLabel
+
+	pathNodes := make([]traceNode, len(hops))
+	ambiguous := make([]traceNode, 0)
 	for i, hop := range hops {
-		match := idx.resolve(hop)
-		matches = append(matches, match)
-		nodes[i+1] = match.label
-	}
-	nodes[len(nodes)-1] = selfLabel
-
-	if len(trace.SNRs) == 0 {
-		e.out.Human("  no signal data\n")
-		return
-	}
-
-	col := len(selfLabel)
-	for _, n := range nodes {
-		if len(n) > col {
-			col = len(n)
+		node := idx.resolveNode(hop)
+		pathNodes[i] = node
+		if node.Ambiguous {
+			ambiguous = append(ambiguous, node)
 		}
 	}
 
-	e.out.Human("\n")
-	e.out.Human("  %-4s  %-*s    %-*s  %s\n", "hop", col, "from", col, "to", "SNR")
-	e.out.Human("  %s\n", strings.Repeat("─", 4+2+col+4+col+2+12))
+	nodes := make([]traceNode, 0, len(pathNodes)+2)
+	nodes = append(nodes, origin)
+	nodes = append(nodes, pathNodes...)
+	nodes = append(nodes, origin)
 
+	legs := make([]ui.TraceLeg, 0, len(trace.SNRs))
 	for i, snr := range trace.SNRs {
 		if i+1 >= len(nodes) {
 			break
 		}
-		flag := ""
-		if snr < 0 {
-			flag = "  ← weak"
-		}
-		e.out.Human("  %-4d  %-*s  → %-*s  %+.2f dB%s\n",
-			i+1, col, nodes[i], col, nodes[i+1], snr, flag)
+		legs = append(legs, ui.TraceLeg{
+			Number: i + 1,
+			From:   toUITraceNode(nodes[i]),
+			To:     toUITraceNode(nodes[i+1]),
+			SNRDB:  snr,
+		})
 	}
-	printTraceAmbiguous(e, matches)
-}
 
-func printTraceAmbiguous(e *env, matches []traceHopMatch) {
-	seen := map[string]bool{}
-	for _, match := range matches {
-		if !match.ambiguous || seen[match.hash] {
-			continue
-		}
-		seen[match.hash] = true
-		e.out.Human("\n  ambiguous prefix %s: %s\n", traceHashLabel(match.hash), strings.Join(match.names, ", "))
+	target := traceTargetNode(trace, plan, pathNodes, idx)
+	if target.Ambiguous {
+		ambiguous = append(ambiguous, target)
+	}
+
+	return ui.TraceData{
+		Target:      toUITraceNode(target),
+		Request:     traceRequestLabel(plan),
+		PrefixBytes: hashSize,
+		Tag:         fmt.Sprintf("%08x", trace.Tag),
+		RoundTrip:   trace.RoundTrip,
+		Legs:        legs,
+		Ambiguous:   toUITraceNodes(ambiguous),
 	}
 }
 
@@ -410,15 +404,15 @@ func tracePathHashSize(trace meshcore.Trace, plan *meshcore.TracePlan) int {
 func tracePrefixLabel(bytes int) string {
 	switch bytes {
 	case 1:
-		return "1-byte prefix"
+		return "1B"
 	case 2:
-		return "2-byte prefix"
+		return "2B"
 	case 4:
-		return "4-byte prefix"
+		return "4B"
 	case 8:
-		return "8-byte prefix"
+		return "8B"
 	default:
-		return fmt.Sprintf("%d-byte prefix", bytes)
+		return fmt.Sprintf("%dB", bytes)
 	}
 }
 
@@ -438,10 +432,8 @@ func traceSourceLabel(source string) string {
 	switch source {
 	case "explicit_path":
 		return "explicit path"
-	case "contact_out_path":
-		return "contact out-path"
-	case "contact_direct_path":
-		return "contact direct"
+	case "contact_out_path", "contact_direct_path":
+		return "contact route"
 	case "contact_key_fallback":
 		return "contact key fallback"
 	default:
@@ -449,11 +441,77 @@ func traceSourceLabel(source string) string {
 	}
 }
 
-type traceHopMatch struct {
-	label     string
-	hash      string
-	names     []string
-	ambiguous bool
+func traceRequestLabel(plan *meshcore.TracePlan) string {
+	if plan == nil {
+		return ""
+	}
+	source := traceSourceLabel(plan.Source)
+	if plan.Source == "contact_direct_path" {
+		return source + " · direct"
+	}
+	if path := traceDisplayPathLabel(*plan); path != "" {
+		return source + " · " + path
+	}
+	return source
+}
+
+func traceDisplayPathLabel(plan meshcore.TracePlan) string {
+	hops := pathhash.Split(plan.Path, plan.HashSize)
+	if len(hops) == 0 {
+		return ""
+	}
+	parts := make([]string, len(hops))
+	for i, hop := range hops {
+		parts[i] = pathhash.FormatHop(hop)
+	}
+	return strings.Join(parts, " → ")
+}
+
+func traceTargetNode(trace meshcore.Trace, plan *meshcore.TracePlan, pathNodes []traceNode, idx traceNameIndex) traceNode {
+	if len(pathNodes) > 0 {
+		return pathNodes[len(pathNodes)-1]
+	}
+	if plan != nil && len(plan.Path) > 0 {
+		hops := pathhash.Split(plan.Path, plan.HashSize)
+		if len(hops) > 0 {
+			return idx.resolveNode(hops[len(hops)-1])
+		}
+	}
+	if trace.Target != "" {
+		return traceNode{Hash: trace.Target}
+	}
+	return traceNode{}
+}
+
+type traceNode struct {
+	Hash      string
+	Name      string
+	Names     []string
+	Ambiguous bool
+}
+
+func (n traceNode) LegacyJSONLabel() string {
+	if n.Name != "" {
+		return n.Name + " " + traceHashLabel(n.Hash)
+	}
+	return traceHashLabel(n.Hash)
+}
+
+func toUITraceNode(n traceNode) ui.TraceNode {
+	return ui.TraceNode{
+		Hash:      n.Hash,
+		Name:      n.Name,
+		Names:     n.Names,
+		Ambiguous: n.Ambiguous,
+	}
+}
+
+func toUITraceNodes(nodes []traceNode) []ui.TraceNode {
+	out := make([]ui.TraceNode, len(nodes))
+	for i, node := range nodes {
+		out[i] = toUITraceNode(node)
+	}
+	return out
 }
 
 type traceNameIndex struct {
@@ -488,34 +546,22 @@ func traceNameIndexFromContacts(contacts []meshcore.Contact) traceNameIndex {
 	return idx
 }
 
-func (idx traceNameIndex) resolve(hop []byte) traceHopMatch {
+func (idx traceNameIndex) resolveNode(hop []byte) traceNode {
 	hash := pathhash.FormatHop(hop)
-	names := idx.byPrefix[hash]
+	names := append([]string(nil), idx.byPrefix[hash]...)
+	sort.Strings(names)
 	switch len(names) {
 	case 0:
-		return traceHopMatch{label: traceHashLabel(hash), hash: hash}
+		return traceNode{Hash: hash}
 	case 1:
-		return traceHopMatch{
-			label: traceNamedLabel(names[0], hash),
-			hash:  hash,
-			names: names,
-		}
+		return traceNode{Hash: hash, Name: names[0], Names: names}
 	default:
-		return traceHopMatch{
-			label:     traceHashLabel(hash),
-			hash:      hash,
-			names:     names,
-			ambiguous: true,
-		}
+		return traceNode{Hash: hash, Names: names, Ambiguous: true}
 	}
 }
 
 func traceHashLabel(hash string) string {
 	return fmt.Sprintf("[%s]", hash)
-}
-
-func traceNamedLabel(name, hash string) string {
-	return fmt.Sprintf("%s %s", name, traceHashLabel(hash))
 }
 
 func containsString(list []string, s string) bool {
@@ -527,25 +573,25 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-func traceSelfLabel(ctx context.Context, backend Backend, trace meshcore.Trace) string {
+func traceOriginNode(ctx context.Context, backend Backend, trace meshcore.Trace) traceNode {
 	info, err := backend.DeviceInfo(ctx)
 	if err != nil {
-		return "you"
+		return traceNode{Name: "you"}
 	}
 	hashSize := trace.PathHashSize
 	if hashSize <= 0 {
 		hashSize = 1
 	}
-	return traceNodeLabel(info.Name, info.PublicKey, hashSize)
+	return traceNodeFromKey(info.Name, info.PublicKey, hashSize)
 }
 
-func traceNodeLabel(name, pubKeyHex string, hashSize int) string {
+func traceNodeFromKey(name, pubKeyHex string, hashSize int) traceNode {
 	key, err := hex.DecodeString(pubKeyHex)
 	if err != nil || len(key) == 0 {
 		if name != "" {
-			return name
+			return traceNode{Name: name}
 		}
-		return "you"
+		return traceNode{Name: "you"}
 	}
 	if hashSize <= 0 {
 		hashSize = 1
@@ -555,9 +601,9 @@ func traceNodeLabel(name, pubKeyHex string, hashSize int) string {
 	}
 	hash := pathhash.FormatHop(key[:hashSize])
 	if name != "" {
-		return traceNamedLabel(name, hash)
+		return traceNode{Hash: hash, Name: name}
 	}
-	return traceHashLabel(hash)
+	return traceNode{Hash: hash}
 }
 
 func contactKeyBytes(ct meshcore.Contact) ([]byte, bool) {

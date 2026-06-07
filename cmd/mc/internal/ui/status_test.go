@@ -113,7 +113,7 @@ func TestRenderStatusLayout(t *testing.T) {
 		"Protocol:      companion-v3",
 		"Transport:     ble://C4:20:12:34:56:78",
 		"Public key:    eff01ef21805abcd",
-		"Radio:         ok · 10h 57m uptime · updated 124ms ago",
+		"Radio:         active · 10h 57m uptime · updated 124ms ago",
 		"  Modem:       869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
 		"  Signal:      -104 dBm RSSI · +7.5 dB SNR · -118 dBm noise",
 		"  Battery:     4.08 V",
@@ -134,5 +134,41 @@ func TestStatusWordPlainWhenDisabled(t *testing.T) {
 	theme := Theme{enabled: false}
 	if got := theme.StatusWord(HealthOK, "ready"); got != "ready" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStatusDimTimestamps(t *testing.T) {
+	theme := Theme{enabled: true}
+	now := time.Now()
+
+	activity := ActivityLabel(RadioIOInfo{
+		LastAt:         now.Add(-4 * time.Second),
+		LastMethod:     "stats",
+		LastDurationMs: 120,
+	}, theme)
+	if !strings.Contains(activity, "\x1b[1;32midle\x1b[0m") {
+		t.Fatalf("idle state should stay prominent: %q", activity)
+	}
+	if !strings.Contains(activity, "\x1b[2mlast: stats (120ms)\x1b[0m") {
+		t.Fatalf("last activity detail should be dim: %q", activity)
+	}
+	if !strings.Contains(activity, "\x1b[2m4s ago\x1b[0m") {
+		t.Fatalf("last activity time should be dim: %q", activity)
+	}
+
+	active := ActivityLabel(RadioIOInfo{Active: true, Method: "trace", DurationMs: 1234}, theme)
+	if !strings.Contains(active, "\x1b[2m(1.2s)\x1b[0m") {
+		t.Fatalf("active duration should be dim: %q", active)
+	}
+
+	replica := replicaDetails(BackendInfo{
+		Contacts: ReplicaInfo{Count: 286, SyncedAt: now.Add(-48 * time.Second)},
+		Channels: ReplicaInfo{Count: 2, SyncedAt: now.Add(-2 * time.Minute)},
+	}, theme)
+	if !strings.Contains(replica, "286 contacts · 2 channels · ") {
+		t.Fatalf("replica counts should stay plain: %q", replica)
+	}
+	if !strings.Contains(replica, "\x1b[2mupdated 48s ago\x1b[0m") {
+		t.Fatalf("replica update time should be dim: %q", replica)
 	}
 }

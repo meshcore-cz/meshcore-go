@@ -164,18 +164,18 @@ Available shell commands:
 
 	"trace": `Usage: mc trace <target> [flags]
 
-Trace the network route to a node and report per-link signal quality.
+Trace the network route to a node and report per-leg signal quality.
 
 The target is either a hash path or a contact name:
 
-  mc trace 25              1-byte hash, direct neighbour
-  mc trace 25,a1           multi-hop, 1 byte per hop
-  mc trace a1b2,c3d4       multi-hop, 2 bytes per hop
-  mc trace 252525ce        4-byte hash (explicit; not contact lookup)
-  mc trace alice           use contact out-path when known, or direct hash for zero-hop contacts
+  mc trace 25               direct neighbour, 1-byte trace hash
+  mc trace 25,a1            multi-hop path, 1 byte per leg
+  mc trace a1b2,c3d4        multi-hop path, 2 bytes per leg
+  mc trace 252525ce         explicit 4-byte trace hash
+  mc trace alice            use the stored contact route when available
 
-Hex targets are always treated as explicit paths (1, 2, 4, or 8 bytes per hop).
-Use a contact name to trace via stored routes.
+Hex targets are always interpreted as explicit paths.
+Use a contact name to trace using a stored contact route.
 ` + globalFlags,
 
 	"channel": `Usage: mc channel <list|show|send> [args] [flags]

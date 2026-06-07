@@ -12,7 +12,7 @@ func TestRadioSectionHealth(t *testing.T) {
 		Stats: DeviceStatsFromLocal(meshcore.LocalStats{}, true, time.Now()),
 	}
 	health, word := radioSectionHealth(dev, BackendInfo{Running: true, Healthy: true})
-	if health != HealthOK || word != "ok" {
+	if health != HealthOK || word != "active" {
 		t.Fatalf("got %v %q", health, word)
 	}
 

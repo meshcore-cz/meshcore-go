@@ -12,7 +12,7 @@ func TestReplicaDetailsFresh(t *testing.T) {
 		Contacts: ReplicaInfo{Count: 350, SyncedAt: contactsAt},
 		Channels: ReplicaInfo{Count: 2, SyncedAt: channelsAt},
 	}
-	got := replicaDetails(be)
+	got := replicaDetails(be, Theme{enabled: false})
 	want := "350 contacts · 2 channels · updated 48s ago"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
@@ -28,7 +28,7 @@ func TestReplicaDetailsSyncing(t *testing.T) {
 		},
 		Channels: ReplicaInfo{},
 	}
-	got := replicaDetails(be)
+	got := replicaDetails(be, Theme{enabled: false})
 	want := "contacts replicating 59% (207/350) · channels not replicated"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
@@ -37,7 +37,7 @@ func TestReplicaDetailsSyncing(t *testing.T) {
 
 func TestReplicaDetailsEmpty(t *testing.T) {
 	be := BackendInfo{}
-	got := replicaDetails(be)
+	got := replicaDetails(be, Theme{enabled: false})
 	want := "contacts not replicated · channels not replicated"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)

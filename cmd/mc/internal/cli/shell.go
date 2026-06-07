@@ -281,15 +281,15 @@ func shellTrace(ctx context.Context, e *env, backend Backend) error {
 		return err
 	}
 	hopIndex := traceHopIndex(ctx, backend)
-	selfLabel := traceSelfLabel(ctx, backend, trace)
+	origin := traceOriginNode(ctx, backend, trace)
 	var planPtr *meshcore.TracePlan
 	if planErr == nil {
 		planPtr = &plan
 	}
 	if e.out.JSON {
-		return e.out.JSONValue(traceJSON(trace, hopIndex, selfLabel, planPtr))
+		return e.out.JSONValue(traceJSON(trace, hopIndex, origin, planPtr))
 	}
-	printTrace(e, trace, hopIndex, selfLabel, planPtr)
+	printTrace(e, trace, hopIndex, origin, planPtr)
 	return nil
 }
 
