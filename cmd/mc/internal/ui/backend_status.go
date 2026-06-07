@@ -376,14 +376,30 @@ func backendStatsPollLabel(data BackendStatusData, theme Theme) string {
 		}
 	}
 	if data.Stats.Available && !data.Stats.UpdatedAt.IsZero() {
-		label := theme.StatusWord(HealthOK, "healthy") + " · " + theme.Dim("updated "+StatsUpdatedRelative(data.Stats.UpdatedAt))
+		updated := StatsUpdatedRelative(data.Stats.UpdatedAt)
+		if StatsUpdateStale(data.Stats.UpdatedAt) {
+			label := theme.StatusWord(HealthWarning, "stale") + " · " + theme.Dim("updated "+updated)
+			if data.Verbose {
+				label += " · " + backendStatsPollConfig(data, theme)
+			}
+			return label
+		}
+		label := theme.StatusWord(HealthOK, "healthy") + " · " + theme.Dim("updated "+updated)
 		if data.Verbose {
 			label += " · " + backendStatsPollConfig(data, theme)
 		}
 		return label
 	}
 	if !data.LastSeen.IsZero() {
-		label := theme.StatusWord(HealthOK, "healthy") + " · " + theme.Dim("updated "+StatsUpdatedRelative(data.LastSeen))
+		updated := StatsUpdatedRelative(data.LastSeen)
+		if StatsUpdateStale(data.LastSeen) {
+			label := theme.StatusWord(HealthWarning, "stale") + " · " + theme.Dim("updated "+updated)
+			if data.Verbose {
+				label += " · " + backendStatsPollConfig(data, theme)
+			}
+			return label
+		}
+		label := theme.StatusWord(HealthOK, "healthy") + " · " + theme.Dim("updated "+updated)
 		if data.Verbose {
 			label += " · " + backendStatsPollConfig(data, theme)
 		}

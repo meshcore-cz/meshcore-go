@@ -69,6 +69,14 @@ func RelativeTime(t time.Time) string {
 	}
 }
 
+// StatsFreshnessMaxAge is how long cached radio stats stay fresh before showing stale.
+const StatsFreshnessMaxAge = 90 * time.Second
+
+// StatsUpdateStale reports whether cached radio stats are older than StatsFreshnessMaxAge.
+func StatsUpdateStale(updatedAt time.Time) bool {
+	return !updatedAt.IsZero() && time.Since(updatedAt) > StatsFreshnessMaxAge
+}
+
 // StatsUpdatedRelative formats when cached radio stats were last refreshed.
 // Values under 5ms are shown as "now".
 func StatsUpdatedRelative(t time.Time) string {

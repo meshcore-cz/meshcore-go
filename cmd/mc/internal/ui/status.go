@@ -173,7 +173,7 @@ func radioSectionHealth(dev DeviceInfo, backend BackendInfo) (Health, string) {
 		if backend.Running && !backend.Healthy {
 			return HealthError, "error"
 		}
-		if !dev.Stats.UpdatedAt.IsZero() && time.Since(dev.Stats.UpdatedAt) > 90*time.Second {
+		if StatsUpdateStale(dev.Stats.UpdatedAt) {
 			return HealthWarning, "stale"
 		}
 		return HealthOK, "active"

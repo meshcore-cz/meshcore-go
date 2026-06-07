@@ -171,6 +171,30 @@ func TestRenderBackendStatusDegraded(t *testing.T) {
 	}
 }
 
+func TestRenderBackendStatusStaleStatsPoll(t *testing.T) {
+	now := time.Now()
+	data := BackendStatusData{
+		Running:  true,
+		Healthy:  true,
+		State:    "ready",
+		URI:      "ble://device",
+		LastSeen: now.Add(-2 * time.Minute),
+		Stats:    DeviceStatsFromLocal(meshcore.LocalStats{}, true, now.Add(-2*time.Minute)),
+	}
+	var buf bytes.Buffer
+	out := RenderBackendStatus(data, NewPrinter(&buf))
+	for _, want := range []string{
+		"  Stats poll:  stale · updated 2m ago",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Stats poll:  healthy") {
+		t.Fatalf("stale stats should not show healthy:\n%s", out)
+	}
+}
+
 func TestRenderBackendStatusBridges(t *testing.T) {
 	data := BackendStatusData{
 		Running: true,

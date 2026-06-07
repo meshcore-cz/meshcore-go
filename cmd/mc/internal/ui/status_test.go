@@ -45,6 +45,19 @@ func TestStatsUpdatedRelative(t *testing.T) {
 	}
 }
 
+func TestStatsUpdateStale(t *testing.T) {
+	now := time.Now()
+	if StatsUpdateStale(time.Time{}) {
+		t.Fatal("zero time should not be stale")
+	}
+	if StatsUpdateStale(now.Add(-30 * time.Second)) {
+		t.Fatal("30s old stats should not be stale")
+	}
+	if !StatsUpdateStale(now.Add(-2 * time.Minute)) {
+		t.Fatal("2m old stats should be stale")
+	}
+}
+
 func TestRenderStatusLayout(t *testing.T) {
 	data := StatusData{
 		Device: DeviceInfo{
