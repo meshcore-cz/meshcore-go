@@ -23,7 +23,8 @@ type Config struct {
 
 // Backend configures the local backend process.
 type Backend struct {
-	Bridges []Bridge `yaml:"bridges,omitempty"`
+	LogRequests bool     `yaml:"log_requests,omitempty"`
+	Bridges     []Bridge `yaml:"bridges,omitempty"`
 }
 
 // Bridge configures one local bridge listener exposed by the backend.

@@ -379,14 +379,18 @@ func backendServe(ctx context.Context, e *env) error {
 		meshcore.WithMessageSync(),
 		meshcore.WithTimeout(backendContactSyncTimeout),
 	))
-	bridges, err := configuredBridges()
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	server, err := localbackend.NewServerWithBridges(ctx, uri, bridges, opts...)
+	server, err := localbackend.NewServerWithBridges(ctx, uri, bridgesFromConfig(cfg), opts...)
 	if err != nil {
 		localbackend.Logf("connect failed: %v", err)
 		return err
+	}
+	if cfg.Backend.LogRequests {
+		server.SetLogRequests(true)
+		localbackend.Logf("ipc request logging enabled")
 	}
 	localbackend.Logf("ready on %s", localbackend.SocketPath())
 	return server.Serve()
@@ -571,6 +575,10 @@ func configuredBridges() ([]localbackend.BridgeConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	return bridgesFromConfig(cfg), nil
+}
+
+func bridgesFromConfig(cfg *config.Config) []localbackend.BridgeConfig {
 	out := make([]localbackend.BridgeConfig, 0, len(cfg.Backend.Bridges))
 	for _, bridge := range cfg.Backend.Bridges {
 		out = append(out, localbackend.BridgeConfig{
@@ -580,5 +588,5 @@ func configuredBridges() ([]localbackend.BridgeConfig, error) {
 			Name:    bridge.Name,
 		})
 	}
-	return out, nil
+	return out
 }

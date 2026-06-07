@@ -60,9 +60,10 @@ type Server struct {
 	deviceStatsOK       bool
 	deviceStatsAt       time.Time
 
-	startedAt time.Time
-	stopOnce  sync.Once
-	stopped   chan struct{}
+	startedAt   time.Time
+	logRequests bool
+	stopOnce    sync.Once
+	stopped     chan struct{}
 }
 
 const (
@@ -108,6 +109,11 @@ func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfi
 	s.startedAt = time.Now()
 	s.refreshStartupCaches(context.Background(), client)
 	return s, nil
+}
+
+// SetLogRequests enables logging of IPC requests and responses to the backend log.
+func (s *Server) SetLogRequests(v bool) {
+	s.logRequests = v
 }
 
 // Serve listens until Stop is called or the listener fails.
@@ -175,9 +181,17 @@ func (s *Server) handle(conn net.Conn) {
 	var req request
 	enc := json.NewEncoder(conn)
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
+		if s.logRequests {
+			Logf("ipc request decode error: %v", err)
+		}
 		_ = enc.Encode(response{OK: false, Error: err.Error()})
 		return
 	}
+	start := time.Now()
+	if s.logRequests {
+		logIPCRequest(req.ID, req.Method, req.Params)
+	}
+	streaming := req.Method == "watch" || req.Method == "watch_raw" || req.Method == "discover"
 	if req.Method == "watch" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
@@ -224,6 +238,10 @@ func (s *Server) handle(conn net.Conn) {
 		}
 	}
 	_ = enc.Encode(resp)
+
+	if s.logRequests && !streaming {
+		logIPCResponse(req.ID, req.Method, err, time.Since(start))
+	}
 
 	if req.Method == "stop" && err == nil {
 		go s.Stop()

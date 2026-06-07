@@ -35,6 +35,22 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBackendLogRequestsRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfg := &Config{Version: 1, Backend: Backend{LogRequests: true}}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Backend.LogRequests {
+		t.Fatal("log_requests not persisted")
+	}
+}
+
 func TestLoadMissingReturnsEmpty(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg, err := Load()

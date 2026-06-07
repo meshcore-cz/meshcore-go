@@ -81,6 +81,7 @@ Log flags:
 Bridge listeners are configured in config.yaml:
 
 backend:
+  log_requests: true
   bridges:
     - enabled: true
       type: tcp
