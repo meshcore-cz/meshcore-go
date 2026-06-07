@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFormatIPCParamsRedactsSecrets(t *testing.T) {
@@ -32,5 +33,19 @@ func TestFormatIPCParamsTruncatesLongJSON(t *testing.T) {
 	got := formatIPCParams("contact", params)
 	if len(got) != 203 || !strings.HasSuffix(got, "...") {
 		t.Fatalf("truncated length = %d suffix=%q", len(got), got[len(got)-3:])
+	}
+}
+
+func TestFormatIPCDurationMs(t *testing.T) {
+	t.Parallel()
+
+	if got := formatIPCDurationMs(450 * time.Microsecond); got != "1ms" {
+		t.Fatalf("got %q, want 1ms", got)
+	}
+	if got := formatIPCDurationMs(450 * time.Millisecond); got != "450ms" {
+		t.Fatalf("got %q, want 450ms", got)
+	}
+	if got := formatIPCDurationMs(1234 * time.Millisecond); got != "1234ms" {
+		t.Fatalf("got %q, want 1234ms", got)
 	}
 }

@@ -53,10 +53,21 @@ func logIPCRequest(id uint64, method string, params json.RawMessage) {
 }
 
 func logIPCResponse(id uint64, method string, err error, d time.Duration) {
-	ms := d.Truncate(time.Millisecond)
+	ms := formatIPCDurationMs(d)
 	if err != nil {
 		Logf("ipc response id=%d method=%s ok=false error=%q duration=%s", id, method, err.Error(), ms)
 		return
 	}
 	Logf("ipc response id=%d method=%s ok=true duration=%s", id, method, ms)
+}
+
+func formatIPCDurationMs(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	ms := d / time.Millisecond
+	if d > 0 && ms == 0 {
+		ms = 1
+	}
+	return strconv.FormatInt(int64(ms), 10) + "ms"
 }
