@@ -40,6 +40,8 @@ type Server struct {
 	contactSyncedAt  time.Time
 	contactError     string
 	contactSyncMu    sync.Mutex
+	refreshMu        sync.Mutex
+	refreshCancel    context.CancelFunc
 	channelSyncing   bool
 	channelCount     int
 	channelSyncedAt  time.Time
@@ -179,8 +181,6 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
-		s.lockRadio("watch")
-		defer s.unlockRadio()
 		s.watch(conn, req.ID)
 		return
 	}
@@ -189,8 +189,6 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
-		s.lockRadio("watch_raw")
-		defer s.unlockRadio()
 		s.watchRaw(conn, req.ID)
 		return
 	}
@@ -208,6 +206,7 @@ func (s *Server) handle(conn net.Conn) {
 	var result any
 	var err error
 	if s.methodUsesRadio(req.Method, req.Params) {
+		s.interruptContactRefresh()
 		s.lockRadio(req.Method)
 		defer s.unlockRadio()
 	}
@@ -226,6 +225,8 @@ func (s *Server) handle(conn net.Conn) {
 
 	if req.Method == "stop" && err == nil {
 		go s.Stop()
+	} else if err == nil && s.methodUsesRadio(req.Method, req.Params) && req.Method != "contacts" && req.Method != "channels" {
+		s.scheduleContactRefreshAfterInteractive()
 	}
 }
 
@@ -238,7 +239,9 @@ func (s *Server) watch(conn net.Conn, id uint64) {
 	if client == nil {
 		return
 	}
-	for ev := range client.Events() {
+	events, cancel := client.SubscribeEvents(64)
+	defer cancel()
+	for ev := range events {
 		out, ok := backendEvent(ev)
 		if !ok {
 			continue
@@ -258,7 +261,9 @@ func (s *Server) watchRaw(conn net.Conn, id uint64) {
 	if client == nil {
 		return
 	}
-	for pkt := range client.RawPackets() {
+	raw, cancel := client.SubscribeRawPackets(256)
+	defer cancel()
+	for pkt := range raw {
 		if err := enc.Encode(pkt); err != nil {
 			return
 		}
@@ -531,12 +536,18 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 	}
 }
 
-func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts contactsParams) ([]meshcore.Contact, error) {
+func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts contactsParams) (any, error) {
+	if opts.Refresh && !opts.Wait {
+		if client == nil || !s.healthy() {
+			return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
+		}
+		return s.startContactRefresh(opts.Full), nil
+	}
 	if opts.Refresh {
 		if client == nil || !s.healthy() {
 			return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
 		}
-		return s.refreshContactsNow(ctx, client)
+		return s.syncContacts(ctx, client, opts.Full)
 	}
 	return s.replicaContacts(ctx)
 }
@@ -556,10 +567,6 @@ func (s *Server) contact(ctx context.Context, client *meshcore.Client, query str
 		return meshcore.Contact{}, err
 	}
 	return entry.Contact, nil
-}
-
-func (s *Server) refreshContactsNow(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {
-	return s.syncContacts(ctx, client)
 }
 
 func (s *Server) replicaContacts(ctx context.Context) ([]meshcore.Contact, error) {
@@ -588,7 +595,7 @@ func (s *Server) scheduleInitialContactSync() {
 		if client == nil || !s.healthy() {
 			return
 		}
-		contacts, err := s.syncContacts(ctx, client)
+		contacts, err := s.syncContacts(ctx, client, false)
 		if err != nil {
 			Logf("contact sync failed: %v", err)
 		} else {
@@ -603,7 +610,7 @@ func (s *Server) scheduleInitialContactSync() {
 	}()
 }
 
-func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]meshcore.Contact, error) {
+func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client, full bool) ([]meshcore.Contact, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("backend contact replica is unavailable")
 	}
@@ -623,7 +630,20 @@ func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]m
 	Logf("contacts sync started")
 	defer s.finishContactSync()
 
-	contacts, err := client.ContactsWithProgress(ctx, func(p meshcore.ContactSyncProgress) {
+	var since uint32
+	if !full {
+		mod, err := s.store.ContactLastMod(ctx, s.uri)
+		if err != nil {
+			s.recordContactSyncError(err)
+			return nil, err
+		}
+		since = mod
+	} else if err := s.store.ClearContacts(ctx, s.uri); err != nil {
+		s.recordContactSyncError(err)
+		return nil, err
+	}
+
+	result, err := client.ContactsSince(ctx, since, func(p meshcore.ContactSyncProgress) {
 		s.mu.Lock()
 		s.contactSyncRecv = p.Received
 		s.contactSyncTotal = p.Total
@@ -633,7 +653,20 @@ func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client) ([]m
 		s.recordContactSyncError(err)
 		return nil, err
 	}
-	if err := s.store.UpsertContacts(ctx, s.uri, contacts); err != nil {
+	if len(result.Contacts) > 0 {
+		if err := s.store.UpsertContacts(ctx, s.uri, result.Contacts); err != nil {
+			s.recordContactSyncError(err)
+			return nil, err
+		}
+	}
+	if result.LastMod != 0 || full {
+		if err := s.store.SetContactLastMod(ctx, s.uri, result.LastMod); err != nil {
+			s.recordContactSyncError(err)
+			return nil, err
+		}
+	}
+	contacts, err := s.replicaContacts(ctx)
+	if err != nil {
 		s.recordContactSyncError(err)
 		return nil, err
 	}
@@ -1053,7 +1086,7 @@ func (s *Server) methodUsesRadio(method string, params json.RawMessage) bool {
 		if len(params) > 0 {
 			_ = json.Unmarshal(params, &p)
 		}
-		return p.Refresh
+		return p.Refresh && p.Wait
 	case "channels":
 		var p channelsParams
 		if len(params) > 0 {

@@ -156,7 +156,7 @@ func (c *Client) waitForRepeaterLogin(ctx context.Context, ct Contact, prefix []
 			return RepeaterLoginSucceeded{}, fmt.Errorf("waiting for repeater %s login: %w", ct.Name, wctx.Err())
 		case <-c.closed:
 			return RepeaterLoginSucceeded{}, fmt.Errorf("meshcore: connection closed")
-		case ev, ok := <-c.events.Events():
+		case ev, ok := <-c.eventCh:
 			if !ok {
 				return RepeaterLoginSucceeded{}, fmt.Errorf("meshcore: event stream closed")
 			}
@@ -248,7 +248,7 @@ func (c *Client) waitForRepeaterStatus(ctx context.Context, ct Contact, prefix [
 			return nil, "", fmt.Errorf("waiting for repeater %s status: %w", ct.Name, wctx.Err())
 		case <-c.closed:
 			return nil, "", fmt.Errorf("meshcore: connection closed")
-		case ev, ok := <-c.events.Events():
+		case ev, ok := <-c.eventCh:
 			if !ok {
 				return nil, "", fmt.Errorf("meshcore: event stream closed")
 			}
@@ -345,7 +345,7 @@ func (c *Client) RepeaterExecContact(ctx context.Context, ct Contact, command st
 			return RepeaterResponse{}, fmt.Errorf("waiting for repeater %s response to %q: %w", ct.Name, command, wctx.Err())
 		case <-c.closed:
 			return RepeaterResponse{}, fmt.Errorf("meshcore: connection closed")
-		case ev, ok := <-c.events.Events():
+		case ev, ok := <-c.eventCh:
 			if !ok {
 				return RepeaterResponse{}, fmt.Errorf("meshcore: event stream closed")
 			}

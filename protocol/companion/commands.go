@@ -46,9 +46,11 @@ type SendSelfAdvert struct {
 // Reboot asks the device to restart.
 type Reboot struct{}
 
-// GetContacts requests the full contact list (CONTACTS_START, CONTACT…,
-// END_OF_CONTACTS).
-type GetContacts struct{}
+// GetContacts requests the contact list (CONTACTS_START, CONTACT…,
+// END_OF_CONTACTS). Since selects incremental sync; zero requests all contacts.
+type GetContacts struct {
+	Since uint32
+}
 
 // GetChannel requests information about a channel slot by index.
 type GetChannel struct {
@@ -174,7 +176,13 @@ func encode(cmd protocol.Command) ([]byte, error) {
 		return []byte{cmdReboot}, nil
 
 	case GetContacts:
-		return []byte{cmdGetContacts}, nil
+		if c.Since == 0 {
+			return []byte{cmdGetContacts}, nil
+		}
+		buf := make([]byte, 5)
+		buf[0] = cmdGetContacts
+		binary.LittleEndian.PutUint32(buf[1:], c.Since)
+		return buf, nil
 
 	case GetChannel:
 		return []byte{cmdGetChannel, c.Index}, nil

@@ -52,6 +52,10 @@ type Client struct {
 	session protocol.SessionInfo
 
 	cancel    context.CancelFunc
+	eventCh   <-chan Event
+	eventUnsub func()
+	rawCh     <-chan RawPacket
+	rawUnsub  func()
 	closeOnce sync.Once
 	closed    chan struct{}
 }
@@ -150,6 +154,13 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.session = session
 	c.mu.Unlock()
 
+	ch, unsub := c.events.Subscribe(64)
+	c.eventCh = ch
+	c.eventUnsub = unsub
+	rawCh, rawUnsub := c.raw.Subscribe(256)
+	c.rawCh = rawCh
+	c.rawUnsub = rawUnsub
+
 	// The read loop runs under a context tied to the client lifetime.
 	loopCtx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -185,7 +196,15 @@ func (c *Client) readLoop(ctx context.Context) {
 			c.handleAsync(msg)
 			continue
 		}
-		if !c.queue.Deliver(msg) {
+		if delivered, err := c.queue.Deliver(msg); err != nil {
+			if errors.Is(err, queue.ErrResponseOverflow) {
+				c.log.Debug("response overflow", "type", msgType(msg))
+				c.emitEvent(Disconnected{Err: err})
+				c.events.Close()
+				c.raw.Close()
+				return
+			}
+		} else if !delivered {
 			c.log.Debug("unmatched response", "type", msgType(msg))
 		}
 	}
@@ -326,13 +345,10 @@ func (c *Client) request(ctx context.Context, cmd protocol.Command) (protocol.Me
 // until it reports the stream is complete. A device error frame aborts the
 // stream.
 func (c *Client) requestStream(ctx context.Context, raw []byte, collect func(protocol.Message) bool) error {
-	tctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
 	c.log.Debug("request stream", "bytes", len(raw))
 	var streamErr error
-	err := c.queue.DoStream(tctx, func() error {
-		return c.conn.WritePacket(tctx, raw)
+	err := c.queue.DoStream(ctx, func() error {
+		return c.conn.WritePacket(ctx, raw)
 	}, func(v any) bool {
 		msg := v.(protocol.Message)
 		if e, ok := msg.(companion.Err); ok {
@@ -367,22 +383,39 @@ func (c *Client) RawSend(ctx context.Context, payload []byte) (protocol.Message,
 	return v.(protocol.Message), nil
 }
 
-// Events returns the asynchronous event stream. The channel is closed when the
-// connection ends.
+// Events returns the asynchronous event stream created at Connect. The channel
+// is closed when the connection ends.
 func (c *Client) Events() <-chan Event {
-	return c.events.Events()
+	return c.eventCh
+}
+
+// SubscribeEvents registers an additional event consumer. Each subscriber
+// receives its own copy of events.
+func (c *Client) SubscribeEvents(buffer int) (<-chan Event, func()) {
+	return c.events.Subscribe(buffer)
 }
 
 // RawPackets returns inbound packets observed by the read loop before response
 // matching or event translation.
 func (c *Client) RawPackets() <-chan RawPacket {
-	return c.raw.Events()
+	return c.rawCh
+}
+
+// SubscribeRawPackets registers an additional raw-packet consumer.
+func (c *Client) SubscribeRawPackets(buffer int) (<-chan RawPacket, func()) {
+	return c.raw.Subscribe(buffer)
 }
 
 // Close shuts down the read loop and the transport.
 func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
+		if c.eventUnsub != nil {
+			c.eventUnsub()
+		}
+		if c.rawUnsub != nil {
+			c.rawUnsub()
+		}
 		if c.cancel != nil {
 			c.cancel()
 		}

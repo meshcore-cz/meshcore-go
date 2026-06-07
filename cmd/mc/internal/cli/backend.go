@@ -19,7 +19,8 @@ type Backend interface {
 	DeviceInfo(context.Context) (meshcore.DeviceInfo, error)
 	Stats(context.Context) (meshcore.LocalStats, error)
 	Contacts(context.Context) ([]meshcore.Contact, error)
-	ContactsWithOptions(context.Context, bool, bool) ([]meshcore.Contact, error)
+	ContactsWithOptions(context.Context, bool, bool, bool, bool) ([]meshcore.Contact, error)
+	StartContactRefresh(context.Context, bool) (localbackend.ContactRefreshResult, error)
 	Contact(context.Context, string) (meshcore.Contact, error)
 	Inbox(context.Context) ([]meshcore.Message, error)
 	SendText(context.Context, string, string) (meshcore.Receipt, error)
@@ -133,11 +134,18 @@ func (b *directBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error
 	return b.svc.Contacts(ctx)
 }
 
-func (b *directBackend) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
+func (b *directBackend) ContactsWithOptions(ctx context.Context, cached, refresh, wait, full bool) ([]meshcore.Contact, error) {
 	if cached {
 		return nil, fmt.Errorf("local contact replica requires the backend")
 	}
+	if refresh {
+		return nil, fmt.Errorf("contact refresh requires the backend")
+	}
 	return b.svc.Contacts(ctx)
+}
+
+func (b *directBackend) StartContactRefresh(ctx context.Context, full bool) (localbackend.ContactRefreshResult, error) {
+	return localbackend.ContactRefreshResult{}, fmt.Errorf("contact refresh requires the backend")
 }
 
 func (b *directBackend) Contact(ctx context.Context, name string) (meshcore.Contact, error) {
@@ -241,8 +249,12 @@ func (b *ipcBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
 	return b.client.Contacts(ctx)
 }
 
-func (b *ipcBackend) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
-	return b.client.ContactsWithOptions(ctx, cached, refresh)
+func (b *ipcBackend) ContactsWithOptions(ctx context.Context, cached, refresh, wait, full bool) ([]meshcore.Contact, error) {
+	return b.client.ContactsWithOptions(ctx, cached, refresh, wait, full)
+}
+
+func (b *ipcBackend) StartContactRefresh(ctx context.Context, full bool) (localbackend.ContactRefreshResult, error) {
+	return b.client.StartContactRefresh(ctx, full)
 }
 
 func (b *ipcBackend) Contact(ctx context.Context, name string) (meshcore.Contact, error) {

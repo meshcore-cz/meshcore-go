@@ -23,7 +23,23 @@ func cmdContacts(ctx context.Context, e *env) error {
 	}
 	defer backend.Close()
 
-	contacts, err := backend.ContactsWithOptions(ctx, e.args.has("cached"), e.args.has("refresh"))
+	if e.args.has("refresh") && !e.args.has("wait") {
+		result, err := backend.StartContactRefresh(ctx, e.args.has("full"))
+		if err != nil {
+			return err
+		}
+		if e.out.JSON {
+			return e.out.JSONValue(result)
+		}
+		if result.Started {
+			e.out.Human("Contact synchronization started.\n")
+		} else if result.Running {
+			e.out.Human("Contact synchronization already running.\n")
+		}
+		return nil
+	}
+
+	contacts, err := backend.ContactsWithOptions(ctx, e.args.has("cached"), e.args.has("refresh"), e.args.has("wait"), e.args.has("full"))
 	if err != nil {
 		return err
 	}
@@ -451,7 +467,7 @@ type traceNameIndex struct {
 }
 
 func traceHopIndex(ctx context.Context, backend Backend) traceNameIndex {
-	contacts, err := backend.ContactsWithOptions(ctx, true, false)
+	contacts, err := backend.ContactsWithOptions(ctx, true, false, false, false)
 	if err != nil {
 		return traceNameIndex{byPrefix: map[string][]string{}}
 	}

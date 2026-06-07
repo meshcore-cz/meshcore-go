@@ -24,6 +24,9 @@ type ChannelCacheEntry struct {
 type Store interface {
 	Close() error
 	UpsertContacts(ctx context.Context, device string, contacts []meshcore.Contact) error
+	ClearContacts(ctx context.Context, device string) error
+	ContactLastMod(ctx context.Context, device string) (uint32, error)
+	SetContactLastMod(ctx context.Context, device string, lastMod uint32) error
 	UpsertContact(ctx context.Context, device string, contact meshcore.Contact) error
 	Contacts(ctx context.Context, device string) ([]ContactCacheEntry, error)
 	Contact(ctx context.Context, device, query string) (ContactCacheEntry, error)

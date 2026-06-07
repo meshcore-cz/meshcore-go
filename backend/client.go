@@ -193,12 +193,18 @@ func (c *Client) StatsWithOptions(ctx context.Context, refresh bool) (meshcore.L
 }
 
 func (c *Client) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
-	return c.ContactsWithOptions(ctx, false, false)
+	return c.ContactsWithOptions(ctx, false, false, false, false)
 }
 
-func (c *Client) ContactsWithOptions(ctx context.Context, cached, refresh bool) ([]meshcore.Contact, error) {
+func (c *Client) ContactsWithOptions(ctx context.Context, cached, refresh, wait, full bool) ([]meshcore.Contact, error) {
 	var out []meshcore.Contact
-	err := c.call(ctx, "contacts", contactsParams{Cached: cached, Refresh: refresh}, &out)
+	err := c.call(ctx, "contacts", contactsParams{Cached: cached, Refresh: refresh, Wait: wait, Full: full}, &out)
+	return out, err
+}
+
+func (c *Client) StartContactRefresh(ctx context.Context, full bool) (ContactRefreshResult, error) {
+	var out ContactRefreshResult
+	err := c.call(ctx, "contacts", contactsParams{Refresh: true, Wait: false, Full: full}, &out)
 	return out, err
 }
 

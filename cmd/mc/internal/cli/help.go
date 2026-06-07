@@ -93,11 +93,13 @@ TCP MeshCore bridge.
 
 	"contacts": `Usage: mc contacts [flags]
 
-List the contacts stored on the device.
+List contacts from the backend's local replica.
 
 Flags:
-  --cached         Read contacts from the backend's local replica only
-  --refresh        Force a radio sync and update the local replica
+  --cached         Same as the default: read the local replica
+  --refresh        Start a background radio sync (returns immediately)
+  --wait           With --refresh, block until synchronization finishes
+  --full           With --refresh, rebuild the full contact list (ignore cursor)
 ` + globalFlags,
 
 	"contact": `Usage: mc contact show <name> [flags]

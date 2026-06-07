@@ -95,6 +95,13 @@ type queryParams struct {
 type contactsParams struct {
 	Cached  bool `json:"cached"`
 	Refresh bool `json:"refresh"`
+	Wait    bool `json:"wait"`
+	Full    bool `json:"full"`
+}
+
+type ContactRefreshResult struct {
+	Started bool `json:"started"`
+	Running bool `json:"running"`
 }
 
 type channelsParams struct {

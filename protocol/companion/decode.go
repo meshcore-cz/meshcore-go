@@ -64,7 +64,11 @@ func decode(packet []byte) (protocol.Message, error) {
 		return decodeContact(body), nil
 
 	case respEndOfContacts:
-		return EndOfContacts{}, nil
+		var end EndOfContacts
+		if len(body) >= 4 {
+			end.MostRecentLastMod = binary.LittleEndian.Uint32(body)
+		}
+		return end, nil
 
 	case respChannelInfo:
 		return decodeChannelInfo(body), nil

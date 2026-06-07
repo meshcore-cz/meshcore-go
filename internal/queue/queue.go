@@ -1,6 +1,3 @@
-// Package queue serialises protocol requests so only one is in flight at a
-// time and routes the matching response back to the caller. The SDK owns
-// request sequencing; applications never manage command timing manually.
 package queue
 
 import (
@@ -14,7 +11,12 @@ type Queue struct {
 	sendMu sync.Mutex // ensures only one request is active at a time
 
 	mu     sync.Mutex
-	waiter chan any
+	waiter *streamWaiter
+}
+
+type streamWaiter struct {
+	responses chan any
+	overflow  chan error
 }
 
 // New returns an empty Queue.
@@ -23,7 +25,7 @@ func New() *Queue { return &Queue{} }
 // streamBuffer bounds how many undelivered responses may queue for a single
 // in-flight request. It must comfortably exceed the largest multi-frame
 // response (e.g. a full contact list).
-const streamBuffer = 512
+const streamBuffer = 2048
 
 // Do transmits a command via send and waits for a single response delivered
 // through Deliver, honoring ctx (which the caller typically bounds with a
@@ -47,9 +49,12 @@ func (q *Queue) run(ctx context.Context, send func() error, collect func(any) bo
 	q.sendMu.Lock()
 	defer q.sendMu.Unlock()
 
-	ch := make(chan any, streamBuffer)
+	w := &streamWaiter{
+		responses: make(chan any, streamBuffer),
+		overflow:  make(chan error, 1),
+	}
 	q.mu.Lock()
-	q.waiter = ch
+	q.waiter = w
 	q.mu.Unlock()
 
 	defer func() {
@@ -64,30 +69,36 @@ func (q *Queue) run(ctx context.Context, send func() error, collect func(any) bo
 
 	for {
 		select {
-		case v := <-ch:
+		case v := <-w.responses:
 			if collect(v) {
 				return nil
 			}
+		case err := <-w.overflow:
+			return err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 }
 
-// Deliver routes a response to the current waiter. It reports whether a waiter
-// accepted the value; unmatched responses (e.g. when no request is pending)
-// return false so the caller can treat them as stray.
-func (q *Queue) Deliver(v any) bool {
+// Deliver routes a response to the current waiter. Unmatched responses (no
+// active request) return (false, nil). Returns ErrResponseOverflow when the
+// response buffer is full.
+func (q *Queue) Deliver(v any) (bool, error) {
 	q.mu.Lock()
-	ch := q.waiter
+	w := q.waiter
 	q.mu.Unlock()
-	if ch == nil {
-		return false
+	if w == nil {
+		return false, nil
 	}
 	select {
-	case ch <- v:
-		return true
+	case w.responses <- v:
+		return true, nil
 	default:
-		return false
+		select {
+		case w.overflow <- ErrResponseOverflow:
+		default:
+		}
+		return false, ErrResponseOverflow
 	}
 }

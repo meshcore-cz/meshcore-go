@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS repeater_sessions (
 	updated_at TEXT NOT NULL,
 	PRIMARY KEY (device, repeater)
 );
+CREATE TABLE IF NOT EXISTS device_meta (
+	device TEXT NOT NULL,
+	key TEXT NOT NULL,
+	value TEXT NOT NULL,
+	PRIMARY KEY (device, key)
+);
 `)
 	if err != nil {
 		return err
@@ -376,5 +382,36 @@ WHERE device = ? AND repeater = ?
 
 func (s *SQLiteStore) ClearRepeaterSession(ctx context.Context, device, repeater string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM repeater_sessions WHERE device = ? AND repeater = ?`, device, repeater)
+	return err
+}
+
+const contactLastModKey = "contact_last_mod"
+
+func (s *SQLiteStore) ClearContacts(ctx context.Context, device string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM contacts WHERE device = ?`, device)
+	return err
+}
+
+func (s *SQLiteStore) ContactLastMod(ctx context.Context, device string) (uint32, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM device_meta WHERE device = ? AND key = ?`, device, contactLastModKey).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseUint(value, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parsing contact last mod: %w", err)
+	}
+	return uint32(n), nil
+}
+
+func (s *SQLiteStore) SetContactLastMod(ctx context.Context, device string, lastMod uint32) error {
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO device_meta(device, key, value) VALUES (?, ?, ?)
+ON CONFLICT(device, key) DO UPDATE SET value=excluded.value
+`, device, contactLastModKey, strconv.FormatUint(uint64(lastMod), 10))
 	return err
 }

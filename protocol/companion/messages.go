@@ -144,7 +144,9 @@ type Contact struct {
 func (Contact) Async() bool { return false }
 
 // EndOfContacts is RESP_CODE_END_OF_CONTACTS, terminating a contact list.
-type EndOfContacts struct{}
+type EndOfContacts struct {
+	MostRecentLastMod uint32
+}
 
 func (EndOfContacts) Async() bool { return false }
 

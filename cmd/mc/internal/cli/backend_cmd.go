@@ -368,9 +368,9 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"last_seen":  st.LastSeen,
 		"last_error": st.LastError,
 		"bridges":    st.Bridges,
-		"contacts": contactStatusJSON(st.Contacts),
-		"channels": channelStatusJSON(st.Channels),
-		"radio":    radioStatusJSON(st.Radio),
+		"contacts":   contactStatusJSON(st.Contacts),
+		"channels":   channelStatusJSON(st.Channels),
+		"radio":      radioStatusJSON(st.Radio),
 	}
 	if st.Device.Available() {
 		out["device"] = map[string]any{

@@ -296,6 +296,9 @@ func TestEncodeMessagingCommands(t *testing.T) {
 	if got, _ := encode(GetContacts{}); !bytes.Equal(got, []byte{cmdGetContacts}) {
 		t.Errorf("GetContacts = %x", got)
 	}
+	if got, _ := encode(GetContacts{Since: 0x12345678}); !bytes.Equal(got, []byte{cmdGetContacts, 0x78, 0x56, 0x34, 0x12}) {
+		t.Errorf("GetContacts since = %x", got)
+	}
 	if got, _ := encode(GetChannel{Index: 3}); !bytes.Equal(got, []byte{cmdGetChannel, 3}) {
 		t.Errorf("GetChannel = %x", got)
 	}

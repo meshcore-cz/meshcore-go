@@ -19,6 +19,8 @@ const (
 	ContactRepeater ContactType = "repeater"
 	ContactRoom     ContactType = "room"
 	ContactSensor   ContactType = "sensor"
+
+	contactStreamIdleTimeout = 5 * time.Second
 )
 
 func contactType(b byte) ContactType {
@@ -58,31 +60,56 @@ type ContactSyncProgress struct {
 // ContactSyncProgressFunc is called as contacts stream in from the radio.
 type ContactSyncProgressFunc func(ContactSyncProgress)
 
+// ContactSyncResult is the outcome of a contact synchronization stream.
+type ContactSyncResult struct {
+	Contacts []Contact
+	LastMod  uint32
+}
+
 // Contacts returns the device's contact list.
 func (c *Client) Contacts(ctx context.Context) ([]Contact, error) {
-	return c.ContactsWithProgress(ctx, nil)
+	result, err := c.ContactsSince(ctx, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	return result.Contacts, nil
 }
 
 // ContactsWithProgress returns the device's contact list and reports download
 // progress when onProgress is non-nil.
 func (c *Client) ContactsWithProgress(ctx context.Context, onProgress ContactSyncProgressFunc) ([]Contact, error) {
-	if err := c.requireCapability(CapabilityContacts); err != nil {
-		return nil, err
-	}
-
-	raw, err := c.proto.Encode(companion.GetContacts{})
+	result, err := c.ContactsSince(ctx, 0, onProgress)
 	if err != nil {
 		return nil, err
 	}
+	return result.Contacts, nil
+}
+
+// ContactsSince requests contacts changed since the given modification marker.
+// Zero requests a full synchronization.
+func (c *Client) ContactsSince(ctx context.Context, since uint32, onProgress ContactSyncProgressFunc) (ContactSyncResult, error) {
+	if err := c.requireCapability(CapabilityContacts); err != nil {
+		return ContactSyncResult{}, err
+	}
+
+	raw, err := c.proto.Encode(companion.GetContacts{Since: since})
+	if err != nil {
+		return ContactSyncResult{}, err
+	}
+
+	streamCtx, idle := streamIdleContext(ctx, contactStreamIdleTimeout)
+	defer idle.cancel()
 
 	var contacts []Contact
 	var total int
+	var lastMod uint32
 	report := func() {
 		if onProgress != nil {
 			onProgress(ContactSyncProgress{Received: len(contacts), Total: total})
 		}
 	}
 	collect := func(msg protocol.Message) (done bool) {
+		idle.reset()
 		switch m := msg.(type) {
 		case companion.ContactsStart:
 			total = int(m.Count)
@@ -91,19 +118,29 @@ func (c *Client) ContactsWithProgress(ctx context.Context, onProgress ContactSyn
 			contacts = append(contacts, fromCompanionContact(m))
 			report()
 		case companion.EndOfContacts:
+			lastMod = m.MostRecentLastMod
 			return true
 		}
 		return false
 	}
 
-	if err := c.requestStream(ctx, raw, collect); err != nil {
-		return nil, err
+	if err := c.requestStream(streamCtx, raw, collect); err != nil {
+		return ContactSyncResult{}, err
 	}
-	return contacts, nil
+	return ContactSyncResult{Contacts: contacts, LastMod: lastMod}, nil
+}
+
+// FindContact resolves a query against a contact list.
+func FindContact(contacts []Contact, query string) (Contact, bool) {
+	match, err := matchContact(contacts, query)
+	if err != nil {
+		return Contact{}, false
+	}
+	return match, true
 }
 
 // Contact looks up a single contact by name (case-insensitive) or by a
-// public-key hex prefix.
+// public-key hex prefix. It performs a full device synchronization.
 func (c *Client) Contact(ctx context.Context, name string) (Contact, error) {
 	contacts, err := c.Contacts(ctx)
 	if err != nil {
@@ -159,4 +196,33 @@ func cloneBytes(b []byte) []byte {
 		return []byte{}
 	}
 	return append([]byte(nil), b...)
+}
+
+type streamIdleHandle struct {
+	cancel context.CancelFunc
+	reset  func()
+}
+
+func streamIdleContext(parent context.Context, idle time.Duration) (context.Context, streamIdleHandle) {
+	if idle <= 0 {
+		return parent, streamIdleHandle{cancel: func() {}, reset: func() {}}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	var timer *time.Timer
+	reset := func() {
+		if timer != nil {
+			timer.Stop()
+		}
+		timer = time.AfterFunc(idle, cancel)
+	}
+	reset()
+	return ctx, streamIdleHandle{
+		cancel: func() {
+			if timer != nil {
+				timer.Stop()
+			}
+			cancel()
+		},
+		reset: reset,
+	}
 }
