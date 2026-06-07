@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,9 +17,10 @@ type shellSession struct {
 	Socket    string
 	Temporary bool
 
-	server  *localbackend.Server
-	done    chan error
-	cleanup func()
+	server     *localbackend.Server
+	done       chan error
+	cleanup    func()
+	completion *shellCompletionCache
 }
 
 func (s *shellSession) close() {
@@ -45,7 +43,7 @@ func cmdShell(ctx context.Context, e *env) error {
 
 	printShellBanner(e, session)
 	e.out.Human("Type `help` for commands, `exit` to quit.\n\n")
-	return runShell(ctx, e, session, os.Stdin)
+	return runShell(ctx, e, session, nil)
 }
 
 func printShellBanner(e *env, session *shellSession) {
@@ -180,55 +178,6 @@ func waitForShellBackend(ctx context.Context, uri, socket string) error {
 			if err == nil && st.Healthy {
 				return nil
 			}
-		}
-	}
-}
-
-func runShell(ctx context.Context, parent *env, session *shellSession, in io.Reader) error {
-	scanner := bufio.NewScanner(in)
-	for {
-		parent.out.Human("mc[%s]> ", session.Profile)
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return err
-			}
-			parent.out.Human("\n")
-			return nil
-		}
-
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		fields, err := splitShellFields(line)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "mc:", err)
-			continue
-		}
-		if len(fields) == 0 {
-			continue
-		}
-
-		if fields[0] == "?" {
-			fields[0] = "help"
-		}
-		if shellShouldExit(fields[0]) {
-			return nil
-		}
-
-		args := inheritShellArgs(fields, parent.args)
-		cmdCtx, cancel := signal.NotifyContext(ctx, os.Interrupt)
-		err = Execute(cmdCtx, args, ExecuteOptions{
-			BackendSocket:         session.Socket,
-			RequireIPC:            true,
-			InShell:               true,
-			TemporaryShellBackend: session.Temporary,
-		})
-		cancel()
-
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "mc:", err)
 		}
 	}
 }

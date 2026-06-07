@@ -260,6 +260,38 @@ func TestTemporaryBackendSocketRemovedOnClose(t *testing.T) {
 	}
 }
 
+func TestCompletionWords(t *testing.T) {
+	got := completionWords(`send alice "hello`)
+	if len(got) != 3 || got[0] != "send" || got[1] != "alice" || got[2] != "hello" {
+		t.Fatalf("completionWords() = %#v", got)
+	}
+}
+
+func TestFindCommandSpecAlias(t *testing.T) {
+	spec, ok := findCommandSpec(shellCommands, "s")
+	if !ok || spec.Name != "status" {
+		t.Fatalf("findCommandSpec(s) = %#v, %v", spec, ok)
+	}
+}
+
+func TestQuoteCompletion(t *testing.T) {
+	if got := quoteCompletion(`hello world`); got != `"hello world"` {
+		t.Fatalf("quoteCompletion() = %q", got)
+	}
+}
+
+func TestIsTerminalNoiseLine(t *testing.T) {
+	if !isTerminalNoiseLine("^[[38;19R") {
+		t.Fatal("expected CPR display form to be noise")
+	}
+	if !isTerminalNoiseLine("\x1b[38;19R") {
+		t.Fatal("expected CPR escape form to be noise")
+	}
+	if isTerminalNoiseLine("status") {
+		t.Fatal("status should not be noise")
+	}
+}
+
 func TestRunShellExitReturns(t *testing.T) {
 	in := strings.NewReader("status\nexit\n")
 	parent, err := parseArgs([]string{"shell", "--json"})
