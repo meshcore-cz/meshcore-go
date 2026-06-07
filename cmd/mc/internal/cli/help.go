@@ -253,12 +253,13 @@ Set the default device profile used by subsequent commands.
 
 Manage saved device profiles.
 
-  mc device list             list saved profiles
+  mc device list             list saved profiles (same as mc device / mc devices)
   mc device show             show the connected device and capabilities
   mc device show handheld    show a saved profile
   mc device remove handheld  delete a profile
 
 Flags:
+  --wide           Show transport endpoints
   --json           Machine-readable JSON output
 `,
 

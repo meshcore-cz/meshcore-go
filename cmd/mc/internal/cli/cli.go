@@ -28,12 +28,15 @@ var commandAliases = map[string]string{
 	"rep":  "repeater",
 	"s":    "status",
 	"conf": "config",
-	"ls":   "device",
-	"list": "device",
+	"d":       "device",
+	"ls":      "device",
+	"list":    "device",
+	"devices": "device",
 }
 
 // commandAliasSubcommand supplies a default subcommand for alias-only commands.
 var commandAliasSubcommand = map[string]string{
+	"d":    "list",
 	"log":  "log",
 	"ls":   "list",
 	"list": "list",

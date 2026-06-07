@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
@@ -51,47 +50,20 @@ func deviceList(ctx context.Context, e *env) error {
 		return err
 	}
 	st, backendRunning := backendStatus(ctx)
-	names := make([]string, 0, len(cfg.Devices))
-	for n := range cfg.Devices {
-		names = append(names, n)
-	}
-	sort.Strings(names)
 
 	if e.out.JSON {
-		type row struct {
-			Name      string `json:"name"`
-			Transport string `json:"transport"`
-			Endpoint  string `json:"endpoint"`
-			Default   bool   `json:"default"`
-			Backend   bool   `json:"backend"`
-		}
-		rows := make([]row, 0, len(names))
-		for _, n := range names {
-			d := cfg.Devices[n]
-			uri := d.PrimaryURI()
-			rows = append(rows, row{n, d.PreferredTransport, uri, n == cfg.Current, backendRunning && uri == st.URI})
-		}
-		return e.out.JSONValue(rows)
+		return e.out.JSONValue(deviceListJSON(cfg, st, backendRunning))
 	}
 
-	if len(names) == 0 {
+	if len(cfg.Devices) == 0 {
 		e.out.Human("No saved profiles. Run `mc connect`.\n")
 		return nil
 	}
-	e.out.Human("%-16s %-10s %-34s %-7s %s\n", "NAME", "TRANSPORT", "ENDPOINT", "BACKEND", "DEFAULT")
-	for _, n := range names {
-		d := cfg.Devices[n]
-		def := ""
-		if n == cfg.Current {
-			def = "*"
-		}
-		uri := d.PrimaryURI()
-		active := ""
-		if backendRunning && uri == st.URI {
-			active = "running"
-		}
-		e.out.Human("%-16s %-10s %-34s %-7s %s\n", n, d.PreferredTransport, uri, active, def)
-	}
+
+	data := deviceListData(cfg, st, backendRunning)
+	data.Wide = e.args.has("wide")
+	printer := ui.NewPrinter(e.out.Out)
+	printer.Print(ui.RenderDeviceList(data, printer))
 	return nil
 }
 
