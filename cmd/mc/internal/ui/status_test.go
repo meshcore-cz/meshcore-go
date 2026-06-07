@@ -60,7 +60,7 @@ func TestRenderStatusLayout(t *testing.T) {
 		"Transport:     ble://C4:20:12:34:56:78",
 		"Public key:    eff01ef21805abcd",
 		"Radio:         869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
-		"Backend:       ready (pid 41148)",
+		"Backend:       running (pid 41148)",
 		"Replica:       fresh",
 		"Contacts:      286, updated",
 		"Channels:      2, updated",

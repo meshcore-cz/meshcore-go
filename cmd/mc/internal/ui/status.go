@@ -190,7 +190,11 @@ func backendLabel(be BackendInfo, theme Theme) string {
 	if state == "" {
 		state = "unknown"
 	}
-	word := theme.StatusWord(backendHealth(be), state)
+	display := state
+	if state == "ready" {
+		display = "running"
+	}
+	word := theme.StatusWord(backendHealth(be), display)
 	if be.PID > 0 {
 		return word + fmt.Sprintf(" (pid %d)", be.PID)
 	}
