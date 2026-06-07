@@ -113,7 +113,7 @@ func TestFormatContactListFooter(t *testing.T) {
 		{
 			name: "synced",
 			meta: ContactListMeta{Count: 449, SyncedAt: time.Now().Add(-11 * time.Minute)},
-			want: "449 contacts · synced",
+			want: "449 contacts · last advert",
 		},
 		{
 			name: "no sync time",
@@ -129,7 +129,7 @@ func TestFormatContactListFooter(t *testing.T) {
 				SyncTotal:    449,
 				SyncedAt:     time.Now().Add(-11 * time.Minute),
 			},
-			want: "449 contacts · syncing 183/449 · last synced",
+			want: "449 contacts · syncing 183/449 · last advert",
 		},
 		{
 			name: "cached",
@@ -138,7 +138,7 @@ func TestFormatContactListFooter(t *testing.T) {
 				Cached:   true,
 				SyncedAt: time.Now().Add(-10*time.Hour - 56*time.Minute),
 			},
-			want: "449 contacts · cached · last synced",
+			want: "449 contacts · cached · last advert",
 		},
 		{
 			name: "sync error",
@@ -305,7 +305,7 @@ func TestRenderContactsDefault(t *testing.T) {
 	if strings.Contains(out, "\x1b[") {
 		t.Fatalf("expected plain output without ANSI:\n%s", out)
 	}
-	if !strings.Contains(out, "2 contacts · synced") {
+	if !strings.Contains(out, "2 contacts · last advert") {
 		t.Fatalf("missing footer:\n%s", out)
 	}
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")

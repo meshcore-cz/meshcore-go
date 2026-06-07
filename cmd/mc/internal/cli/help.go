@@ -105,6 +105,7 @@ Flags:
   --full           With --refresh, rebuild the full contact list (ignore cursor)
   --wide           Show full public keys, stored advert paths and coordinates
   --type <kind>    Filter by contact type (companion, repeater, room, sensor)
+  --route <kind>   Filter by route (direct, flood, static)
   --within <dist>  Filter by distance from local companion (e.g. 10km, 500m)
   --sort <field>   Sort contacts (default: name)
                    Fields: name, type, age, adv, route, key, distance

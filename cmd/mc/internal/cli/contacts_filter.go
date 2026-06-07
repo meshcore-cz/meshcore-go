@@ -15,16 +15,20 @@ import (
 
 const defaultContactSort = "name"
 
+var timeNow = time.Now
+
 type contactListQuery struct {
-	typeFilter meshcore.ContactType
-	hasType    bool
-	withinKM   float64
-	hasWithin  bool
-	sortBy     string
+	typeFilter  meshcore.ContactType
+	hasType     bool
+	withinKM    float64
+	hasWithin   bool
+	routeFilter string
+	hasRoute    bool
+	sortBy      string
 }
 
 func (q contactListQuery) filtered() bool {
-	return q.hasType || q.hasWithin
+	return q.hasType || q.hasWithin || q.hasRoute
 }
 
 func contactListQueryFromEnv(e *env) (contactListQuery, error) {
@@ -52,6 +56,14 @@ func contactListQueryFromEnv(e *env) (contactListQuery, error) {
 		}
 		q.sortBy = sortBy
 	}
+	if r := e.args.flag("route"); r != "" {
+		route, err := parseContactRouteFilter(r)
+		if err != nil {
+			return q, err
+		}
+		q.routeFilter = route
+		q.hasRoute = true
+	}
 	return q, nil
 }
 
@@ -61,6 +73,15 @@ func parseContactSort(s string) (string, error) {
 		return strings.ToLower(strings.TrimSpace(s)), nil
 	default:
 		return "", fmt.Errorf("unknown --sort %q (supported: name, type, age, adv, route, key, distance)", s)
+	}
+}
+
+func parseContactRouteFilter(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "direct", "flood", "static":
+		return strings.ToLower(strings.TrimSpace(s)), nil
+	default:
+		return "", fmt.Errorf("unknown --route %q (use direct, flood, or static)", s)
 	}
 }
 
@@ -132,6 +153,15 @@ func filterContacts(contacts []meshcore.Contact, q contactListQuery, originLat, 
 		}
 		out = filtered
 	}
+	if q.hasRoute {
+		filtered := make([]meshcore.Contact, 0, len(out))
+		for _, ct := range out {
+			if contactRouteKind(ct) == q.routeFilter {
+				filtered = append(filtered, ct)
+			}
+		}
+		out = filtered
+	}
 	sortContacts(out, q.sortBy, originLat, originLon)
 	return out, nil
 }
@@ -146,17 +176,11 @@ func sortContacts(contacts []meshcore.Contact, sortBy string, originLat, originL
 				return ta < tb
 			}
 		case "age":
-			na, nb := contactAgeNever(a.LastAdvert), contactAgeNever(b.LastAdvert)
-			if na && nb {
-				return contactNameLess(a, b)
+			ra, rb := contactAgeRank(a.LastAdvert), contactAgeRank(b.LastAdvert)
+			if ra != rb {
+				return ra < rb
 			}
-			if na {
-				return false
-			}
-			if nb {
-				return true
-			}
-			if !a.LastAdvert.Equal(b.LastAdvert) {
+			if ra < 2 && !a.LastAdvert.Equal(b.LastAdvert) {
 				return a.LastAdvert.Before(b.LastAdvert)
 			}
 		case "adv":
@@ -205,6 +229,16 @@ func sortContacts(contacts []meshcore.Contact, sortBy string, originLat, originL
 	})
 }
 
+func contactRouteKind(ct meshcore.Contact) string {
+	if ct.OutPathEnc == pathhash.OutPathUnknown {
+		return "flood"
+	}
+	if pathhash.HopCountFromPathMeta(ct.OutPathEnc) == 0 {
+		return "direct"
+	}
+	return "static"
+}
+
 func contactNameLess(a, b meshcore.Contact) bool {
 	an, bn := strings.ToLower(a.Name), strings.ToLower(b.Name)
 	if an != bn {
@@ -213,8 +247,16 @@ func contactNameLess(a, b meshcore.Contact) bool {
 	return strings.ToLower(a.PublicKey) < strings.ToLower(b.PublicKey)
 }
 
-func contactAgeNever(t time.Time) bool {
-	return t.IsZero()
+// contactAgeRank classifies LastAdvert for sorting: valid (0), future skew (1), never (2).
+// Sort uses stored UTC timestamps so order is identical on every machine.
+func contactAgeRank(t time.Time) int {
+	if t.IsZero() {
+		return 2
+	}
+	if t.After(timeNow()) {
+		return 1
+	}
+	return 0
 }
 
 func contactAdvRank(ct meshcore.Contact) int {

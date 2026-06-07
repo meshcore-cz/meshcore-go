@@ -432,11 +432,7 @@ func formatContactListFooter(meta ContactListMeta) string {
 		parts = append(parts, fmt.Sprintf("syncing %d/%d", meta.SyncReceived, meta.SyncTotal))
 	}
 	if !meta.SyncedAt.IsZero() {
-		label := "synced"
-		if meta.Syncing || meta.Cached {
-			label = "last synced"
-		}
-		parts = append(parts, label+" "+RelativeTime(meta.SyncedAt))
+		parts = append(parts, "last advert "+RelativeTime(meta.SyncedAt))
 	}
 	if meta.Error != "" {
 		if !meta.Cached {

@@ -119,6 +119,33 @@ func TestFilterContacts(t *testing.T) {
 		t.Fatalf("sort age first = %q, want far-repeater", got[0].Name)
 	}
 
+	q = contactListQuery{routeFilter: "flood", hasRoute: true, sortBy: defaultContactSort}
+	got, err = filterContacts(contacts, q, originLat, originLon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "far-repeater" {
+		t.Fatalf("route flood = %#v, want [far-repeater]", got)
+	}
+
+	q = contactListQuery{routeFilter: "static", hasRoute: true, sortBy: defaultContactSort}
+	got, err = filterContacts(contacts, q, originLat, originLon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "near-repeater" {
+		t.Fatalf("route static = %#v, want [near-repeater]", got)
+	}
+
+	q = contactListQuery{routeFilter: "direct", hasRoute: true, sortBy: defaultContactSort}
+	got, err = filterContacts(contacts, q, originLat, originLon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("route direct len = %d, want 3", len(got))
+	}
+
 	q = contactListQuery{sortBy: "route"}
 	got, err = filterContacts(contacts, q, originLat, originLon)
 	if err != nil {

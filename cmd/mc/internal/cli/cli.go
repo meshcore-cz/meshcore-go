@@ -21,8 +21,10 @@ var (
 // commandAliases maps short command names to their canonical form.
 var commandAliases = map[string]string{
 	"add":  "connect",
+	"b":    "backend",
 	"c":    "contacts",
 	"h":    "help",
+	"log":  "backend",
 	"rep":  "repeater",
 	"s":    "status",
 	"conf": "config",
@@ -32,6 +34,7 @@ var commandAliases = map[string]string{
 
 // commandAliasSubcommand supplies a default subcommand for alias-only commands.
 var commandAliasSubcommand = map[string]string{
+	"log":  "log",
 	"ls":   "list",
 	"list": "list",
 }

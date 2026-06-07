@@ -17,6 +17,7 @@ var valueFlags = map[string]bool{
 	"timeout": true,
 	"type":    true,
 	"within":  true,
+	"route":   true,
 }
 
 // parsedArgs holds flags and positional arguments extracted from anywhere in
