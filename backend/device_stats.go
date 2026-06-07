@@ -7,7 +7,7 @@ import (
 	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
-func (s *Server) refreshDeviceStatsCache(ctx context.Context, client *meshcore.Client) {
+func (s *DeviceSession) refreshDeviceStatsCache(ctx context.Context, client *meshcore.Client) {
 	if client == nil {
 		return
 	}
@@ -18,12 +18,12 @@ func (s *Server) refreshDeviceStatsCache(ctx context.Context, client *meshcore.C
 	s.storeDeviceStats(stats)
 }
 
-func (s *Server) refreshStartupCaches(ctx context.Context, client *meshcore.Client) {
+func (s *DeviceSession) refreshStartupCaches(ctx context.Context, client *meshcore.Client) {
 	s.refreshDeviceInfoCache(ctx, client)
 	s.refreshDeviceStatsCache(ctx, client)
 }
 
-func (s *Server) storeDeviceStats(stats meshcore.LocalStats) {
+func (s *DeviceSession) storeDeviceStats(stats meshcore.LocalStats) {
 	s.mu.Lock()
 	s.deviceStats = stats
 	s.deviceStatsOK = true
@@ -31,7 +31,7 @@ func (s *Server) storeDeviceStats(stats meshcore.LocalStats) {
 	s.mu.Unlock()
 }
 
-func (s *Server) deviceStatsSnapshot() (meshcore.LocalStats, bool) {
+func (s *DeviceSession) deviceStatsSnapshot() (meshcore.LocalStats, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.deviceStatsOK {
@@ -40,7 +40,7 @@ func (s *Server) deviceStatsSnapshot() (meshcore.LocalStats, bool) {
 	return s.deviceStats, true
 }
 
-func (s *Server) deviceStatsSnapshotLocked() *meshcore.LocalStats {
+func (s *DeviceSession) deviceStatsSnapshotLocked() *meshcore.LocalStats {
 	if !s.deviceStatsOK {
 		return nil
 	}

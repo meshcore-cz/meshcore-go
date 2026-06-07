@@ -38,7 +38,9 @@ func cmdDevice(ctx context.Context, e *env) error {
 	case "show":
 		return deviceShow(ctx, e)
 	case "remove":
-		return deviceRemove(e)
+		return deviceRemove(ctx, e)
+	case "start", "stop", "restart":
+		return fmt.Errorf("session commands moved: use `mc session %s %s`", e.restArg(0), e.restArg(1))
 	default:
 		return fmt.Errorf("unknown device subcommand %q", e.restArg(0))
 	}
@@ -49,10 +51,14 @@ func deviceList(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	st, backendRunning := backendStatus(ctx, e)
+	// The daemon (supervisor) may be up while individual sessions are stopped;
+	// key the list off daemon liveness, not the default session's health.
+	_, daemonUp := daemonRunning(ctx, e)
+	st, _ := backendStatus(ctx, e)
+	entries := deviceSessionEntries(ctx, e, daemonUp)
 
 	if e.out.JSON {
-		return e.out.JSONValue(deviceListJSON(cfg, st, backendRunning))
+		return e.out.JSONValue(deviceListJSON(cfg, st, entries, daemonUp))
 	}
 
 	if len(cfg.Devices) == 0 {
@@ -60,7 +66,7 @@ func deviceList(ctx context.Context, e *env) error {
 		return nil
 	}
 
-	data := deviceListData(cfg, st, backendRunning)
+	data := deviceListData(cfg, st, entries, daemonUp)
 	data.Wide = e.args.has("wide")
 	printer := ui.NewPrinter(e.out.Out)
 	printer.Print(ui.RenderDeviceList(data, printer))
@@ -138,7 +144,7 @@ func deviceShowProfile(e *env, name string) error {
 	return nil
 }
 
-func deviceRemove(e *env) error {
+func deviceRemove(ctx context.Context, e *env) error {
 	name := e.restArg(1)
 	if name == "" {
 		return fmt.Errorf("usage: mc device remove <name>")
@@ -146,6 +152,14 @@ func deviceRemove(e *env) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+	if _, ok := cfg.Devices[name]; !ok {
+		return fmt.Errorf("unknown profile %q", name)
+	}
+	// Stop the running session first, if the daemon is up, so we don't leave an
+	// orphaned connection behind a removed profile.
+	if _, running := daemonRunning(ctx, e); running {
+		_, _ = localbackend.NewClient(resolveBackendSocket(e)).DeviceStop(ctx, name)
 	}
 	if !cfg.Remove(name) {
 		return fmt.Errorf("unknown profile %q", name)

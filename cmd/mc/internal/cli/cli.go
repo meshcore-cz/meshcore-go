@@ -156,6 +156,8 @@ func dispatch(ctx context.Context, cmd string, e *env) error {
 		return cmdUse(e)
 	case "device":
 		return cmdDevice(ctx, e)
+	case "session":
+		return cmdSession(ctx, e)
 	case "config":
 		return cmdConfig(e)
 	case "raw":
@@ -242,10 +244,13 @@ Commands:
   repeater add <n>   Save/login to a repeater
   repeater del [n]   Remove a saved repeater
   use <profile>      Set the default device profile
-  device list        List saved profiles
+  device list        List saved profiles and session state
   device show        Show the connected device
   device show <name> Show a saved profile
   device remove <n>  Remove a profile
+  session start <n>  Connect a device's radio session
+  session stop <n>   Disconnect a device's radio session
+  session restart <n> Reconnect a device's radio session
   config path        Print the config file path
   config show        Print the current configuration
   raw <hex>          Send raw bytes and print the decoded response

@@ -229,7 +229,8 @@ func TestWaitForShellBackend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	if err := waitForShellBackend(ctx, "serial:///dev/ttyTEST0", socket); err != nil {
+	done := make(chan error, 1)
+	if err := waitForShellBackend(ctx, "serial:///dev/ttyTEST0", socket, done); err != nil {
 		t.Fatalf("waitForShellBackend() = %v", err)
 	}
 }

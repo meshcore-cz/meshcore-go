@@ -37,10 +37,20 @@ type Bridge struct {
 
 // Device is a saved profile. A logical device may carry multiple endpoints.
 type Device struct {
-	Name               string     `yaml:"name,omitempty"`
-	PublicKeyPrefix    string     `yaml:"public_key_prefix,omitempty"`
-	PreferredTransport string     `yaml:"preferred_transport,omitempty"`
-	Transports         []Endpoint `yaml:"transports,omitempty"`
+	Name               string        `yaml:"name,omitempty"`
+	PublicKeyPrefix    string        `yaml:"public_key_prefix,omitempty"`
+	PreferredTransport string        `yaml:"preferred_transport,omitempty"`
+	Transports         []Endpoint    `yaml:"transports,omitempty"`
+	Backend            DeviceBackend `yaml:"backend,omitempty"`
+}
+
+// DeviceBackend controls how the daemon manages this device's session.
+type DeviceBackend struct {
+	// Autostart connects the device when the daemon starts and keeps it
+	// reconnecting; otherwise the session starts on `mc session start`.
+	Autostart bool `yaml:"autostart,omitempty"`
+	// Bridges are local bridge listeners exposing this device's radio.
+	Bridges []Bridge `yaml:"bridges,omitempty"`
 }
 
 // Endpoint is a single saved transport URI plus optional transport options.

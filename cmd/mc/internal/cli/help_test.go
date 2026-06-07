@@ -6,7 +6,7 @@ import "testing"
 func TestEveryCommandHasHelp(t *testing.T) {
 	commands := []string{
 		"connect", "status", "stats", "doctor", "contacts", "contact", "inbox",
-		"send", "watch", "trace", "channel", "repeater", "use", "device", "config", "raw", "version",
+		"send", "watch", "trace", "channel", "repeater", "use", "device", "session", "config", "raw", "version",
 	}
 	for _, cmd := range commands {
 		if _, ok := commandHelp[cmd]; !ok {

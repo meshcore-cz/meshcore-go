@@ -9,6 +9,7 @@ import (
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 )
 
@@ -82,17 +83,81 @@ func cmdConnect(ctx context.Context, e *env) error {
 	return e.out.JSONValue(map[string]string{"uri": uri, "name": info.Name, "profile": name, "saved": "true"})
 }
 
+type sessionStartChoice int
+
+const (
+	sessionStartAuto sessionStartChoice = iota // connect now and reconnect on every backend start
+	sessionStartYes                            // connect now, this run only
+	sessionStartNo                             // leave disconnected
+)
+
 func maybeOfferBackendStart(ctx context.Context, e *env, uri string) error {
 	if e.out.JSON {
 		return nil
 	}
-	if _, ok := backendStatus(ctx, e); ok {
+	cfg, err := config.Load()
+	if err != nil || cfg.Current == "" {
 		return nil
 	}
-	if !promptYes("Start backend?", true) {
+	name := cfg.Current
+
+	switch promptSessionStart(fmt.Sprintf("Start a backend session for %q?", name)) {
+	case sessionStartNo:
+		e.out.Human("Not connected. Start it later with `mc session start %s`.\n", name)
+		return nil
+	case sessionStartAuto:
+		if err := setDeviceAutostart(name, true); err != nil {
+			return err
+		}
+		e.out.Human("Auto-connect enabled for %q.\n", name)
+	}
+
+	// Ensure the supervisor is running before connecting the session.
+	if _, ok := daemonRunning(ctx, e); !ok {
+		if _, err := spawnDaemon(ctx, e); err != nil {
+			return err
+		}
+		e.out.Human("Backend started.\n")
+	}
+
+	e.out.Human("Connecting %s...\n", name)
+	if _, err := localbackend.NewClient(resolveBackendSocket(e)).DeviceStart(ctx, name); err != nil {
+		e.out.Human("Could not start session: %v\n", err)
 		return nil
 	}
-	return backendStartURI(ctx, e, uri)
+	e.out.Human("Session ready.\n")
+	return nil
+}
+
+// promptSessionStart asks whether to connect a device's backend session, with
+// AUTO (persist autostart + connect now) as the default.
+func promptSessionStart(label string) sessionStartChoice {
+	fmt.Fprintf(os.Stderr, "%s [AUTO/y/n]: ", label)
+	r := bufio.NewReader(os.Stdin)
+	line, _ := r.ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return sessionStartYes
+	case "n", "no":
+		return sessionStartNo
+	default: // "", "a", "auto", or anything unexpected
+		return sessionStartAuto
+	}
+}
+
+// setDeviceAutostart persists the backend.autostart flag for a saved profile.
+func setDeviceAutostart(name string, v bool) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	dev, ok := cfg.Devices[name]
+	if !ok {
+		return fmt.Errorf("unknown profile %q", name)
+	}
+	dev.Backend.Autostart = v
+	cfg.Devices[name] = dev
+	return cfg.Save()
 }
 
 // discoverInteractive scans for endpoints and prompts the user to pick one.

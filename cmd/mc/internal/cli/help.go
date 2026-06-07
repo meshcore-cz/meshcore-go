@@ -251,15 +251,36 @@ Set the default device profile used by subsequent commands.
 
 	"device": `Usage: mc device <list|show|remove> [name]
 
-Manage saved device profiles.
+Manage saved device profiles. To connect or disconnect a device's live radio
+session, use ` + "`mc session`" + `.
 
-  mc device list             list saved profiles (same as mc device / mc devices)
+  mc device list             list saved profiles and their session state
   mc device show             show the connected device and capabilities
   mc device show handheld    show a saved profile
-  mc device remove handheld  delete a profile
+  mc device remove handheld  stop the session and delete the profile
 
 Flags:
   --wide           Show transport endpoints
+  --json           Machine-readable JSON output
+`,
+
+	"session": `Usage: mc session <list|start|stop|restart> [name]
+
+Manage device sessions: the live radio connections held by the running backend.
+A session connects one saved profile's radio; profiles are managed with
+` + "`mc device`" + `. These require a running backend (` + "`mc backend start`" + `).
+
+  mc session list               show each device's session state
+  mc session start handheld     connect this device's radio in the backend
+  mc session stop handheld      disconnect the radio (keeps the saved profile)
+  mc session restart handheld   reconnect the radio
+
+With no name, the current default device is used. Each session is isolated: the
+radio connection, queue, and replica for other devices are unaffected. Set
+` + "`backend.autostart: true`" + ` on a profile to connect it automatically when the
+backend starts.
+
+Flags:
   --json           Machine-readable JSON output
 `,
 

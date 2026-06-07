@@ -35,10 +35,10 @@ type BridgeStatus struct {
 	Note   string `json:"note,omitempty"`
 }
 
-type BridgeOption func(*Server)
+type BridgeOption func(*DeviceSession)
 
 func WithBridges(bridges []BridgeConfig) BridgeOption {
-	return func(s *Server) {
+	return func(s *DeviceSession) {
 		s.bridges = append([]BridgeConfig(nil), bridges...)
 	}
 }
@@ -47,7 +47,7 @@ type bridgeRuntime struct {
 	status BridgeStatus
 }
 
-func (s *Server) startBridges() {
+func (s *DeviceSession) startBridges() {
 	for _, cfg := range s.bridges {
 		if !cfg.Enabled {
 			continue
@@ -72,7 +72,7 @@ func (s *Server) startBridges() {
 	}
 }
 
-func (s *Server) serveTCPBridge(rt *bridgeRuntime) {
+func (s *DeviceSession) serveTCPBridge(rt *bridgeRuntime) {
 	addr := rt.status.Listen
 	if addr == "" {
 		addr = "127.0.0.1:4403"
@@ -101,7 +101,7 @@ func (s *Server) serveTCPBridge(rt *bridgeRuntime) {
 	}
 }
 
-func (s *Server) servePTYBridge(rt *bridgeRuntime) {
+func (s *DeviceSession) servePTYBridge(rt *bridgeRuntime) {
 	ptmx, tty, err := pty.Open()
 	if err != nil {
 		s.setBridgeError(rt, err.Error())
@@ -144,11 +144,11 @@ func (s *Server) servePTYBridge(rt *bridgeRuntime) {
 	}
 }
 
-func (s *Server) runBridgeConn(rt *bridgeRuntime, rw io.ReadWriter, closeAfter ...bool) {
+func (s *DeviceSession) runBridgeConn(rt *bridgeRuntime, rw io.ReadWriter, closeAfter ...bool) {
 	s.runBridgeConnWithReader(rt, rw, bufio.NewReader(rw), nil, closeAfter...)
 }
 
-func (s *Server) runBridgeConnWithReader(rt *bridgeRuntime, rw io.ReadWriter, br *bufio.Reader, first []byte, closeAfter ...bool) {
+func (s *DeviceSession) runBridgeConnWithReader(rt *bridgeRuntime, rw io.ReadWriter, br *bufio.Reader, first []byte, closeAfter ...bool) {
 	if len(closeAfter) > 0 && closeAfter[0] {
 		if c, ok := rw.(io.Closer); ok {
 			defer c.Close()
@@ -212,7 +212,7 @@ func bridgeDeviceToHost(ctx context.Context, w io.Writer, conn transport.PacketC
 	}
 }
 
-func (s *Server) enterBridge(rt *bridgeRuntime) error {
+func (s *DeviceSession) enterBridge(rt *bridgeRuntime) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state == stateBridge {
@@ -229,7 +229,7 @@ func (s *Server) enterBridge(rt *bridgeRuntime) error {
 	return nil
 }
 
-func (s *Server) leaveBridge(rt *bridgeRuntime) {
+func (s *DeviceSession) leaveBridge(rt *bridgeRuntime) {
 	s.mu.Lock()
 	if s.state == stateBridge {
 		s.state = stateDegraded
@@ -242,7 +242,7 @@ func (s *Server) leaveBridge(rt *bridgeRuntime) {
 	go s.tryReconnect()
 }
 
-func (s *Server) addBridgeRuntime(rt *bridgeRuntime) {
+func (s *DeviceSession) addBridgeRuntime(rt *bridgeRuntime) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.bridgeStatuses == nil {
@@ -251,7 +251,7 @@ func (s *Server) addBridgeRuntime(rt *bridgeRuntime) {
 	s.bridgeStatuses[rt.status.Name] = rt.status
 }
 
-func (s *Server) updateBridgeStatus(rt *bridgeRuntime, status BridgeStatus) {
+func (s *DeviceSession) updateBridgeStatus(rt *bridgeRuntime, status BridgeStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rt.status = status
@@ -261,7 +261,7 @@ func (s *Server) updateBridgeStatus(rt *bridgeRuntime, status BridgeStatus) {
 	s.bridgeStatuses[rt.status.Name] = rt.status
 }
 
-func (s *Server) setBridgeError(rt *bridgeRuntime, msg string) {
+func (s *DeviceSession) setBridgeError(rt *bridgeRuntime, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rt.status.Error = msg
@@ -271,7 +271,7 @@ func (s *Server) setBridgeError(rt *bridgeRuntime, msg string) {
 	s.bridgeStatuses[rt.status.Name] = rt.status
 }
 
-func (s *Server) bridgeStatusLocked() []BridgeStatus {
+func (s *DeviceSession) bridgeStatusLocked() []BridgeStatus {
 	out := make([]BridgeStatus, 0, len(s.bridgeStatuses))
 	for _, st := range s.bridgeStatuses {
 		out = append(out, st)

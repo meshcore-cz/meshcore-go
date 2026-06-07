@@ -2,7 +2,7 @@ package backend
 
 import "time"
 
-func (s *Server) lockRadio(method string) {
+func (s *DeviceSession) lockRadio(method string) {
 	s.trackRadioWaiter(1)
 	s.radioMu.Lock()
 	s.trackRadioWaiter(-1)
@@ -13,7 +13,7 @@ func (s *Server) lockRadio(method string) {
 	s.mu.Unlock()
 }
 
-func (s *Server) unlockRadio() {
+func (s *DeviceSession) unlockRadio() {
 	s.mu.Lock()
 	now := time.Now()
 	if s.radioActive && !s.radioSince.IsZero() {
@@ -28,7 +28,7 @@ func (s *Server) unlockRadio() {
 	s.radioMu.Unlock()
 }
 
-func (s *Server) tryLockRadio(method string) bool {
+func (s *DeviceSession) tryLockRadio(method string) bool {
 	if !s.radioMu.TryLock() {
 		return false
 	}
@@ -40,7 +40,7 @@ func (s *Server) tryLockRadio(method string) bool {
 	return true
 }
 
-func (s *Server) radioStatusLocked() radioStatus {
+func (s *DeviceSession) radioStatusLocked() radioStatus {
 	if !s.radioActive {
 		return radioStatus{
 			Idle:           true,

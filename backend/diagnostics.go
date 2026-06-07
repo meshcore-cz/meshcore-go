@@ -2,38 +2,38 @@ package backend
 
 import "sync/atomic"
 
-func (s *Server) trackIPCClient(delta int) {
+func (s *DeviceSession) trackIPCClient(delta int) {
 	atomic.AddInt32(&s.ipcClients, int32(delta))
 }
 
-func (s *Server) ipcClientCount() int {
+func (s *DeviceSession) ipcClientCount() int {
 	return int(atomic.LoadInt32(&s.ipcClients))
 }
 
-func (s *Server) trackRadioWaiter(delta int) {
+func (s *DeviceSession) trackRadioWaiter(delta int) {
 	atomic.AddInt32(&s.radioQueuePending, int32(delta))
 }
 
-func (s *Server) radioQueueCount() int {
+func (s *DeviceSession) radioQueueCount() int {
 	return int(atomic.LoadInt32(&s.radioQueuePending))
 }
 
-func (s *Server) trackReconnect() {
+func (s *DeviceSession) trackReconnect() {
 	atomic.AddInt32(&s.reconnects, 1)
 }
 
-func (s *Server) reconnectCount() int {
+func (s *DeviceSession) reconnectCount() int {
 	return int(atomic.LoadInt32(&s.reconnects))
 }
 
-func (s *Server) trackRequestOK() {
+func (s *DeviceSession) trackRequestOK() {
 	atomic.AddInt64(&s.requestsOK, 1)
 }
 
-func (s *Server) trackRequestFailed() {
+func (s *DeviceSession) trackRequestFailed() {
 	atomic.AddInt64(&s.requestsFailed, 1)
 }
 
-func (s *Server) requestCounts() (ok, failed int64) {
+func (s *DeviceSession) requestCounts() (ok, failed int64) {
 	return atomic.LoadInt64(&s.requestsOK), atomic.LoadInt64(&s.requestsFailed)
 }

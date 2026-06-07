@@ -17,7 +17,7 @@ type shellSession struct {
 	Socket    string
 	Temporary bool
 
-	server     *localbackend.Server
+	daemon     *localbackend.Daemon
 	done       chan error
 	cleanup    func()
 	completion *shellCompletionCache
@@ -117,24 +117,25 @@ func openShellSession(ctx context.Context, e *env) (*shellSession, error) {
 		),
 	)
 
-	server, err := localbackend.NewServerWithOptions(
-		ctx,
-		uri,
-		localbackend.ServerOptions{Socket: tmpSocket},
-		opts...,
-	)
+	daemon, err := localbackend.NewDaemon(localbackend.DaemonOptions{Socket: tmpSocket})
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		return nil, err
 	}
+	daemon.Register(localbackend.SessionProfile{
+		ID:        profile,
+		URI:       uri,
+		Autostart: true,
+		DialOpts:  opts,
+	})
 
 	done := make(chan error, 1)
 	go func() {
-		done <- server.Serve()
+		done <- daemon.Serve()
 	}()
 
-	if err := waitForShellBackend(ctx, uri, tmpSocket); err != nil {
-		server.Stop()
+	if err := waitForShellBackend(ctx, uri, tmpSocket, done); err != nil {
+		daemon.Stop()
 		<-done
 		os.RemoveAll(tmpDir)
 		return nil, err
@@ -144,10 +145,10 @@ func openShellSession(ctx context.Context, e *env) (*shellSession, error) {
 		Profile:   profile,
 		Socket:    tmpSocket,
 		Temporary: true,
-		server:    server,
+		daemon:    daemon,
 		done:      done,
 		cleanup: func() {
-			server.Stop()
+			daemon.Stop()
 			<-done
 			os.RemoveAll(tmpDir)
 		},
@@ -159,7 +160,7 @@ func resolveShellTarget(e *env) (profile, uri string, err error) {
 	return profile, uri, err
 }
 
-func waitForShellBackend(ctx context.Context, uri, socket string) error {
+func waitForShellBackend(ctx context.Context, uri, socket string, done <-chan error) error {
 	client := localbackend.NewClient(socket)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -171,6 +172,11 @@ func waitForShellBackend(ctx context.Context, uri, socket string) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-done:
+			if err != nil {
+				return fmt.Errorf("temporary backend failed: %w", err)
+			}
+			return fmt.Errorf("temporary backend exited before becoming ready")
 		case <-timeout.C:
 			return fmt.Errorf("temporary backend did not become ready")
 		case <-ticker.C:

@@ -54,35 +54,57 @@ func cmdBackend(ctx context.Context, e *env) error {
 	}
 }
 
-func backendStart(ctx context.Context, e *env) error {
-	if st, ok := backendStatus(ctx, e); ok {
-		e.out.Human("Backend already running for %s (pid %d).\n", st.URI, st.PID)
-		return e.out.JSONValue(backendStatusJSON(st))
-	}
+// daemonReadyTimeout bounds how long we wait for the supervisor to start
+// listening. The daemon binds its socket immediately; device sessions connect
+// in the background, so this stays short regardless of transport.
+const daemonReadyTimeout = 10 * time.Second
 
-	uri, _, err := resolveURI(e)
-	if err != nil {
-		return err
+func backendStart(ctx context.Context, e *env) error {
+	if st, ok := daemonRunning(ctx, e); ok {
+		e.out.Human("Backend already running (pid %d).\n", st.PID)
+		return e.out.JSONValue(daemonStatusJSON(st))
 	}
-	return backendStartURI(ctx, e, uri)
+	return launchBackend(ctx, e)
 }
 
-func backendStartURI(ctx context.Context, e *env, uri string) error {
-	exe, err := os.Executable()
+// launchBackend spawns the backend daemon, waits for the supervisor to come up,
+// and prints the human/JSON start summary.
+func launchBackend(ctx context.Context, e *env) error {
+	st, err := spawnDaemon(ctx, e)
 	if err != nil {
 		return err
+	}
+	printBackendStartSummary(e, st)
+	return e.out.JSONValue(daemonStatusJSON(st))
+}
+
+// spawnDaemon starts the backend daemon process and waits for the supervisor to
+// begin listening. It does not wait for device sessions to connect — those
+// autostart in the background (or start on demand). An explicit --uri/--device
+// is forwarded so that device's session is started immediately as the default.
+// It prints nothing, so callers can compose their own messaging.
+func spawnDaemon(ctx context.Context, e *env) (localbackend.DaemonStatus, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return localbackend.DaemonStatus{}, err
 	}
 	logPath := localbackend.LogPath()
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
-		return err
+		return localbackend.DaemonStatus{}, err
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return err
+		return localbackend.DaemonStatus{}, err
 	}
 	defer logFile.Close()
 
-	args := []string{"backend", "serve", "--uri", uri}
+	args := []string{"backend", "serve"}
+	if u := e.args.flag("uri"); u != "" {
+		args = append(args, "--uri", u)
+	}
+	if d := e.args.flag("device"); d != "" {
+		args = append(args, "--device", d)
+	}
 	if e.dbg.Enabled() {
 		args = append(args, "--debug")
 	}
@@ -90,28 +112,27 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := startBackground(cmd); err != nil {
-		return err
+		return localbackend.DaemonStatus{}, err
 	}
-	fmt.Fprintf(logFile, "\n--- backend start %s uri=%s pid=%d ---\n", time.Now().Format(time.RFC3339), uri, cmd.Process.Pid)
+	fmt.Fprintf(logFile, "\n--- backend start %s pid=%d ---\n", time.Now().Format(time.RFC3339), cmd.Process.Pid)
 	_ = logFile.Sync()
 
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- cmd.Wait() }()
 
-	deadline := time.Now().Add(backendReadyTimeout(uri))
+	deadline := time.Now().Add(daemonReadyTimeout)
 	for time.Now().Before(deadline) {
-		if st, ok := backendStatus(ctx, e); ok && st.Healthy {
-			printBackendStartSummary(e, st)
-			return e.out.JSONValue(backendStatusJSON(st))
+		if st, ok := daemonRunning(ctx, e); ok {
+			return st, nil
 		}
 		select {
 		case err := <-waitDone:
-			return backendStartFailed(uri, fmt.Errorf("backend exited: %w", err))
+			return localbackend.DaemonStatus{}, backendStartFailed("", fmt.Errorf("backend exited: %w", err))
 		default:
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return backendStartFailed(uri, fmt.Errorf("timed out after %s", backendReadyTimeout(uri)))
+	return localbackend.DaemonStatus{}, backendStartFailed("", fmt.Errorf("timed out after %s", daemonReadyTimeout))
 }
 
 func backendReadyTimeout(uri string) time.Duration {
@@ -240,9 +261,9 @@ func readLogLines(path string, maxLines int) ([]string, error) {
 
 func backendReset(ctx context.Context, e *env) error {
 	var stopped bool
-	var stopStatus localbackend.Status
-	if st, ok := backendStatus(ctx, e); ok {
-		e.out.Human("Stopping backend for %s (pid %d)...\n", st.URI, st.PID)
+	var stopStatus localbackend.DaemonStatus
+	if st, ok := daemonRunning(ctx, e); ok {
+		e.out.Human("Stopping backend (pid %d)...\n", st.PID)
 		var err error
 		stopStatus, stopped, err = stopBackend(ctx, e)
 		if err != nil {
@@ -264,7 +285,6 @@ func backendReset(ctx context.Context, e *env) error {
 			"removed": removed,
 		}
 		if stopped {
-			out["uri"] = stopStatus.URI
 			out["pid"] = stopStatus.PID
 		}
 		return e.out.JSONValue(out)
@@ -292,35 +312,22 @@ func resetBackendState(e *env) ([]string, error) {
 }
 
 func backendStop(ctx context.Context, e *env) error {
-	client := backendClientForEnv(e)
-	st, err := client.Status(ctx)
-	if err != nil {
+	if _, ok := daemonRunning(ctx, e); !ok {
 		e.out.Human("Backend is not running.\n")
-		return e.out.JSONValue(map[string]any{"running": false, "socket": client.Socket()})
+		return e.out.JSONValue(map[string]any{"running": false, "socket": resolveBackendSocket(e)})
 	}
 	st, stopped, err := stopBackend(ctx, e)
 	if err != nil {
 		return err
 	}
-	e.out.Human("Stopped backend for %s (pid %d).\n", st.URI, st.PID)
-	return e.out.JSONValue(map[string]any{"running": false, "stopped": stopped, "pid": st.PID, "uri": st.URI})
+	e.out.Human("Stopped backend (pid %d).\n", st.PID)
+	return e.out.JSONValue(map[string]any{"running": false, "stopped": stopped, "pid": st.PID})
 }
 
 func backendRestart(ctx context.Context, e *env) error {
-	running, ok := backendStatus(ctx, e)
-	uri := ""
-	if e.args.flag("uri") != "" || e.args.flag("device") != "" || !ok {
-		resolved, _, err := resolveURI(e)
-		if err != nil {
-			return err
-		}
-		uri = resolved
-	} else {
-		uri = running.URI
-	}
-
+	running, ok := daemonRunning(ctx, e)
 	if ok {
-		e.out.Human("Stopping backend for %s (pid %d)...\n", running.URI, running.PID)
+		e.out.Human("Stopping backend (pid %d)...\n", running.PID)
 		if _, _, err := stopBackend(ctx, e); err != nil {
 			return err
 		}
@@ -334,63 +341,191 @@ func backendRestart(ctx context.Context, e *env) error {
 		}
 	}
 
-	return backendStartURI(ctx, e, uri)
+	return launchBackend(ctx, e)
 }
 
 func backendStatusCmd(ctx context.Context, e *env) error {
-	st, ok := backendStatus(ctx, e)
+	dst, ok := daemonRunning(ctx, e)
 	if !ok {
 		e.out.Human("Backend: not running\n")
-		return e.out.JSONValue(map[string]any{"running": false, "socket": localbackend.SocketPath()})
+		return e.out.JSONValue(map[string]any{"running": false, "socket": resolveBackendSocket(e)})
 	}
+	// Per-device detail for the targeted/default session; it may not be
+	// connected even though the daemon (supervisor) is up.
+	sessSt, sessOK := backendStatus(ctx, e)
+	entries := daemonEntriesMap(dst.Devices)
+
 	if !e.out.JSON {
-		data := backendStatusDataFromStatus(st, e.args.has("verbose"))
-		printer := ui.NewPrinter(e.out.Out)
-		printer.Print(ui.RenderBackendStatus(data, printer))
+		if sessOK {
+			data := backendStatusDataFromStatus(sessSt, e.args.has("verbose"))
+			printer := ui.NewPrinter(e.out.Out)
+			printer.Print(ui.RenderBackendStatus(data, printer))
+		} else {
+			printDaemonOnlyStatus(e, dst)
+		}
+		if len(entries) > 1 || (!sessOK && len(entries) > 0) {
+			printBackendSessionsSummary(e, entries)
+		}
+		return nil
 	}
-	return e.out.JSONValue(backendStatusJSON(st))
+
+	out := daemonStatusJSON(dst)
+	if sessOK {
+		out["default_session"] = backendStatusJSON(sessSt)
+	}
+	return e.out.JSONValue(out)
+}
+
+func printDaemonOnlyStatus(e *env, dst localbackend.DaemonStatus) {
+	e.out.Human("Backend:\n")
+	e.out.Human("  State:       running\n")
+	if dst.PID > 0 {
+		e.out.Human("  PID:         %d\n", dst.PID)
+	}
+	if dst.UptimeSec > 0 {
+		e.out.Human("  Uptime:      %s\n", ui.FormatDurationSecs(uint32(dst.UptimeSec)))
+	}
+	if dst.Socket != "" {
+		e.out.Human("  Socket:      %s\n", dst.Socket)
+	}
+	e.out.Human("  No device session connected. Run `mc session start <name>` or `mc status`.\n")
+}
+
+func sessionsSummary(entries map[string]localbackend.DeviceListEntry) (ready, degraded, stopped, freshReplicas int) {
+	for _, en := range entries {
+		switch en.Session {
+		case "ready", "bridge":
+			ready++
+		case "degraded":
+			degraded++
+		case "stopped":
+			stopped++
+		}
+		if en.Replica == "fresh" {
+			freshReplicas++
+		}
+	}
+	return
+}
+
+func printBackendSessionsSummary(e *env, entries map[string]localbackend.DeviceListEntry) {
+	ready, degraded, stopped, fresh := sessionsSummary(entries)
+	e.out.Human("\nSessions:\n")
+	e.out.Human("  Devices:     %d configured\n", len(entries))
+	parts := fmt.Sprintf("%d ready", ready)
+	if degraded > 0 {
+		parts += fmt.Sprintf(", %d degraded", degraded)
+	}
+	if stopped > 0 {
+		parts += fmt.Sprintf(", %d stopped", stopped)
+	}
+	e.out.Human("  Sessions:    %s\n", parts)
+	e.out.Human("  Replicas:    %d fresh\n", fresh)
+	e.out.Human("  Run `mc device list` for per-device detail.\n")
+}
+
+func sessionsSummaryJSON(entries map[string]localbackend.DeviceListEntry) map[string]any {
+	ready, degraded, stopped, fresh := sessionsSummary(entries)
+	return map[string]any{
+		"configured":     len(entries),
+		"ready":          ready,
+		"degraded":       degraded,
+		"stopped":        stopped,
+		"fresh_replicas": fresh,
+	}
 }
 
 func backendServe(ctx context.Context, e *env) error {
-	uri, _, err := resolveURI(e)
-	if err != nil {
-		return err
-	}
-	localbackend.Logf("connecting to %s", uri)
-	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(
-		meshcore.WithMessageSync(),
-		meshcore.WithTimeout(backendContactSyncTimeout),
-	))
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	server, err := localbackend.NewServerWithBridges(ctx, uri, bridgesFromConfig(cfg), opts...)
+	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(
+		meshcore.WithMessageSync(),
+		meshcore.WithTimeout(backendContactSyncTimeout),
+	))
+
+	daemon, err := localbackend.NewDaemon(localbackend.DaemonOptions{
+		Socket:      resolveBackendSocket(e),
+		LogRequests: cfg.Backend.LogRequests,
+	})
 	if err != nil {
-		localbackend.Logf("connect failed: %v", err)
 		return err
 	}
+
+	// An explicit --uri/--device means "start this device's session now" and
+	// makes it the default. Without it, the daemon comes up as a supervisor and
+	// connects only the devices whose config sets backend.autostart: true.
+	explicit := e.args.flag("uri") != "" || e.args.flag("device") != ""
+	var defaultID string
+	if explicit {
+		uri, profile, err := resolveURI(e)
+		if err != nil {
+			return err
+		}
+		defaultID = profile
+		if defaultID == "" {
+			defaultID = deviceNameForURI(cfg, uri)
+		}
+		if defaultID == "" {
+			defaultID = "default"
+		}
+		daemon.Register(localbackend.SessionProfile{
+			ID:        defaultID,
+			URI:       uri,
+			Bridges:   primaryBridges(cfg, defaultID),
+			Autostart: true,
+			DialOpts:  opts,
+		})
+		localbackend.Logf("starting session for %s (%s)", defaultID, uri)
+	} else {
+		// The default routing target is the current profile, even if its session
+		// is not autostarted (it may be started later or connected directly).
+		defaultID = cfg.Current
+	}
+
+	// Register every saved device. Each autostarts only per its own config; the
+	// explicitly-started device (above) is left as-is.
+	for name, dev := range cfg.Devices {
+		if explicit && name == defaultID {
+			continue
+		}
+		devURI := dev.PrimaryURI()
+		if devURI == "" {
+			continue
+		}
+		daemon.Register(localbackend.SessionProfile{
+			ID:        name,
+			URI:       devURI,
+			Bridges:   bridgesFromDeviceBackend(dev.Backend),
+			Autostart: dev.Backend.Autostart,
+			DialOpts:  opts,
+		})
+	}
+
+	if defaultID != "" {
+		daemon.SetDefault(defaultID)
+	}
 	if cfg.Backend.LogRequests {
-		server.SetLogRequests(true)
 		localbackend.Logf("ipc request logging enabled")
 	}
-	localbackend.Logf("ready on %s", localbackend.SocketPath())
-	return server.Serve()
+	localbackend.Logf("daemon ready on %s", daemon.Socket())
+	return daemon.Serve()
 }
 
-func stopBackend(ctx context.Context, e *env) (localbackend.Status, bool, error) {
-	client := backendClientForEnv(e)
-	st, err := client.Status(ctx)
-	if err != nil {
-		return st, false, err
+func stopBackend(ctx context.Context, e *env) (localbackend.DaemonStatus, bool, error) {
+	st, ok := daemonRunning(ctx, e)
+	if !ok {
+		return st, false, fmt.Errorf("backend is not running")
 	}
-	if err := client.Stop(ctx); err != nil {
+	// "stop" is a daemon-level method; target the daemon, not a device.
+	if err := localbackend.NewClient(resolveBackendSocket(e)).Stop(ctx); err != nil {
 		return st, false, err
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := backendStatus(ctx, e); !ok {
+		if _, ok := daemonRunning(ctx, e); !ok {
 			return st, true, nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -485,15 +620,92 @@ func formatContactSyncStatus(cs localbackend.ContactStatus) string {
 	return "replicating"
 }
 
-func printBackendStartSummary(e *env, st localbackend.Status) {
-	replicating := st.Contacts.Syncing || st.Channels.Syncing ||
-		(st.Contacts.SyncedAt.IsZero() && st.Channels.SyncedAt.IsZero())
-	if replicating {
-		e.out.Human("Backend started for %s (pid %d). Replication of contacts and channels started.\n", st.URI, st.PID)
-	} else {
-		e.out.Human("Backend started for %s (pid %d). Contacts and channels replicated.\n", st.URI, st.PID)
+func printBackendStartSummary(e *env, st localbackend.DaemonStatus) {
+	e.out.Human("Backend up (pid %d).\n", st.PID)
+	if st.Socket != "" {
+		e.out.Human("Socket: %s\n", st.Socket)
 	}
-	e.out.Human("Socket: %s\n", st.Socket)
+
+	// Announce which device sessions the daemon is bringing up. This is driven
+	// by config (autostart) and the explicit --uri/--device passed to start,
+	// since freshly-launched sessions may not yet appear connected.
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	announced := map[string]bool{}
+	announce := func(name, uri string) {
+		if uri == "" || announced[name] {
+			return
+		}
+		announced[name] = true
+		if name != "" {
+			e.out.Human("Starting session for %s (%s)...\n", name, uri)
+		} else {
+			e.out.Human("Starting session for %s...\n", uri)
+		}
+	}
+
+	if dev := e.args.flag("device"); dev != "" {
+		if d, ok := cfg.Devices[dev]; ok {
+			announce(dev, d.PrimaryURI())
+		}
+	}
+	if uri := e.args.flag("uri"); uri != "" {
+		announce(deviceNameForURI(cfg, uri), uri)
+	}
+	for name, dev := range cfg.Devices {
+		if dev.Backend.Autostart {
+			announce(name, dev.PrimaryURI())
+		}
+	}
+
+	if len(announced) == 0 {
+		e.out.Human("No device sessions autostarted. Run `mc session start <name>` to connect one.\n")
+	}
+}
+
+func daemonStatusJSON(st localbackend.DaemonStatus) map[string]any {
+	devices := make([]map[string]any, len(st.Devices))
+	for i, d := range st.Devices {
+		devices[i] = deviceListEntryJSON(d)
+	}
+	ready, degraded, stopped, fresh := sessionsSummary(daemonEntriesMap(st.Devices))
+	return map[string]any{
+		"running":           st.Running,
+		"pid":               st.PID,
+		"started_at":        st.StartedAt,
+		"uptime_sec":        st.UptimeSec,
+		"version":           st.Version,
+		"default":           st.DefaultID,
+		"socket":            st.Socket,
+		"devices":           devices,
+		"sessions_ready":    ready,
+		"sessions_degraded": degraded,
+		"sessions_stopped":  stopped,
+		"replicas_fresh":    fresh,
+	}
+}
+
+func deviceListEntryJSON(d localbackend.DeviceListEntry) map[string]any {
+	return map[string]any{
+		"id":         d.ID,
+		"default":    d.Default,
+		"session":    d.Session,
+		"connected":  d.Connected,
+		"replica":    d.Replica,
+		"transport":  d.Transport,
+		"uri":        d.URI,
+		"last_error": d.LastError,
+	}
+}
+
+func daemonEntriesMap(entries []localbackend.DeviceListEntry) map[string]localbackend.DeviceListEntry {
+	m := make(map[string]localbackend.DeviceListEntry, len(entries))
+	for _, e := range entries {
+		m[e.ID] = e
+	}
+	return m
 }
 
 func channelStatusJSON(cs localbackend.ChannelStatus) map[string]any {
@@ -540,8 +752,16 @@ func configuredBridges() ([]localbackend.BridgeConfig, error) {
 }
 
 func bridgesFromConfig(cfg *config.Config) []localbackend.BridgeConfig {
-	out := make([]localbackend.BridgeConfig, 0, len(cfg.Backend.Bridges))
-	for _, bridge := range cfg.Backend.Bridges {
+	return bridgesFromConfigBridges(cfg.Backend.Bridges)
+}
+
+func bridgesFromDeviceBackend(db config.DeviceBackend) []localbackend.BridgeConfig {
+	return bridgesFromConfigBridges(db.Bridges)
+}
+
+func bridgesFromConfigBridges(bridges []config.Bridge) []localbackend.BridgeConfig {
+	out := make([]localbackend.BridgeConfig, 0, len(bridges))
+	for _, bridge := range bridges {
 		out = append(out, localbackend.BridgeConfig{
 			Enabled: bridge.Enabled,
 			Type:    bridge.Type,
@@ -550,4 +770,33 @@ func bridgesFromConfig(cfg *config.Config) []localbackend.BridgeConfig {
 		})
 	}
 	return out
+}
+
+// deviceNameForURI returns the saved profile name whose endpoints include uri,
+// or "" if none match. Used to recover a profile name when the daemon is
+// launched with an explicit --uri.
+func deviceNameForURI(cfg *config.Config, uri string) string {
+	for name, dev := range cfg.Devices {
+		if dev.PrimaryURI() == uri {
+			return name
+		}
+		for _, t := range dev.Transports {
+			if t.URI == uri {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// primaryBridges returns the bridge listeners for the daemon's default device:
+// the device's own per-device bridges when configured, otherwise the legacy
+// global backend.bridges (used for `mc backend serve --uri ...`).
+func primaryBridges(cfg *config.Config, profile string) []localbackend.BridgeConfig {
+	if profile != "" {
+		if dev, ok := cfg.Devices[profile]; ok && len(dev.Backend.Bridges) > 0 {
+			return bridgesFromDeviceBackend(dev.Backend)
+		}
+	}
+	return bridgesFromConfig(cfg)
 }

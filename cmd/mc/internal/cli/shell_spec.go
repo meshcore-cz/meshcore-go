@@ -187,6 +187,16 @@ var shellCommands = []CommandSpec{
 		},
 	},
 	{
+		Name:        "session",
+		Description: "Manage device sessions (live radio connections)",
+		Children: []CommandSpec{
+			{Name: "list", Description: "Show device session states"},
+			{Name: "start", Description: "Connect a device session", CompleteArgs: completeDeviceProfilesArg},
+			{Name: "stop", Description: "Disconnect a device session", CompleteArgs: completeDeviceProfilesArg},
+			{Name: "restart", Description: "Reconnect a device session", CompleteArgs: completeDeviceProfilesArg},
+		},
+	},
+	{
 		Name:        "config",
 		Aliases:     []string{"conf"},
 		Description: "Show configuration",

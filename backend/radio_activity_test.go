@@ -6,7 +6,7 @@ import (
 )
 
 func TestRadioStatusLocked(t *testing.T) {
-	s := &Server{}
+	s := &DeviceSession{}
 	s.lockRadio("trace")
 	st := func() radioStatus {
 		s.mu.RLock()
@@ -51,7 +51,7 @@ func TestRadioStatusLocked(t *testing.T) {
 }
 
 func TestTryLockRadio(t *testing.T) {
-	s := &Server{}
+	s := &DeviceSession{}
 	if !s.tryLockRadio("stats") {
 		t.Fatal("expected try lock to succeed")
 	}

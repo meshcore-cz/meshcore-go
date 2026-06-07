@@ -9,8 +9,49 @@ import (
 
 type request struct {
 	ID     uint64          `json:"id"`
+	Device string          `json:"device,omitempty"`
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
+}
+
+// deviceListEntry summarises one configured device for `mc device list`.
+type deviceListEntry struct {
+	ID        string `json:"id"`
+	Default   bool   `json:"default"`
+	Session   string `json:"session"` // ready|degraded|bridge|stopped
+	Connected bool   `json:"connected"`
+	Replica   string `json:"replica,omitempty"` // fresh|stale
+	Transport string `json:"transport,omitempty"`
+	URI       string `json:"uri,omitempty"`
+	LastError string `json:"last_error,omitempty"`
+}
+
+type deviceListResult struct {
+	Devices []deviceListEntry `json:"devices"`
+}
+
+// daemonStatusResult is the daemon-level status, independent of any single
+// device session.
+type daemonStatusResult struct {
+	Running   bool              `json:"running"`
+	PID       int               `json:"pid"`
+	StartedAt time.Time         `json:"started_at,omitempty"`
+	UptimeSec int64             `json:"uptime_sec,omitempty"`
+	Version   string            `json:"version,omitempty"`
+	DefaultID string            `json:"default_id,omitempty"`
+	Devices   []deviceListEntry `json:"devices"`
+}
+
+type deviceActionResult struct {
+	Device  string `json:"device"`
+	Running bool   `json:"running"`
+	// Changed reports whether the action altered the session state (i.e. it was
+	// actually started or stopped, vs already being in that state).
+	Changed bool `json:"changed"`
+}
+
+type deviceParams struct {
+	Device string `json:"device"`
 }
 
 type response struct {
@@ -40,6 +81,7 @@ type statusResult struct {
 	Running           bool                  `json:"running"`
 	Healthy           bool                  `json:"healthy"`
 	State             string                `json:"state"`
+	DeviceID          string                `json:"device_id,omitempty"`
 	URI               string                `json:"uri"`
 	Transport         string                `json:"transport"`
 	PID               int                   `json:"pid"`

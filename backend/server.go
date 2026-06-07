@@ -3,11 +3,9 @@ package backend
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,16 +15,17 @@ import (
 	"github.com/meshcore-cz/meshcore-go/protocol/pathhash"
 )
 
-// Server owns one long-lived MeshCore client and exposes it over a local Unix
-// socket.
-type Server struct {
-	uri      string
-	socket   string
-	opts     []meshcore.DialOption
-	bridges  []BridgeConfig
-	client   *meshcore.Client
-	listener net.Listener
-	store    Store
+// DeviceSession owns one long-lived MeshCore client for a single logical
+// device. Sessions are isolated: each has its own connection, radio
+// serialisation, replica view, diagnostics, and bridges. A Daemon supervises
+// one or more sessions behind a single Unix socket.
+type DeviceSession struct {
+	id      string // logical device id (profile slug, or a uri-derived slug)
+	uri     string
+	opts    []meshcore.DialOption
+	bridges []BridgeConfig
+	client  *meshcore.Client
+	store   Store
 
 	mu                  sync.RWMutex
 	state               string
@@ -62,9 +61,9 @@ type Server struct {
 
 	startedAt   time.Time
 	lastErrorAt time.Time
-	logRequests bool
 	stopOnce    sync.Once
 	stopped     chan struct{}
+	started     bool
 
 	ipcClients        int32
 	radioQueuePending int32
@@ -85,47 +84,30 @@ const (
 	initialContactSyncTimeout = 90 * time.Second
 )
 
-// ServerOptions configures a backend server instance.
-type ServerOptions struct {
-	Socket  string
-	Store   Store
+// SessionOptions configures a DeviceSession instance.
+type SessionOptions struct {
+	ID      string // logical device id; defaults to a uri-derived slug
+	Store   Store  // shared store; the session never closes it
 	Bridges []BridgeConfig
 }
 
-// NewServer dials uri and prepares a local backend server.
-func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*Server, error) {
-	return NewServerWithOptions(ctx, uri, ServerOptions{}, opts...)
-}
-
-// NewServerWithBridges dials uri and prepares a backend with configured bridge
-// listeners.
-func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfig, opts ...meshcore.DialOption) (*Server, error) {
-	return NewServerWithOptions(ctx, uri, ServerOptions{Bridges: bridges}, opts...)
-}
-
-// NewServerWithOptions dials uri and prepares a backend server with explicit
-// socket, store, and bridge configuration.
-func NewServerWithOptions(ctx context.Context, uri string, cfg ServerOptions, opts ...meshcore.DialOption) (*Server, error) {
-	socket := cfg.Socket
-	if socket == "" {
-		socket = SocketPath()
+// newSession dials uri and prepares an isolated device session. The session is
+// not yet running its background goroutines; call start once the supervising
+// daemon is listening.
+func newSession(ctx context.Context, uri string, cfg SessionOptions, opts ...meshcore.DialOption) (*DeviceSession, error) {
+	if cfg.Store == nil {
+		return nil, fmt.Errorf("device session requires a store")
 	}
-
-	store := cfg.Store
-	if store == nil {
-		var err error
-		store, err = OpenSQLiteStore("")
-		if err != nil {
-			return nil, fmt.Errorf("opening backend store: %w", err)
-		}
+	id := cfg.ID
+	if id == "" {
+		id = sessionSlug(uri)
 	}
-
-	s := &Server{
+	s := &DeviceSession{
+		id:             id,
 		uri:            uri,
-		socket:         socket,
 		opts:           append([]meshcore.DialOption(nil), opts...),
 		bridges:        append([]BridgeConfig(nil), cfg.Bridges...),
-		store:          store,
+		store:          cfg.Store,
 		state:          stateReady,
 		lastSeen:       time.Now(),
 		stopped:        make(chan struct{}),
@@ -133,7 +115,6 @@ func NewServerWithOptions(ctx context.Context, uri string, cfg ServerOptions, op
 	}
 	client, err := s.dialClient(ctx)
 	if err != nil {
-		store.Close()
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
 	}
 	s.client = client
@@ -142,121 +123,76 @@ func NewServerWithOptions(ctx context.Context, uri string, cfg ServerOptions, op
 	return s, nil
 }
 
-// SetLogRequests enables logging of IPC requests and responses to the backend log.
-func (s *Server) SetLogRequests(v bool) {
-	s.logRequests = v
-}
+// ID returns the session's logical device id.
+func (s *DeviceSession) ID() string { return s.id }
 
-// Serve listens until Stop is called or the listener fails.
-func (s *Server) Serve() error {
-	if err := os.MkdirAll(filepath.Dir(s.socket), 0o700); err != nil {
-		return err
+// start launches the session's background work: stats polling, bridge
+// listeners, and the initial contact/channel replication. It is idempotent.
+func (s *DeviceSession) start() {
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
+		return
 	}
-	if err := os.Remove(s.socket); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
+	s.started = true
+	s.mu.Unlock()
 
-	ln, err := net.Listen("unix", s.socket)
-	if err != nil {
-		return err
-	}
-	if err := os.Chmod(s.socket, 0o600); err != nil {
-		ln.Close()
-		return err
-	}
-	s.listener = ln
 	go s.pollStats()
 	s.startBridges()
 	s.scheduleInitialContactSync()
-	defer func() {
-		ln.Close()
-		os.Remove(s.socket)
-		if client := s.clientSnapshot(); client != nil {
-			client.Close()
-		}
-		if s.store != nil {
-			s.store.Close()
-		}
-		close(s.stopped)
-	}()
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			select {
-			case <-s.stopped:
-				return nil
-			default:
-				if errors.Is(err, net.ErrClosed) {
-					return nil
-				}
-				return err
-			}
-		}
-		go s.handle(conn)
-	}
 }
 
-// Stop closes the listener and the MeshCore client.
-func (s *Server) Stop() {
+// stop signals the session's background goroutines to exit and closes the
+// active client. The shared store is owned by the daemon and is not closed
+// here.
+func (s *DeviceSession) stop() {
 	s.stopOnce.Do(func() {
-		if s.listener != nil {
-			s.listener.Close()
+		close(s.stopped)
+		if client := s.clientSnapshot(); client != nil {
+			client.Close()
 		}
 	})
 }
 
-func (s *Server) handle(conn net.Conn) {
-	defer conn.Close()
+// serve handles a single already-decoded IPC request on conn. The supervising
+// daemon owns connection acceptance and request decoding (including device
+// routing); the session executes the request against its own radio.
+func (s *DeviceSession) serve(conn net.Conn, req request, enc *json.Encoder, start time.Time, logRequests bool) (stopDaemon bool) {
 	s.trackIPCClient(1)
 	defer s.trackIPCClient(-1)
 
-	var req request
-	enc := json.NewEncoder(conn)
-	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		if s.logRequests {
-			Logf("ipc request decode error: %v", err)
-		}
-		_ = enc.Encode(response{OK: false, Error: err.Error()})
-		s.trackRequestFailed()
-		return
-	}
-	start := time.Now()
-	if s.logRequests {
-		logIPCRequest(req.ID, req.Method, req.Params)
-	}
 	streaming := req.Method == "watch" || req.Method == "watch_raw" || req.Method == "discover"
 	if req.Method == "watch" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			s.trackRequestFailed()
-			return
+			return false
 		}
 		s.trackRequestOK()
 		s.watch(conn, req.ID)
-		return
+		return false
 	}
 	if req.Method == "watch_raw" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			s.trackRequestFailed()
-			return
+			return false
 		}
 		s.trackRequestOK()
 		s.watchRaw(conn, req.ID)
-		return
+		return false
 	}
 	if req.Method == "discover" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			s.trackRequestFailed()
-			return
+			return false
 		}
 		s.lockRadio("discover")
 		defer s.unlockRadio()
 		s.trackRequestOK()
 		s.discover(conn, req.ID, req.Params)
-		return
+		return false
 	}
 
 	var result any
@@ -285,18 +221,63 @@ func (s *Server) handle(conn net.Conn) {
 		s.trackRequestFailed()
 	}
 
-	if s.logRequests && !streaming {
+	if logRequests && !streaming {
 		logIPCResponse(req.ID, req.Method, err, time.Since(start))
 	}
 
 	if req.Method == "stop" && err == nil {
-		go s.Stop()
-	} else if err == nil && s.methodUsesRadio(req.Method, req.Params) && req.Method != "contacts" && req.Method != "channels" {
+		return true
+	}
+	if err == nil && s.methodUsesRadio(req.Method, req.Params) && req.Method != "contacts" && req.Method != "channels" {
 		s.scheduleContactRefreshAfterInteractive()
+	}
+	return false
+}
+
+// listEntry returns a fleet-status summary of the session for `mc device list`.
+func (s *DeviceSession) listEntry(isDefault bool) deviceListEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	replica := "stale"
+	if !s.contactSyncedAt.IsZero() {
+		replica = "fresh"
+	}
+	return deviceListEntry{
+		ID:        s.id,
+		Default:   isDefault,
+		Session:   s.state,
+		Connected: s.state == stateReady || s.state == stateBridge,
+		Replica:   replica,
+		Transport: transportScheme(s.uri),
+		URI:       s.uri,
+		LastError: s.lastError,
 	}
 }
 
-func (s *Server) watch(conn net.Conn, id uint64) {
+// transportScheme returns the URI scheme (ble, serial, tcp, …) used for
+// fleet-status display.
+func transportScheme(uri string) string {
+	if i := strings.Index(uri, ":"); i >= 0 {
+		return uri[:i]
+	}
+	return ""
+}
+
+// sessionSlug derives a stable, filesystem-free identifier from a transport
+// URI for use as a fallback session id.
+func sessionSlug(uri string) string {
+	slug := uri
+	if i := strings.Index(slug, "://"); i >= 0 {
+		slug = slug[i+3:]
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return "default"
+	}
+	return slug
+}
+
+func (s *DeviceSession) watch(conn net.Conn, id uint64) {
 	enc := json.NewEncoder(conn)
 	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
 		return
@@ -318,7 +299,7 @@ func (s *Server) watch(conn net.Conn, id uint64) {
 	}
 }
 
-func (s *Server) watchRaw(conn net.Conn, id uint64) {
+func (s *DeviceSession) watchRaw(conn net.Conn, id uint64) {
 	enc := json.NewEncoder(conn)
 	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
 		return
@@ -336,7 +317,7 @@ func (s *Server) watchRaw(conn net.Conn, id uint64) {
 	}
 }
 
-func (s *Server) discover(conn net.Conn, id uint64, params json.RawMessage) {
+func (s *DeviceSession) discover(conn net.Conn, id uint64, params json.RawMessage) {
 	enc := json.NewEncoder(conn)
 	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
 		return
@@ -371,7 +352,7 @@ func (s *Server) discover(conn net.Conn, id uint64, params json.RawMessage) {
 	Logf("radio done op=discover nodes=%d", len(nodes))
 }
 
-func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func (s *DeviceSession) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case "status":
 		return s.status(), nil
@@ -602,7 +583,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 	}
 }
 
-func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts contactsParams) (any, error) {
+func (s *DeviceSession) contacts(ctx context.Context, client *meshcore.Client, opts contactsParams) (any, error) {
 	if opts.Refresh && !opts.Wait {
 		if client == nil || !s.healthy() {
 			return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
@@ -620,7 +601,7 @@ func (s *Server) contacts(ctx context.Context, client *meshcore.Client, opts con
 
 // contact returns a contact from the backend's local replica. Contacts are
 // synced from the radio explicitly via contacts --refresh, not fetched per request.
-func (s *Server) contact(ctx context.Context, client *meshcore.Client, query string) (meshcore.Contact, error) {
+func (s *DeviceSession) contact(ctx context.Context, client *meshcore.Client, query string) (meshcore.Contact, error) {
 	_ = client
 	if s.store == nil {
 		return meshcore.Contact{}, fmt.Errorf("backend contact replica is unavailable")
@@ -635,7 +616,7 @@ func (s *Server) contact(ctx context.Context, client *meshcore.Client, query str
 	return entry.Contact, nil
 }
 
-func (s *Server) replicaContacts(ctx context.Context) ([]meshcore.Contact, error) {
+func (s *DeviceSession) replicaContacts(ctx context.Context) ([]meshcore.Contact, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("backend contact replica is unavailable")
 	}
@@ -650,7 +631,7 @@ func (s *Server) replicaContacts(ctx context.Context) ([]meshcore.Contact, error
 	return contacts, nil
 }
 
-func (s *Server) scheduleInitialContactSync() {
+func (s *DeviceSession) scheduleInitialContactSync() {
 	go func() {
 		s.lockRadio("replicate")
 		defer s.unlockRadio()
@@ -676,7 +657,7 @@ func (s *Server) scheduleInitialContactSync() {
 	}()
 }
 
-func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client, full bool) ([]meshcore.Contact, error) {
+func (s *DeviceSession) syncContacts(ctx context.Context, client *meshcore.Client, full bool) ([]meshcore.Contact, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("backend contact replica is unavailable")
 	}
@@ -744,7 +725,7 @@ func (s *Server) syncContacts(ctx context.Context, client *meshcore.Client, full
 	return contacts, nil
 }
 
-func (s *Server) syncChannels(ctx context.Context, client *meshcore.Client) ([]meshcore.Channel, error) {
+func (s *DeviceSession) syncChannels(ctx context.Context, client *meshcore.Client) ([]meshcore.Channel, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("backend channel replica is unavailable")
 	}
@@ -779,7 +760,7 @@ func (s *Server) syncChannels(ctx context.Context, client *meshcore.Client) ([]m
 	return channels, nil
 }
 
-func (s *Server) recordChannelSyncError(err error) {
+func (s *DeviceSession) recordChannelSyncError(err error) {
 	if err == nil {
 		return
 	}
@@ -788,13 +769,13 @@ func (s *Server) recordChannelSyncError(err error) {
 	s.mu.Unlock()
 }
 
-func (s *Server) finishChannelSync() {
+func (s *DeviceSession) finishChannelSync() {
 	s.mu.Lock()
 	s.channelSyncing = false
 	s.mu.Unlock()
 }
 
-func (s *Server) channels(ctx context.Context, client *meshcore.Client, opts channelsParams) ([]meshcore.Channel, error) {
+func (s *DeviceSession) channels(ctx context.Context, client *meshcore.Client, opts channelsParams) ([]meshcore.Channel, error) {
 	if opts.Refresh {
 		if client == nil || !s.healthy() {
 			return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
@@ -804,7 +785,7 @@ func (s *Server) channels(ctx context.Context, client *meshcore.Client, opts cha
 	return s.replicaChannels(ctx)
 }
 
-func (s *Server) replicaChannels(ctx context.Context) ([]meshcore.Channel, error) {
+func (s *DeviceSession) replicaChannels(ctx context.Context) ([]meshcore.Channel, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("backend channel replica is unavailable")
 	}
@@ -821,7 +802,7 @@ func (s *Server) replicaChannels(ctx context.Context) ([]meshcore.Channel, error
 
 // channel returns a channel from the backend's local replica. Channels are
 // synced from the radio explicitly via channels --refresh, not fetched per request.
-func (s *Server) channel(ctx context.Context, query string) (meshcore.Channel, error) {
+func (s *DeviceSession) channel(ctx context.Context, query string) (meshcore.Channel, error) {
 	if s.store == nil {
 		return meshcore.Channel{}, fmt.Errorf("backend channel replica is unavailable")
 	}
@@ -835,7 +816,7 @@ func (s *Server) channel(ctx context.Context, query string) (meshcore.Channel, e
 	return entry.Channel, nil
 }
 
-func (s *Server) recordContactSyncError(err error) {
+func (s *DeviceSession) recordContactSyncError(err error) {
 	if err == nil {
 		return
 	}
@@ -844,7 +825,7 @@ func (s *Server) recordContactSyncError(err error) {
 	s.mu.Unlock()
 }
 
-func (s *Server) finishContactSync() {
+func (s *DeviceSession) finishContactSync() {
 	s.mu.Lock()
 	s.contactSyncing = false
 	s.contactSyncRecv = 0
@@ -852,7 +833,7 @@ func (s *Server) finishContactSync() {
 	s.mu.Unlock()
 }
 
-func (s *Server) repeaterLogin(ctx context.Context, client *meshcore.Client, repeater, password string) (meshcore.RepeaterSession, error) {
+func (s *DeviceSession) repeaterLogin(ctx context.Context, client *meshcore.Client, repeater, password string) (meshcore.RepeaterSession, error) {
 	ct, err := s.replicaContact(ctx, repeater)
 	if err != nil {
 		return meshcore.RepeaterSession{}, err
@@ -870,11 +851,11 @@ func (s *Server) repeaterLogin(ctx context.Context, client *meshcore.Client, rep
 	return session, nil
 }
 
-func (s *Server) replicaContact(ctx context.Context, query string) (meshcore.Contact, error) {
+func (s *DeviceSession) replicaContact(ctx context.Context, query string) (meshcore.Contact, error) {
 	return s.contact(ctx, nil, query)
 }
 
-func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Client, repeater, password string) error {
+func (s *DeviceSession) ensureRepeaterSession(ctx context.Context, client *meshcore.Client, repeater, password string) error {
 	if s.store != nil {
 		session, err := s.store.RepeaterSession(ctx, s.uri, repeater)
 		if err == nil && session.Active() {
@@ -917,7 +898,7 @@ func (s *Server) ensureRepeaterSession(ctx context.Context, client *meshcore.Cli
 	return err
 }
 
-func (s *Server) pollStats() {
+func (s *DeviceSession) pollStats() {
 	ticker := time.NewTicker(keepAliveInterval)
 	defer ticker.Stop()
 
@@ -932,7 +913,7 @@ func (s *Server) pollStats() {
 	}
 }
 
-func (s *Server) runStatsPoll() {
+func (s *DeviceSession) runStatsPoll() {
 	if s.stateSnapshot() == stateBridge {
 		return
 	}
@@ -963,7 +944,7 @@ func (s *Server) runStatsPoll() {
 	s.unlockRadio()
 }
 
-func (s *Server) status() statusResult {
+func (s *DeviceSession) status() statusResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	transport := s.uri
@@ -975,6 +956,7 @@ func (s *Server) status() statusResult {
 		Running:           true,
 		Healthy:           s.state == stateReady,
 		State:             s.state,
+		DeviceID:          s.id,
 		URI:               s.uri,
 		Transport:         transport,
 		PID:               os.Getpid(),
@@ -1018,7 +1000,7 @@ func (s *Server) status() statusResult {
 	return out
 }
 
-func (s *Server) markReady() {
+func (s *DeviceSession) markReady() {
 	s.mu.Lock()
 	s.state = stateReady
 	s.lastSeen = time.Now()
@@ -1027,7 +1009,7 @@ func (s *Server) markReady() {
 	s.mu.Unlock()
 }
 
-func (s *Server) markDegraded(err error) {
+func (s *DeviceSession) markDegraded(err error) {
 	var old *meshcore.Client
 	s.mu.Lock()
 	s.state = stateDegraded
@@ -1043,19 +1025,19 @@ func (s *Server) markDegraded(err error) {
 	}
 }
 
-func (s *Server) healthy() bool {
+func (s *DeviceSession) healthy() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.state == stateReady
 }
 
-func (s *Server) stateSnapshot() string {
+func (s *DeviceSession) stateSnapshot() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.state
 }
 
-func (s *Server) lastErr() string {
+func (s *DeviceSession) lastErr() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.lastError == "" {
@@ -1067,13 +1049,13 @@ func (s *Server) lastErr() string {
 	return s.lastError
 }
 
-func (s *Server) clientSnapshot() *meshcore.Client {
+func (s *DeviceSession) clientSnapshot() *meshcore.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.client
 }
 
-func (s *Server) tryReconnect() {
+func (s *DeviceSession) tryReconnect() {
 	if s.stateSnapshot() == stateBridge {
 		return
 	}
@@ -1099,13 +1081,13 @@ func (s *Server) tryReconnect() {
 	s.refreshStartupCaches(context.Background(), client)
 }
 
-func (s *Server) dialClient(ctx context.Context) (*meshcore.Client, error) {
+func (s *DeviceSession) dialClient(ctx context.Context) (*meshcore.Client, error) {
 	opts := append([]meshcore.DialOption(nil), s.opts...)
 	opts = append(opts, meshcore.WithClientOptions(meshcore.WithEventHook(s.observeEvent)))
 	return meshcore.Dial(ctx, s.uri, opts...)
 }
 
-func (s *Server) markReconnectFailed(err error) {
+func (s *DeviceSession) markReconnectFailed(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = stateDegraded
@@ -1115,7 +1097,7 @@ func (s *Server) markReconnectFailed(err error) {
 	}
 }
 
-func (s *Server) observeEvent(ev meshcore.Event) {
+func (s *DeviceSession) observeEvent(ev meshcore.Event) {
 	adv, ok := ev.(meshcore.AdvertisementReceived)
 	if !ok || s.store == nil || adv.Contact.PublicKey == "" {
 		return
@@ -1123,7 +1105,7 @@ func (s *Server) observeEvent(ev meshcore.Event) {
 	go s.upsertObservedContact(adv.Contact)
 }
 
-func (s *Server) upsertObservedContact(contact meshcore.Contact) {
+func (s *DeviceSession) upsertObservedContact(contact meshcore.Contact) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1174,14 +1156,14 @@ func (s *Server) upsertObservedContact(contact meshcore.Contact) {
 	}
 }
 
-func (s *Server) statsPollTimeout() time.Duration {
+func (s *DeviceSession) statsPollTimeout() time.Duration {
 	if strings.HasPrefix(s.uri, "ble://") {
 		return statsPollTimeoutBLE
 	}
 	return statsPollTimeout
 }
 
-func (s *Server) methodUsesRadio(method string, params json.RawMessage) bool {
+func (s *DeviceSession) methodUsesRadio(method string, params json.RawMessage) bool {
 	switch method {
 	case "status", "stop":
 		return false
@@ -1210,7 +1192,7 @@ func (s *Server) methodUsesRadio(method string, params json.RawMessage) bool {
 	}
 }
 
-func (s *Server) refreshDeviceInfoCache(ctx context.Context, client *meshcore.Client) {
+func (s *DeviceSession) refreshDeviceInfoCache(ctx context.Context, client *meshcore.Client) {
 	if client == nil {
 		return
 	}
@@ -1221,14 +1203,14 @@ func (s *Server) refreshDeviceInfoCache(ctx context.Context, client *meshcore.Cl
 	s.storeDeviceInfo(info)
 }
 
-func (s *Server) storeDeviceInfo(info meshcore.DeviceInfo) {
+func (s *DeviceSession) storeDeviceInfo(info meshcore.DeviceInfo) {
 	s.mu.Lock()
 	s.deviceInfo = info
 	s.deviceInfoOK = info.Name != "" || info.PublicKey != ""
 	s.mu.Unlock()
 }
 
-func (s *Server) deviceInfoSnapshot() (meshcore.DeviceInfo, bool) {
+func (s *DeviceSession) deviceInfoSnapshot() (meshcore.DeviceInfo, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.deviceInfoOK {
@@ -1237,7 +1219,7 @@ func (s *Server) deviceInfoSnapshot() (meshcore.DeviceInfo, bool) {
 	return s.deviceInfo, true
 }
 
-func (s *Server) deviceStatusSnapshotLocked() *deviceStatusSnapshot {
+func (s *DeviceSession) deviceStatusSnapshotLocked() *deviceStatusSnapshot {
 	if !s.deviceInfoOK {
 		return nil
 	}

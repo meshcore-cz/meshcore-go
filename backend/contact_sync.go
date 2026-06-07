@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func (s *Server) startContactRefresh(full bool) ContactRefreshResult {
+func (s *DeviceSession) startContactRefresh(full bool) ContactRefreshResult {
 	s.contactSyncMu.Lock()
 	if s.contactSyncing {
 		s.contactSyncMu.Unlock()
@@ -17,7 +17,7 @@ func (s *Server) startContactRefresh(full bool) ContactRefreshResult {
 	return ContactRefreshResult{Started: true, Running: true}
 }
 
-func (s *Server) runContactRefresh(full bool) {
+func (s *DeviceSession) runContactRefresh(full bool) {
 	s.lockRadio("contacts")
 	defer s.unlockRadio()
 
@@ -35,19 +35,19 @@ func (s *Server) runContactRefresh(full bool) {
 	}
 }
 
-func (s *Server) setContactRefreshCancel(cancel context.CancelFunc) {
+func (s *DeviceSession) setContactRefreshCancel(cancel context.CancelFunc) {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
 	s.refreshCancel = cancel
 }
 
-func (s *Server) clearContactRefreshCancel() {
+func (s *DeviceSession) clearContactRefreshCancel() {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
 	s.refreshCancel = nil
 }
 
-func (s *Server) interruptContactRefresh() {
+func (s *DeviceSession) interruptContactRefresh() {
 	s.refreshMu.Lock()
 	cancel := s.refreshCancel
 	s.refreshCancel = nil
@@ -57,7 +57,7 @@ func (s *Server) interruptContactRefresh() {
 	}
 }
 
-func (s *Server) scheduleContactRefreshAfterInteractive() {
+func (s *DeviceSession) scheduleContactRefreshAfterInteractive() {
 	s.contactSyncMu.Lock()
 	running := s.contactSyncing
 	s.contactSyncMu.Unlock()

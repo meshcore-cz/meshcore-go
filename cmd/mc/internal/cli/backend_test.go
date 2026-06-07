@@ -10,7 +10,8 @@ func TestPreferIPCBackend(t *testing.T) {
 	}{
 		{"default", []string{"status"}, true},
 		{"uri", []string{"raw", "--uri", "serial:///dev/ttyS0"}, false},
-		{"device", []string{"status", "--device", "handheld"}, false},
+		{"device", []string{"status", "--device", "handheld"}, true},
+		{"device and direct", []string{"status", "--device", "handheld", "--direct"}, false},
 		{"direct", []string{"status", "--direct"}, false},
 		{"uri and direct", []string{"raw", "--uri", "serial:///dev/ttyS0", "--direct"}, false},
 	}

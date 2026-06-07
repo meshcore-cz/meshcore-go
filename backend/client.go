@@ -97,9 +97,24 @@ type RadioStatus struct {
 	LastDurationMs int64
 }
 
-// Client talks to a running local backend process.
+// DeviceListEntry is the public fleet-status summary of one configured device.
+type DeviceListEntry struct {
+	ID        string `json:"id"`
+	Default   bool   `json:"default"`
+	Session   string `json:"session"`
+	Connected bool   `json:"connected"`
+	Replica   string `json:"replica,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	URI       string `json:"uri,omitempty"`
+	LastError string `json:"last_error,omitempty"`
+}
+
+// Client talks to a running local backend daemon. An optional device selector
+// routes requests to a specific device session; an empty selector targets the
+// daemon's default device.
 type Client struct {
 	socket string
+	device string
 	nextID atomic.Uint64
 }
 
@@ -109,6 +124,99 @@ func NewClient(socket string) *Client {
 		socket = SocketPath()
 	}
 	return &Client{socket: socket}
+}
+
+// NewClientForDevice returns a client that routes requests to a specific device
+// session. An empty device targets the daemon's default device.
+func NewClientForDevice(socket, device string) *Client {
+	c := NewClient(socket)
+	c.device = device
+	return c
+}
+
+// Device returns the device selector this client routes to (empty for default).
+func (c *Client) Device() string { return c.device }
+
+// DaemonStatus is the daemon-level status, independent of any single device
+// session.
+type DaemonStatus struct {
+	Running   bool
+	PID       int
+	StartedAt time.Time
+	UptimeSec int64
+	Version   string
+	DefaultID string
+	Socket    string
+	Devices   []DeviceListEntry
+}
+
+// BackendStatus returns the daemon-level status (pid, uptime, sessions) without
+// depending on any device session being connected.
+func (c *Client) BackendStatus(ctx context.Context) (DaemonStatus, error) {
+	var out daemonStatusResult
+	if err := c.call(ctx, "backend_status", nil, &out); err != nil {
+		return DaemonStatus{Socket: c.socket}, err
+	}
+	st := DaemonStatus{
+		Running:   out.Running,
+		PID:       out.PID,
+		StartedAt: out.StartedAt,
+		UptimeSec: out.UptimeSec,
+		Version:   out.Version,
+		DefaultID: out.DefaultID,
+		Socket:    c.socket,
+		Devices:   make([]DeviceListEntry, len(out.Devices)),
+	}
+	for i, e := range out.Devices {
+		st.Devices[i] = DeviceListEntry(e)
+	}
+	return st, nil
+}
+
+// DeviceList returns a fleet-status summary of every configured device.
+func (c *Client) DeviceList(ctx context.Context) ([]DeviceListEntry, error) {
+	var out deviceListResult
+	if err := c.call(ctx, "device_list", nil, &out); err != nil {
+		return nil, err
+	}
+	entries := make([]DeviceListEntry, len(out.Devices))
+	for i, e := range out.Devices {
+		entries[i] = DeviceListEntry(e)
+	}
+	return entries, nil
+}
+
+// DeviceActionResult reports the outcome of a session lifecycle action.
+type DeviceActionResult struct {
+	Device  string
+	Running bool
+	// Changed is true when the action altered the session state (actually
+	// started or stopped it), false when it was already in that state.
+	Changed bool
+}
+
+// DeviceStart starts (connects) the named device session.
+func (c *Client) DeviceStart(ctx context.Context, device string) (DeviceActionResult, error) {
+	return c.deviceAction(ctx, "device_start", device)
+}
+
+// DeviceStop stops (disconnects) the named device session without removing its
+// profile.
+func (c *Client) DeviceStop(ctx context.Context, device string) (DeviceActionResult, error) {
+	return c.deviceAction(ctx, "device_stop", device)
+}
+
+// DeviceRestart stops then starts the named device session.
+func (c *Client) DeviceRestart(ctx context.Context, device string) (DeviceActionResult, error) {
+	return c.deviceAction(ctx, "device_restart", device)
+}
+
+func (c *Client) deviceAction(ctx context.Context, method, device string) (DeviceActionResult, error) {
+	var out deviceActionResult
+	if err := c.call(ctx, method, deviceParams{Device: device}, &out); err != nil {
+		return DeviceActionResult{Device: device}, err
+	}
+	return DeviceActionResult(out), nil
 }
 
 // Available reports whether a backend is listening and responding.
@@ -297,7 +405,7 @@ func (c *Client) Discover(ctx context.Context, filter byte, prefixOnly bool, tim
 	}
 
 	params := discoverParams{Filter: filter, PrefixOnly: prefixOnly, TimeoutMs: int(timeout.Milliseconds())}
-	req := request{ID: c.nextID.Add(1), Method: "discover"}
+	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "discover"}
 	if req.Params, err = json.Marshal(params); err != nil {
 		conn.Close()
 		return nil, err
@@ -389,7 +497,7 @@ func (c *Client) Watch(ctx context.Context) (<-chan Event, error) {
 		return nil, err
 	}
 
-	req := request{ID: c.nextID.Add(1), Method: "watch"}
+	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "watch"}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		conn.Close()
 		return nil, err
@@ -441,7 +549,7 @@ func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error
 		return nil, err
 	}
 
-	req := request{ID: c.nextID.Add(1), Method: "watch_raw"}
+	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "watch_raw"}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		conn.Close()
 		return nil, err
@@ -493,7 +601,7 @@ func (c *Client) call(ctx context.Context, method string, params, out any) error
 	}
 	defer conn.Close()
 
-	req := request{ID: c.nextID.Add(1), Method: method}
+	req := request{ID: c.nextID.Add(1), Device: c.device, Method: method}
 	if params != nil {
 		req.Params, err = json.Marshal(params)
 		if err != nil {

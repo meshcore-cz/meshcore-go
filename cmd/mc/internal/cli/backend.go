@@ -58,7 +58,24 @@ func resolveBackendSocket(e *env) string {
 }
 
 func backendClientForEnv(e *env) *localbackend.Client {
-	return localbackend.NewClient(resolveBackendSocket(e))
+	return localbackend.NewClientForDevice(resolveBackendSocket(e), e.args.flag("device"))
+}
+
+// daemonRunning reports whether the backend daemon (supervisor) is up,
+// independent of whether any device session is connected. This is distinct from
+// backendStatus, which reports the targeted/default device session's health.
+func daemonRunning(ctx context.Context, e *env) (localbackend.DaemonStatus, bool) {
+	socket := resolveBackendSocket(e)
+	c := localbackend.NewClient(socket)
+	if st, err := c.BackendStatus(ctx); err == nil {
+		return st, true
+	}
+	// Legacy single-session daemon without backend_status: fall back to the
+	// per-device status method to detect liveness.
+	if _, err := c.Status(ctx); err == nil {
+		return localbackend.DaemonStatus{Running: true, Socket: socket}, true
+	}
+	return localbackend.DaemonStatus{Socket: socket}, false
 }
 
 func openBackend(ctx context.Context, e *env) (Backend, error) {
@@ -84,11 +101,10 @@ func openBackend(ctx context.Context, e *env) (Backend, error) {
 }
 
 // preferIPCBackend reports whether a command should use the local daemon when
-// available. Explicit --uri, --device, or --direct always dial directly.
+// available. --device routes to the matching daemon session; only an explicit
+// --uri (a temporary endpoint) or --direct bypasses the daemon.
 func preferIPCBackend(e *env) bool {
-	return !e.args.has("direct") &&
-		e.args.flag("uri") == "" &&
-		e.args.flag("device") == ""
+	return !e.args.has("direct") && e.args.flag("uri") == ""
 }
 
 func openIPCBackend(ctx context.Context, e *env) (*ipcBackend, error) {
