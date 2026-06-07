@@ -33,6 +33,11 @@ type SessionInfo struct {
 	FirmwareVersion string
 	ProtocolVersion string
 	Capabilities    Capabilities
+	RadioFreqKHz    uint32
+	RadioBWKHz      uint32
+	RadioSF         byte
+	RadioCR         byte
+	TxPowerDBm      byte
 }
 
 // Protocol encodes commands, decodes packets and performs the initial

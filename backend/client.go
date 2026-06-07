@@ -24,6 +24,11 @@ type DeviceStatus struct {
 	Protocol        string
 	Transport       string
 	Capabilities    []string
+	RadioFreqKHz    uint32
+	RadioBWKHz      uint32
+	RadioSF         byte
+	RadioCR         byte
+	TxPowerDBm      byte
 }
 
 func (d DeviceStatus) Available() bool {
@@ -126,6 +131,11 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 			FirmwareVersion: res.Device.FirmwareVersion,
 			Protocol:        res.Device.Protocol,
 			Capabilities:    append([]string(nil), res.Device.Capabilities...),
+			RadioFreqKHz:    res.Device.RadioFreqKHz,
+			RadioBWKHz:      res.Device.RadioBWKHz,
+			RadioSF:         res.Device.RadioSF,
+			RadioCR:         res.Device.RadioCR,
+			TxPowerDBm:      res.Device.TxPowerDBm,
 		}
 	}
 	return st, nil
@@ -138,6 +148,12 @@ func (c *Client) Stop(ctx context.Context) error {
 func (c *Client) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
 	var out meshcore.DeviceInfo
 	err := c.call(ctx, "device_info", nil, &out)
+	return out, err
+}
+
+func (c *Client) Stats(ctx context.Context) (meshcore.LocalStats, error) {
+	var out meshcore.LocalStats
+	err := c.call(ctx, "stats", nil, &out)
 	return out, err
 }
 

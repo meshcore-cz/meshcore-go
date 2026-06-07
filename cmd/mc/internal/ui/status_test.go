@@ -26,7 +26,14 @@ func TestRenderStatusLayout(t *testing.T) {
 			Protocol:        "companion-v3",
 			Transport:       "ble",
 			TransportURI:    "ble://C4:20:12:34:56:78",
-			Available:       true,
+			Radio: RadioInfo{
+				FrequencyKHz: 869525,
+				BandwidthKHz: 250,
+				Spreading:    11,
+				CodingRate:   5,
+				TxPowerDBm:   22,
+			},
+			Available: true,
 		},
 		Backend: BackendInfo{
 			Running: true,
@@ -52,6 +59,7 @@ func TestRenderStatusLayout(t *testing.T) {
 		"Protocol:      companion-v3",
 		"Transport:     ble://C4:20:12:34:56:78",
 		"Public key:    eff01ef21805abcd",
+		"Radio:         869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
 		"Backend:       ready (pid 41148)",
 		"Replica:       fresh",
 		"Contacts:      286, updated",

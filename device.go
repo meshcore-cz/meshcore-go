@@ -15,6 +15,11 @@ type DeviceInfo struct {
 	FirmwareName    string
 	FirmwareVersion string
 	ProtocolVersion string
+	RadioFreqKHz    uint32
+	RadioBWKHz      uint32
+	RadioSF         byte
+	RadioCR         byte
+	TxPowerDBm      byte
 
 	Capabilities Capabilities
 	Extensions   map[string]ExtensionInfo
@@ -42,6 +47,11 @@ func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
 		FirmwareName:    s.FirmwareName,
 		FirmwareVersion: s.FirmwareVersion,
 		ProtocolVersion: s.ProtocolVersion,
+		RadioFreqKHz:    s.RadioFreqKHz,
+		RadioBWKHz:      s.RadioBWKHz,
+		RadioSF:         s.RadioSF,
+		RadioCR:         s.RadioCR,
+		TxPowerDBm:      s.TxPowerDBm,
 		Capabilities:    s.Capabilities,
 		Extensions:      map[string]ExtensionInfo{},
 	}

@@ -28,26 +28,26 @@ type Server struct {
 	listener net.Listener
 	store    Store
 
-	mu              sync.RWMutex
-	state           string
-	lastSeen        time.Time
-	lastError       string
-	bridgeStatuses  map[string]BridgeStatus
-	contactSyncing    bool
-	contactSyncRecv   int
-	contactSyncTotal  int
-	contactCount      int
-	contactSyncedAt   time.Time
-	contactError      string
-	contactSyncMu   sync.Mutex
-	channelSyncing  bool
-	channelCount    int
-	channelSyncedAt time.Time
-	channelError    string
-	channelSyncMu   sync.Mutex
-	radioMu         sync.Mutex // serialises live radio I/O
-	deviceInfo      meshcore.DeviceInfo
-	deviceInfoOK    bool
+	mu               sync.RWMutex
+	state            string
+	lastSeen         time.Time
+	lastError        string
+	bridgeStatuses   map[string]BridgeStatus
+	contactSyncing   bool
+	contactSyncRecv  int
+	contactSyncTotal int
+	contactCount     int
+	contactSyncedAt  time.Time
+	contactError     string
+	contactSyncMu    sync.Mutex
+	channelSyncing   bool
+	channelCount     int
+	channelSyncedAt  time.Time
+	channelError     string
+	channelSyncMu    sync.Mutex
+	radioMu          sync.Mutex // serialises live radio I/O
+	deviceInfo       meshcore.DeviceInfo
+	deviceInfoOK     bool
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -347,6 +347,8 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		s.storeDeviceInfo(info)
 		return info, nil
+	case "stats":
+		return client.Stats(ctx)
 	case "inbox":
 		return client.SyncMessages(ctx)
 	case "send_text":
@@ -1069,6 +1071,11 @@ func (s *Server) deviceStatusSnapshotLocked() *deviceStatusSnapshot {
 		FirmwareVersion: info.FirmwareVersion,
 		Protocol:        info.ProtocolVersion,
 		Capabilities:    info.Capabilities.List(),
+		RadioFreqKHz:    info.RadioFreqKHz,
+		RadioBWKHz:      info.RadioBWKHz,
+		RadioSF:         info.RadioSF,
+		RadioCR:         info.RadioCR,
+		TxPowerDBm:      info.TxPowerDBm,
 	}
 }
 

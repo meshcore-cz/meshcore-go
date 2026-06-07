@@ -32,6 +32,11 @@ type SetDeviceTime struct {
 // GetBatteryVoltage requests the battery voltage (RESP_CODE_BATTERY_VOLTAGE).
 type GetBatteryVoltage struct{}
 
+// GetStats requests one local statistics block (RESP_CODE_STATS).
+type GetStats struct {
+	Type byte
+}
+
 // SendSelfAdvert broadcasts the device's own advertisement.
 type SendSelfAdvert struct {
 	// Flood requests a flood advertisement rather than a zero-hop one.
@@ -154,6 +159,9 @@ func encode(cmd protocol.Command) ([]byte, error) {
 
 	case GetBatteryVoltage:
 		return []byte{cmdGetBattery}, nil
+
+	case GetStats:
+		return []byte{cmdGetStats, c.Type}, nil
 
 	case SendSelfAdvert:
 		typ := byte(0)

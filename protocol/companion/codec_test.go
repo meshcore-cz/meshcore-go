@@ -19,6 +19,9 @@ func TestEncodeCommands(t *testing.T) {
 	}{
 		{"get-time", GetDeviceTime{}, []byte{cmdGetDeviceTime}},
 		{"battery", GetBatteryVoltage{}, []byte{cmdGetBattery}},
+		{"stats-core", GetStats{Type: StatsTypeCore}, []byte{cmdGetStats, StatsTypeCore}},
+		{"stats-radio", GetStats{Type: StatsTypeRadio}, []byte{cmdGetStats, StatsTypeRadio}},
+		{"stats-packets", GetStats{Type: StatsTypePackets}, []byte{cmdGetStats, StatsTypePackets}},
 		{"reboot", Reboot{}, []byte{cmdReboot}},
 		{"advert-flood", SendSelfAdvert{Flood: true}, []byte{cmdSendSelfAdvert, 1}},
 		{"advert-zero", SendSelfAdvert{}, []byte{cmdSendSelfAdvert, 0}},
@@ -32,6 +35,59 @@ func TestEncodeCommands(t *testing.T) {
 		if !bytes.Equal(got, tt.want) {
 			t.Errorf("%s: got %x, want %x", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestDecodeStatsResponses(t *testing.T) {
+	corePkt := append([]byte{respStats, StatsTypeCore}, le16(4080)...)
+	corePkt = append(corePkt, le32(39420)...)
+	corePkt = append(corePkt, le16(0x0003)...)
+	corePkt = append(corePkt, 7)
+	msg, err := decode(corePkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coreResp, ok := msg.(StatsResponse)
+	if !ok || coreResp.Type != StatsTypeCore || coreResp.Core == nil {
+		t.Fatalf("decoded to %#v, want core StatsResponse", msg)
+	}
+	if got := *coreResp.Core; got.BatteryMV != 4080 || got.UptimeSecs != 39420 || got.ErrorFlags != 3 || got.QueueLen != 7 {
+		t.Fatalf("core stats = %#v", got)
+	}
+
+	noise := int16(-118)
+	rssi := int8(-104)
+	snr := int8(30)
+	radioPkt := append([]byte{respStats, StatsTypeRadio}, le16(uint16(noise))...)
+	radioPkt = append(radioPkt, byte(rssi), byte(snr))
+	radioPkt = append(radioPkt, le32(517)...)
+	radioPkt = append(radioPkt, le32(8040)...)
+	msg, err = decode(radioPkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	radioResp, ok := msg.(StatsResponse)
+	if !ok || radioResp.Type != StatsTypeRadio || radioResp.Radio == nil {
+		t.Fatalf("decoded to %#v, want radio StatsResponse", msg)
+	}
+	if got := *radioResp.Radio; got.NoiseFloor != -118 || got.LastRSSI != -104 || got.LastSNR != 7.5 || got.TxAirSecs != 517 || got.RxAirSecs != 8040 {
+		t.Fatalf("radio stats = %#v", got)
+	}
+
+	packetPkt := []byte{respStats, StatsTypePackets}
+	for _, n := range []uint32{12846, 1284, 742, 542, 8221, 4625, 7} {
+		packetPkt = append(packetPkt, le32(n)...)
+	}
+	msg, err = decode(packetPkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetResp, ok := msg.(StatsResponse)
+	if !ok || packetResp.Type != StatsTypePackets || packetResp.Packets == nil {
+		t.Fatalf("decoded to %#v, want packet StatsResponse", msg)
+	}
+	if got := *packetResp.Packets; got.Received != 12846 || got.Sent != 1284 || got.FloodTx != 742 || got.DirectTx != 542 || got.FloodRx != 8221 || got.DirectRx != 4625 || got.RecvErrors != 7 {
+		t.Fatalf("packet stats = %#v", got)
 	}
 }
 
@@ -516,7 +572,7 @@ func TestDecodeContactMessageV3(t *testing.T) {
 
 func TestDecodeChannelMessageV3(t *testing.T) {
 	var body []byte
-	body = append(body, 12, 0, 0) // SNR + reserved
+	body = append(body, 12, 0, 0)   // SNR + reserved
 	body = append(body, 2, 0xff, 0) // channel, path_len, txt_type plain
 	body = append(body, le32(1717675200)...)
 	body = append(body, []byte("hello")...)

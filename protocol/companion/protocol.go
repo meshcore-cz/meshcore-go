@@ -80,6 +80,11 @@ func (p *Protocol) Initialize(ctx context.Context, conn transport.PacketConn) (p
 		FirmwareName:    "MeshCore",
 		ProtocolVersion: ProtocolVersion,
 		Capabilities:    p.Capabilities(),
+		RadioFreqKHz:    self.RadioFreq,
+		RadioBWKHz:      self.RadioBW,
+		RadioSF:         self.RadioSF,
+		RadioCR:         self.RadioCR,
+		TxPowerDBm:      self.TxPower,
 	}
 
 	// Device query is best-effort: older firmware may not implement it and the

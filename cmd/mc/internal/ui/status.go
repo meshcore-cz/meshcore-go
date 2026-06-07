@@ -19,7 +19,17 @@ type DeviceInfo struct {
 	Transport       string
 	TransportURI    string
 	Capabilities    []string
+	Radio           RadioInfo
 	Available       bool
+}
+
+// RadioInfo describes cached local radio configuration.
+type RadioInfo struct {
+	FrequencyKHz uint32
+	BandwidthKHz uint32
+	Spreading    byte
+	CodingRate   byte
+	TxPowerDBm   byte
 }
 
 // ReplicaInfo describes a local backend replica.
@@ -62,6 +72,10 @@ func RenderStatus(data StatusData, printer Printer) string {
 		b.WriteString(statusLine("Protocol", orDash(data.Device.Protocol)))
 		b.WriteString(statusLine("Transport", transportLabel(data.Device)))
 		b.WriteString(statusLine("Public key", orDash(strings.ToLower(strings.TrimSpace(data.Device.PublicKey)))))
+		if radio := radioLabel(data.Device.Radio); radio != "" {
+			b.WriteString("\n")
+			b.WriteString(statusLine("Radio", radio))
+		}
 	} else {
 		b.WriteString(statusLine("Device", "unavailable"))
 		if data.Backend.URI != "" {
@@ -136,6 +150,29 @@ func transportLabel(dev DeviceInfo) string {
 		return addr
 	}
 	return orDash(dev.Transport)
+}
+
+func radioLabel(r RadioInfo) string {
+	if r.FrequencyKHz == 0 && r.BandwidthKHz == 0 && r.Spreading == 0 && r.CodingRate == 0 && r.TxPowerDBm == 0 {
+		return ""
+	}
+	parts := []string{}
+	if r.FrequencyKHz > 0 {
+		parts = append(parts, fmt.Sprintf("%.3f MHz", float64(r.FrequencyKHz)/1000))
+	}
+	if r.BandwidthKHz > 0 {
+		parts = append(parts, fmt.Sprintf("BW %d kHz", r.BandwidthKHz))
+	}
+	if r.Spreading > 0 {
+		parts = append(parts, fmt.Sprintf("SF%d", r.Spreading))
+	}
+	if r.CodingRate > 0 {
+		parts = append(parts, fmt.Sprintf("CR 4/%d", r.CodingRate))
+	}
+	if r.TxPowerDBm > 0 {
+		parts = append(parts, fmt.Sprintf("TX %d dBm", r.TxPowerDBm))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func deviceAddress(dev DeviceInfo) string {
@@ -264,4 +301,3 @@ func deviceShortID(key string) string {
 	}
 	return "UNKNOWN"
 }
-

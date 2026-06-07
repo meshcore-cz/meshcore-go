@@ -50,6 +50,9 @@ func decode(packet []byte) (protocol.Message, error) {
 		}
 		return BatteryVoltage{Millivolts: binary.LittleEndian.Uint16(body)}, nil
 
+	case respStats:
+		return decodeStatsResponse(body), nil
+
 	case respContactsStart:
 		var c ContactsStart
 		if len(body) >= 4 {
@@ -109,6 +112,54 @@ func decode(packet []byte) (protocol.Message, error) {
 		Payload: body,
 		Push:    isPush(code),
 	}, nil
+}
+
+// decodeStatsResponse parses RESP_CODE_STATS. Layout follows MeshCore
+// companion CMD_GET_STATS in firmware v1.16.
+func decodeStatsResponse(b []byte) StatsResponse {
+	var s StatsResponse
+	if len(b) == 0 {
+		return s
+	}
+	s.Type = b[0]
+	body := b[1:]
+	switch s.Type {
+	case StatsTypeCore:
+		if len(body) < 9 {
+			return s
+		}
+		s.Core = &StatsCore{
+			BatteryMV:  binary.LittleEndian.Uint16(body[0:2]),
+			UptimeSecs: binary.LittleEndian.Uint32(body[2:6]),
+			ErrorFlags: binary.LittleEndian.Uint16(body[6:8]),
+			QueueLen:   body[8],
+		}
+	case StatsTypeRadio:
+		if len(body) < 12 {
+			return s
+		}
+		s.Radio = &StatsRadio{
+			NoiseFloor: int16(binary.LittleEndian.Uint16(body[0:2])),
+			LastRSSI:   int(int8(body[2])),
+			LastSNR:    float64(int8(body[3])) / 4,
+			TxAirSecs:  binary.LittleEndian.Uint32(body[4:8]),
+			RxAirSecs:  binary.LittleEndian.Uint32(body[8:12]),
+		}
+	case StatsTypePackets:
+		if len(body) < 28 {
+			return s
+		}
+		s.Packets = &StatsPackets{
+			Received:   binary.LittleEndian.Uint32(body[0:4]),
+			Sent:       binary.LittleEndian.Uint32(body[4:8]),
+			FloodTx:    binary.LittleEndian.Uint32(body[8:12]),
+			DirectTx:   binary.LittleEndian.Uint32(body[12:16]),
+			FloodRx:    binary.LittleEndian.Uint32(body[16:20]),
+			DirectRx:   binary.LittleEndian.Uint32(body[20:24]),
+			RecvErrors: binary.LittleEndian.Uint32(body[24:28]),
+		}
+	}
+	return s
 }
 
 // decodeSelfInfo parses RESP_CODE_SELF_INFO.
@@ -343,7 +394,7 @@ func decodeContactMessage(b []byte, v3 bool) ContactMessage {
 		m.TxtType = b[off+7]
 	}
 	if len(b) >= off+12 {
-		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[off+8 : off+12])), 0)
+		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[off+8:off+12])), 0)
 	}
 	textOff := off + 12
 	if m.TxtType == 2 && len(b) >= textOff+4 {
@@ -393,7 +444,7 @@ func decodeChannelMessage(b []byte, v3 bool) ChannelMessage {
 		m.TxtType = b[off+2]
 	}
 	if len(b) >= off+7 {
-		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[off+3 : off+7])), 0)
+		m.Timestamp = time.Unix(int64(binary.LittleEndian.Uint32(b[off+3:off+7])), 0)
 	}
 	if len(b) > off+7 {
 		m.Text = trimString(b[off+7:])

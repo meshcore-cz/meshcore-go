@@ -43,6 +43,13 @@ Show the connected device's identity, firmware, transport, backend replica
 freshness and capabilities.
 ` + globalFlags,
 
+	"stats": `Usage: mc stats [flags]
+
+Show local core, radio and packet statistics from the active companion radio.
+When the backend is running, mc asks the backend first; otherwise it dials the
+selected device directly.
+` + globalFlags,
+
 	"doctor": `Usage: mc doctor [flags]
 
 Run connection diagnostics: configuration, endpoint reachability, handshake,
@@ -279,6 +286,7 @@ Common command bytes (host → device):
   0x07  SendSelfAdvert    0x16  DeviceQuery
   0x09  AddUpdateContact  0x1f  GetChannel
   0x0f  RemoveContact     0x24  SendTracePath
+  0x38  GetStats
 
 Output shows the decoded response type and fields for known opcodes,
 or a hex dump for unrecognised ones.

@@ -5,7 +5,7 @@ import "testing"
 // Every dispatchable command should have a help entry.
 func TestEveryCommandHasHelp(t *testing.T) {
 	commands := []string{
-		"connect", "status", "doctor", "contacts", "contact", "inbox",
+		"connect", "status", "stats", "doctor", "contacts", "contact", "inbox",
 		"send", "watch", "trace", "channel", "repeater", "use", "device", "config", "raw", "version",
 	}
 	for _, cmd := range commands {

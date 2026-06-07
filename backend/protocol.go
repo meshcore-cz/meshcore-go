@@ -25,6 +25,11 @@ type deviceStatusSnapshot struct {
 	FirmwareVersion string   `json:"firmware_version,omitempty"`
 	Protocol        string   `json:"protocol,omitempty"`
 	Capabilities    []string `json:"capabilities,omitempty"`
+	RadioFreqKHz    uint32   `json:"radio_freq_khz,omitempty"`
+	RadioBWKHz      uint32   `json:"radio_bw_khz,omitempty"`
+	RadioSF         byte     `json:"radio_sf,omitempty"`
+	RadioCR         byte     `json:"radio_cr,omitempty"`
+	TxPowerDBm      byte     `json:"tx_power_dbm,omitempty"`
 }
 
 type statusResult struct {

@@ -92,6 +92,8 @@ func Run(args []string) int {
 		runErr = cmdConnect(ctx, env)
 	case "status":
 		runErr = cmdStatus(ctx, env)
+	case "stats":
+		runErr = cmdStats(ctx, env)
 	case "doctor":
 		runErr = cmdDoctor(ctx, env)
 	case "backend":
@@ -167,6 +169,7 @@ Usage:
 Commands:
   connect [uri]      Discover or connect to a radio and save a profile
   status             Show device status
+  stats              Show local radio statistics
   doctor             Run connection diagnostics
   backend start      Start/restart/stop/log/inspect the local backend
   contacts           List contacts

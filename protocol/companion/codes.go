@@ -44,6 +44,14 @@ const (
 	// a hardware capture showed a 0x2e-prefixed framing, so this is provisional
 	// and may need adjustment once verified on-device.
 	cmdSendControlData byte = 55
+	cmdGetStats        byte = 56
+)
+
+// Local stats sub-types for CMD_GET_STATS / RESP_CODE_STATS.
+const (
+	StatsTypeCore    byte = 0
+	StatsTypeRadio   byte = 1
+	StatsTypePackets byte = 2
 )
 
 // Control-plane sub-types carried inside SEND_CONTROL_DATA / PUSH_CODE_CONTROL_DATA.
@@ -74,6 +82,7 @@ const (
 	respContactMsgRecvV3 byte = 16
 	respChannelMsgRecvV3 byte = 17
 	respChannelInfo      byte = 18
+	respStats            byte = 24
 )
 
 // Push (asynchronous notification) codes. These have the high bit set, which

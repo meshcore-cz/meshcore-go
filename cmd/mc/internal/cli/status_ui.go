@@ -26,7 +26,14 @@ func deviceInfoFromBackend(st localbackend.Status, dev localbackend.DeviceStatus
 		Transport:       transport,
 		TransportURI:    st.URI,
 		Capabilities:    append([]string(nil), dev.Capabilities...),
-		Available:       dev.Available(),
+		Radio: ui.RadioInfo{
+			FrequencyKHz: dev.RadioFreqKHz,
+			BandwidthKHz: dev.RadioBWKHz,
+			Spreading:    dev.RadioSF,
+			CodingRate:   dev.RadioCR,
+			TxPowerDBm:   dev.TxPowerDBm,
+		},
+		Available: dev.Available(),
 	}
 }
 

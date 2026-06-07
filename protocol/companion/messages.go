@@ -56,6 +56,44 @@ type BatteryVoltage struct {
 
 func (BatteryVoltage) Async() bool { return false }
 
+// StatsResponse is RESP_CODE_STATS, returned for local CMD_GET_STATS requests.
+type StatsResponse struct {
+	Type    byte
+	Core    *StatsCore
+	Radio   *StatsRadio
+	Packets *StatsPackets
+}
+
+func (StatsResponse) Async() bool { return false }
+
+// StatsCore carries local core counters.
+type StatsCore struct {
+	BatteryMV  uint16
+	UptimeSecs uint32
+	ErrorFlags uint16
+	QueueLen   byte
+}
+
+// StatsRadio carries local radio measurements and airtime counters.
+type StatsRadio struct {
+	NoiseFloor int16
+	LastRSSI   int
+	LastSNR    float64
+	TxAirSecs  uint32
+	RxAirSecs  uint32
+}
+
+// StatsPackets carries local packet counters.
+type StatsPackets struct {
+	Received   uint32
+	Sent       uint32
+	FloodTx    uint32
+	DirectTx   uint32
+	FloodRx    uint32
+	DirectRx   uint32
+	RecvErrors uint32
+}
+
 // Advert is a PUSH_CODE_ADVERT/NEW_ADVERT push notification.
 type Advert struct {
 	PublicKey string

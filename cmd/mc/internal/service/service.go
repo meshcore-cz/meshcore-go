@@ -22,6 +22,10 @@ func (s *Service) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
 	return s.client.DeviceInfo(ctx)
 }
 
+func (s *Service) Stats(ctx context.Context) (meshcore.LocalStats, error) {
+	return s.client.Stats(ctx)
+}
+
 func (s *Service) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
 	return s.client.Contacts(ctx)
 }

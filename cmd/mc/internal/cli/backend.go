@@ -17,6 +17,7 @@ type Backend interface {
 	URI() string
 	Transport() string
 	DeviceInfo(context.Context) (meshcore.DeviceInfo, error)
+	Stats(context.Context) (meshcore.LocalStats, error)
 	Contacts(context.Context) ([]meshcore.Contact, error)
 	ContactsWithOptions(context.Context, bool, bool) ([]meshcore.Contact, error)
 	Contact(context.Context, string) (meshcore.Contact, error)
@@ -124,6 +125,10 @@ func (b *directBackend) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, er
 	return b.svc.DeviceInfo(ctx)
 }
 
+func (b *directBackend) Stats(ctx context.Context) (meshcore.LocalStats, error) {
+	return b.svc.Stats(ctx)
+}
+
 func (b *directBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
 	return b.svc.Contacts(ctx)
 }
@@ -226,6 +231,10 @@ func (b *ipcBackend) Transport() string { return b.status.Transport }
 
 func (b *ipcBackend) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
 	return b.client.DeviceInfo(ctx)
+}
+
+func (b *ipcBackend) Stats(ctx context.Context) (meshcore.LocalStats, error) {
+	return b.client.Stats(ctx)
 }
 
 func (b *ipcBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {

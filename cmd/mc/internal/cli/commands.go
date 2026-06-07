@@ -80,6 +80,7 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 		Transport       string   `json:"transport"`
 		PublicKey       string   `json:"public_key"`
 		Capabilities    []string `json:"capabilities"`
+		Radio           any      `json:"radio,omitempty"`
 		Backend         any      `json:"backend"`
 	}
 	transport := dev.Transport
@@ -96,6 +97,7 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 			Transport:       transport,
 			PublicKey:       dev.PublicKey,
 			Capabilities:    dev.Capabilities,
+			Radio:           radioStatusForOutput(dev),
 			Backend:         backendStatusForOutput(st, backendRunning),
 		})
 	}
@@ -112,6 +114,24 @@ func deviceStatusFromInfo(info meshcore.DeviceInfo, transport string, backendRun
 		Protocol:        info.ProtocolVersion,
 		Capabilities:    info.Capabilities.List(),
 		Transport:       transport,
+		RadioFreqKHz:    info.RadioFreqKHz,
+		RadioBWKHz:      info.RadioBWKHz,
+		RadioSF:         info.RadioSF,
+		RadioCR:         info.RadioCR,
+		TxPowerDBm:      info.TxPowerDBm,
+	}
+}
+
+func radioStatusForOutput(dev localbackend.DeviceStatus) any {
+	if dev.RadioFreqKHz == 0 && dev.RadioBWKHz == 0 && dev.RadioSF == 0 && dev.RadioCR == 0 && dev.TxPowerDBm == 0 {
+		return nil
+	}
+	return map[string]any{
+		"frequency_khz": dev.RadioFreqKHz,
+		"bandwidth_khz": dev.RadioBWKHz,
+		"spreading":     dev.RadioSF,
+		"coding_rate":   dev.RadioCR,
+		"tx_power_dbm":  dev.TxPowerDBm,
 	}
 }
 
