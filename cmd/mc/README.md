@@ -21,7 +21,7 @@ mc send alice "hello"
 * USB serial and Bluetooth Low Energy connections
 * interactive radio discovery
 * saved device profiles
-* optional persistent local backend
+* optional multi-device backend daemon with per-device sessions
 * direct messages and channel messages
 * contact and channel synchronization
 * buffered inbox draining
@@ -97,7 +97,7 @@ mc connect serial:///dev/ttyUSB0
 mc connect ble://C4:20:12:34:56:78
 ```
 
-The selected radio is saved as a profile and becomes the default for future commands.
+The selected radio is saved as a profile and becomes the default for future commands. `mc` then offers to start a [backend session](#local-backend) for it — choose **AUTO** to keep it connected automatically whenever the backend runs, **y** to connect just this session, or **n** to skip.
 
 ### 2. Check the connection
 
@@ -250,35 +250,76 @@ mc channel list --refresh
 
 By default, `mc` remains useful as a normal one-shot command-line tool. Commands connect directly to the selected radio, perform an operation, and exit.
 
-For frequent use, `mc` can also run a local background backend that keeps the radio connection open and maintains local replicas of contacts and channels.
+For frequent use, `mc` can also run a local background **backend daemon**. The daemon is a supervisor: it owns one local socket and orchestrates one or more isolated **device sessions** — one per radio. Each session keeps its own persistent connection, request queue, and local replicas of contacts and channels, so work on one radio never blocks another.
 
 ```text
 mc command
     │
-    ├── backend available ──▶ local socket ──▶ persistent radio connection
-    │
-    └── backend absent ─────▶ direct radio connection
+    ├── backend running ──▶ local socket ──▶ device session ──▶ persistent radio connection
+    │                                        (one per radio)
+    └── session not running ─────────────▶ direct radio connection
 ```
 
-The backend is optional. Ordinary commands automatically use it when it is running and fall back to a direct connection when it is not.
+Starting the daemon does **not** connect any radio by itself. A device connects when:
 
-### Start the backend
+* its profile has `backend.autostart: true` (connected automatically when the daemon starts), or
+* you run `mc session start <name>`, or
+* you answer the prompt after `mc connect`.
 
-```sh
-mc backend start
-```
+Ordinary commands use the daemon when the target device's session is running, and fall back to a direct connection when it is not.
 
-### Inspect its status
-
-```sh
-mc backend status
-```
-
-### Restart or stop it
+### Manage the daemon
 
 ```sh
+mc backend start      # start the supervisor (does not connect radios unless autostart is set)
+mc backend status     # daemon state + a summary of device sessions
 mc backend restart
 mc backend stop
+```
+
+### Manage device sessions
+
+A session is one device's live radio connection inside the daemon.
+
+```sh
+mc session list                 # show each device's session state
+mc session start handheld       # connect a device (auto-starts the daemon if needed)
+mc session stop handheld        # disconnect the radio (keeps the saved profile)
+mc session restart handheld     # reconnect the radio
+```
+
+With no name, the current default device is used. `mc session start` starts the daemon automatically if it is not already running.
+
+To connect a device every time the daemon starts, set autostart on its profile in `config.yaml`:
+
+```yaml
+devices:
+  handheld:
+    name: Handheld
+    preferred_transport: ble
+    transports:
+      - uri: ble://90d56c84-...
+    backend:
+      autostart: true
+```
+
+### Fleet status
+
+`mc device list` (and `mc session list`) show every saved device alongside its live session state:
+
+```text
+$ mc device list
+  PROFILE      DEVICE     TRANSPORT BACKEND   RADIO        REPLICA  ACTIVITY
+* handheld     EFF01EF2   BLE       ready     connected    fresh    idle
+  desk-radio   0A53EF34   SERIAL    stopped   -            cached   -
+```
+
+### Target a specific device
+
+`--device <name>` routes a command to that device's session through the daemon:
+
+```sh
+mc --device desk-radio contacts
 ```
 
 ### Read backend logs
@@ -291,36 +332,42 @@ mc backend log --follow
 
 ### Force a direct connection
 
-Bypass the backend for one command:
+Bypass the daemon for one command:
 
 ```sh
 mc status --direct
-mc contacts --direct
+mc --device desk-radio contacts --direct
 ```
 
 ### Backend bridges
 
-The backend can optionally expose local bridge listeners for other applications.
+A device session can optionally expose local bridge listeners for other applications.
 
-Configure bridges in `config.yaml`:
+Configure bridges per device in `config.yaml`:
 
 ```yaml
-backend:
-  bridges:
-    - enabled: true
-      type: tcp
-      listen: 127.0.0.1:4403
-
-    - enabled: true
-      type: pty
+devices:
+  desk-radio:
+    backend:
+      autostart: true
+      bridges:
+        - enabled: true
+          type: tcp
+          listen: 127.0.0.1:4403
+        - enabled: true
+          type: pty
 ```
+
+A legacy global `backend.bridges` block still works and applies to the default device.
 
 Supported bridge types:
 
 | Type  | Purpose                                            |
 | ----- | -------------------------------------------------- |
-| `tcp` | Expose the backend through a local TCP listener    |
+| `tcp` | Expose the device through a local TCP listener     |
 | `pty` | Expose a pseudo-terminal for native serial clients |
+
+Each TCP port or PTY exposes exactly one radio.
 
 > [!NOTE]
 > On macOS, Chrome Web Serial does not list PTY bridges. The PTY bridge is intended for native serial clients. Use TCP only with clients that explicitly support a TCP MeshCore bridge.
@@ -548,6 +595,10 @@ mc device show handheld
 mc device remove handheld
 ```
 
+`mc device` manages saved profiles (`list`, `show`, `remove`). To connect or
+disconnect a profile's live radio, use [`mc session`](#manage-device-sessions)
+(`start`, `stop`, `restart`).
+
 ### Use an endpoint without saving it
 
 ```sh
@@ -585,8 +636,8 @@ A configuration file may contain:
 * the selected device profile
 * saved device endpoints
 * preferred transports
+* per-device backend options (`backend.autostart`, `backend.bridges`)
 * saved repeater profiles
-* backend bridge listeners
 
 ## Global flags
 
@@ -687,7 +738,7 @@ mc raw 14 --debug
 | `mc connect [uri]`                                       | Discover or connect to a radio and save a profile |
 | `mc status`                                              | Show device and backend status                    |
 | `mc doctor`                                              | Run connection diagnostics                        |
-| `mc backend <start\|restart\|stop\|status\|log>`         | Manage the local backend                          |
+| `mc backend <start\|restart\|stop\|status\|log>`         | Manage the local backend daemon                   |
 | `mc contacts`                                            | List contacts                                     |
 | `mc contact show <name>`                                 | Show one contact                                  |
 | `mc inbox`                                               | Drain buffered incoming messages                  |
@@ -701,6 +752,7 @@ mc raw 14 --debug
 | `mc repeater <list\|add\|del\|status\|neighbours\|exec>` | Manage remote repeaters                           |
 | `mc use <profile>`                                       | Select the default device profile                 |
 | `mc device <list\|show\|remove>`                         | Manage saved profiles                             |
+| `mc session <list\|start\|stop\|restart>`                | Manage device sessions (live radio connections)   |
 | `mc config <path\|show>`                                 | Inspect CLI configuration                         |
 | `mc raw <hex bytes...>`                                  | Send raw companion-protocol bytes                 |
 | `mc version`                                             | Print version information                         |
@@ -711,6 +763,7 @@ Detailed help is available directly in the terminal:
 mc help
 mc help connect
 mc help backend
+mc help session
 mc help discover
 mc help repeater
 mc help raw

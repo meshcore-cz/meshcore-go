@@ -44,7 +44,7 @@ The same SDK can be reused by small scripts, long-running services, Home Assista
 | [`transport/`](./transport)               | Packet-oriented transport interfaces, registry, and endpoint discovery         |
 | [`transport/serial/`](./transport/serial) | USB serial transport                                                           |
 | [`transport/ble/`](./transport/ble)       | Bluetooth Low Energy transport                                                 |
-| [`backend/`](./backend)                   | Optional local backend, storage, session, and bridge helpers                   |
+| [`backend/`](./backend)                   | Optional multi-session backend daemon, storage, device sessions, and bridges   |
 | [`cmd/mc/`](./cmd/mc)                     | Practical command-line client built on top of the SDK                          |
 | [`examples/`](./examples)                 | Minimal runnable examples                                                      |
 
@@ -181,8 +181,9 @@ Some advanced protocol operations are still evolving and may depend on the capab
 ```mermaid
 flowchart TD
     APP[Go application] --> CLIENT[meshcore.Client]
-    CLI[mc CLI] --> BACKEND[optional local backend]
-    BACKEND --> CLIENT
+    CLI[mc CLI] --> DAEMON[optional backend daemon]
+    DAEMON --> SESSION[device sessions]
+    SESSION --> CLIENT
 
     CLIENT --> PROTOCOL[companion protocol]
     PROTOCOL --> TRANSPORT[transport.PacketConn]
@@ -252,13 +253,15 @@ See [`cmd/mc/README.md`](./cmd/mc/README.md) for installation and usage.
 
 The [`backend`](./backend) package supports longer-running local workflows where repeatedly opening a radio connection for every operation would be wasteful.
 
+It is structured as a single **daemon** (supervisor) that owns one Unix socket, a shared store, and request routing, supervising one or more isolated **device sessions** — one per logical radio. Each session keeps its own connection, radio serialisation, replica, diagnostics, and bridges, so a slow operation on one radio never blocks another. This is one OS process with many sessions, not a process per radio.
+
 It provides reusable building blocks for:
 
-* persistent local sessions;
-* local storage;
-* replicated device state;
-* backend clients and servers;
-* optional TCP and PTY bridge endpoints.
+* a multi-session daemon (`backend.Daemon`) and per-radio sessions (`backend.DeviceSession`);
+* a local IPC client (`backend.Client`) with optional per-device routing;
+* local storage and replicated device state;
+* per-device autostart and lifecycle control;
+* optional per-device TCP and PTY bridge endpoints.
 
 The backend is useful for CLI workflows and integrations, but it remains separate from the core SDK.
 
