@@ -71,9 +71,9 @@ func RenderStatus(data StatusData, printer Printer) string {
 		b.WriteString(statusLine("Firmware", firmwareLabel(data.Device)))
 		b.WriteString(statusLine("Protocol", orDash(data.Device.Protocol)))
 		b.WriteString(statusLine("Transport", transportLabel(data.Device)))
+		b.WriteString("\n")
 		b.WriteString(statusLine("Public key", orDash(strings.ToLower(strings.TrimSpace(data.Device.PublicKey)))))
 		if radio := radioLabel(data.Device.Radio); radio != "" {
-			b.WriteString("\n")
 			b.WriteString(statusLine("Radio", radio))
 		}
 	} else {

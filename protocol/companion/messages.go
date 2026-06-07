@@ -128,15 +128,17 @@ func (ContactsStart) Async() bool { return false }
 
 // Contact is RESP_CODE_CONTACT, one entry of the contact list.
 type Contact struct {
-	PublicKey  string // hex-encoded 32-byte key
-	Type       byte
-	Flags      byte
-	HasPath    bool
-	Name       string
-	LastAdvert time.Time
-	Latitude   float64
-	Longitude  float64
-	LastMod    time.Time
+	PublicKey   string // hex-encoded 32-byte key
+	Type        byte
+	Flags       byte
+	HasPath     bool
+	OutPathEnc  byte   // encoded path metadata; 0xff = flood / unknown
+	OutPath     []byte // up to 64 raw path bytes
+	Name        string
+	LastAdvert  time.Time
+	Latitude    float64
+	Longitude   float64
+	LastMod     time.Time
 }
 
 func (Contact) Async() bool { return false }

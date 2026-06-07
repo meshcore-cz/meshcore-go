@@ -55,9 +55,9 @@ func msgWaitingPacket() []byte { return []byte{0x83} }
 
 func okPacket() []byte { return []byte{0} }
 
-func traceDataPacket(tag uint32, hashes []byte, snrs []int8) []byte {
-	// [code][flags][path_len][rsvd][tag(4)][auth(4)][hashes…][snrs…]
-	p := []byte{0x89, 0, byte(len(hashes)), 0}
+func traceDataPacket(tag uint32, flags byte, hashes []byte, snrs []int8) []byte {
+	// [code][reserved][path_byte_len][flags][tag(4)][auth(4)][hashes…][snrs…][final optional in snrs slice]
+	p := []byte{0x89, 0, byte(len(hashes)), flags}
 	p = append(p, le32(tag)...)
 	p = append(p, le32(0)...) // auth
 	p = append(p, hashes...)
@@ -72,11 +72,13 @@ func TestClientTrace(t *testing.T) {
 	defer client.Close()
 
 	go func() {
-		// Target "25" parses directly as a hash path, so no contact lookup.
 		raw := <-ft.WrittenPackets // SendTracePath
+		if len(raw) < 10 || raw[0] != 36 || raw[9] != 0 {
+			t.Errorf("SendTracePath = %x", raw)
+		}
 		tag := binary.LittleEndian.Uint32(raw[1:5])
 		ft.ReadPackets <- okPacket()
-		ft.ReadPackets <- traceDataPacket(tag, []byte{0x25}, []int8{48, 46})
+		ft.ReadPackets <- traceDataPacket(tag, 0, []byte{0x25}, []int8{48, 46})
 	}()
 
 	trace, err := client.Trace(context.Background(), "25")
@@ -86,7 +88,39 @@ func TestClientTrace(t *testing.T) {
 	if len(trace.Path) != 1 || trace.Path[0] != 0x25 {
 		t.Fatalf("path = %x", trace.Path)
 	}
+	if trace.PathHashSize != 1 {
+		t.Fatalf("hash size = %d", trace.PathHashSize)
+	}
 	if len(trace.SNRs) != 2 || trace.SNRs[0] != 12 {
+		t.Errorf("snrs = %v", trace.SNRs)
+	}
+}
+
+func TestClientTraceTwoBytePath(t *testing.T) {
+	client, ft := newConnectedClient(t)
+	defer client.Close()
+
+	go func() {
+		raw := <-ft.WrittenPackets
+		if raw[9] != 1 {
+			t.Errorf("flags = %d, want 1 for 2-byte path", raw[9])
+		}
+		if !bytes.Equal(raw[10:], []byte{0xa1, 0xb2, 0xc3, 0xd4}) {
+			t.Errorf("path = %x", raw[10:])
+		}
+		tag := binary.LittleEndian.Uint32(raw[1:5])
+		ft.ReadPackets <- okPacket()
+		ft.ReadPackets <- traceDataPacket(tag, 1, []byte{0xa1, 0xb2, 0xc3, 0xd4}, []int8{40, 38, 36})
+	}()
+
+	trace, err := client.Trace(context.Background(), "a1b2,c3d4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.PathHashSize != 2 || len(trace.Path) != 4 {
+		t.Fatalf("trace = %+v", trace)
+	}
+	if len(trace.SNRs) != 3 {
 		t.Errorf("snrs = %v", trace.SNRs)
 	}
 }

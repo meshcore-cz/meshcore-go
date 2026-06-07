@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 )
@@ -275,24 +276,36 @@ func shellTrace(ctx context.Context, e *env, backend Backend) error {
 	if target == "" {
 		return fmt.Errorf("usage: trace <target>")
 	}
+	start := time.Now()
+	e.dbg.TraceStarted(target, start)
+
+	plan, planErr := planTrace(ctx, backend, target)
+	if planErr == nil {
+		e.dbg.TracePlan(plan)
+		if plan.Contact != "" {
+			if ct, err := backend.Contact(ctx, target); err == nil {
+				e.dbg.Contact(ct)
+			}
+		}
+	} else {
+		e.dbg.Log("trace plan failed", "target", target, "error", planErr)
+	}
+
 	trace, err := backend.Trace(ctx, target)
+	e.dbg.TraceDone(start, trace, err)
 	if err != nil {
 		return err
 	}
-	if e.out.JSON {
-		path := make([]string, len(trace.Path))
-		for i, h := range trace.Path {
-			path[i] = fmt.Sprintf("%02x", h)
-		}
-		return e.out.JSONValue(map[string]any{
-			"target":        trace.Target,
-			"tag":           fmt.Sprintf("%08x", trace.Tag),
-			"path":          path,
-			"snr_db":        trace.SNRs,
-			"round_trip_ms": trace.RoundTrip.Milliseconds(),
-		})
+	hopIndex := traceHopIndex(ctx, backend)
+	selfLabel := traceSelfLabel(ctx, backend, trace)
+	var planPtr *meshcore.TracePlan
+	if planErr == nil {
+		planPtr = &plan
 	}
-	printTrace(e, trace)
+	if e.out.JSON {
+		return e.out.JSONValue(traceJSON(trace, hopIndex, selfLabel, planPtr))
+	}
+	printTrace(e, trace, hopIndex, selfLabel, planPtr)
 	return nil
 }
 

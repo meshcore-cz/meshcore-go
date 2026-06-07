@@ -42,6 +42,8 @@ type Contact struct {
 	PublicKey  string // full hex-encoded public key (empty for event stubs)
 	Type       ContactType
 	HasPath    bool
+	OutPathEnc byte   // encoded path metadata; 0xff = flood / unknown
+	OutPath    []byte // raw out-path bytes when known
 	Latitude   float64
 	Longitude  float64
 	LastAdvert time.Time
@@ -144,8 +146,17 @@ func fromCompanionContact(m companion.Contact) Contact {
 		PublicKey:  m.PublicKey,
 		Type:       contactType(m.Type),
 		HasPath:    m.HasPath,
+		OutPathEnc: m.OutPathEnc,
+		OutPath:    cloneBytes(m.OutPath),
 		Latitude:   m.Latitude,
 		Longitude:  m.Longitude,
 		LastAdvert: m.LastAdvert,
 	}
+}
+
+func cloneBytes(b []byte) []byte {
+	if len(b) == 0 {
+		return []byte{}
+	}
+	return append([]byte(nil), b...)
 }

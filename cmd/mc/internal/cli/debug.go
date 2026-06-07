@@ -1,14 +1,15 @@
 package cli
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"time"
 
-	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	meshcore "github.com/meshcore-cz/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 )
 
 var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -99,6 +100,58 @@ func (d Debug) Contact(ct meshcore.Contact) {
 		"public_key", shortKey(ct.PublicKey),
 		"has_path", ct.HasPath,
 	)
+}
+
+// TracePlan logs how a trace target was resolved before sending.
+func (d Debug) TracePlan(plan meshcore.TracePlan) {
+	args := []any{
+		"query", plan.Query,
+		"resolved_as", plan.Name,
+		"source", plan.Source,
+		"path_hex", hex.EncodeToString(plan.Path),
+		"path_bytes", len(plan.Path),
+		"hop_count", plan.HopCount,
+		"hash_size", plan.HashSize,
+		"flags", fmt.Sprintf("0x%02x", plan.Flags),
+	}
+	if plan.Contact != "" {
+		args = append(args, "contact", plan.Contact)
+	}
+	if plan.OutPathEnc != 0 && plan.OutPathEnc != 0xff {
+		args = append(args, "out_path_enc", fmt.Sprintf("0x%02x", plan.OutPathEnc))
+	}
+	if plan.PrefixHint > 0 {
+		args = append(args, "prefix_hint_bytes", plan.PrefixHint)
+	}
+	d.Log("trace plan", args...)
+}
+
+// TraceStarted logs the beginning of a trace operation.
+func (d Debug) TraceStarted(target string, start time.Time) {
+	d.Started("trace", start, "target", target)
+}
+
+// TraceDone logs trace completion or failure.
+func (d Debug) TraceDone(start time.Time, trace meshcore.Trace, err error) {
+	if err != nil {
+		d.CommandDone("trace", start, "error", err)
+		return
+	}
+	d.CommandDone("trace", start,
+		"target", trace.Target,
+		"tag", fmt.Sprintf("%08x", trace.Tag),
+		"hop_count", traceHopCount(trace),
+		"snr_count", len(trace.SNRs),
+		"round_trip", trace.RoundTrip.Round(time.Millisecond),
+	)
+}
+
+func traceHopCount(trace meshcore.Trace) int {
+	size := trace.PathHashSize
+	if size <= 0 {
+		size = 1
+	}
+	return len(trace.Path) / size
 }
 
 // RawSend logs an outbound raw companion frame.

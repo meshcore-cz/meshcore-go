@@ -106,9 +106,9 @@ type SendChannelTextMessage struct {
 // SendTracePath initiates a path trace. The device replies immediately with a
 // Sent response and later emits a TraceData push tagged with Tag.
 //
-// Path lists one hash byte per intermediate node (a node's hash is the first
-// byte of its public key). Verified against MeshCore v1.15: a single-hash path
-// reaches a direct neighbour; distant nodes need the full multi-hop path.
+// Path lists repeater hashes to trace through. All hops must share the same
+// hash width (1, 2, 4, or 8 bytes). Flags lower two bits select the width
+// (hash_size = 1 << bits). An empty path floods the trace.
 type SendTracePath struct {
 	Tag   uint32
 	Auth  uint32
@@ -244,12 +244,16 @@ func encode(cmd protocol.Command) ([]byte, error) {
 
 	case SendTracePath:
 		// [cmd][tag(4 LE)][auth(4 LE)][flags][path…]
-		buf := make([]byte, 0, 10+len(c.Path))
+		buf := make([]byte, 0, 11+len(c.Path))
 		buf = append(buf, cmdSendTracePath)
 		buf = binary.LittleEndian.AppendUint32(buf, c.Tag)
 		buf = binary.LittleEndian.AppendUint32(buf, c.Auth)
 		buf = append(buf, c.Flags)
 		buf = append(buf, c.Path...)
+		// Firmware rejects frames with len <= 10 when path is empty.
+		if len(buf) <= 10 {
+			buf = append(buf, 0x00)
+		}
 		return buf, nil
 
 	case SendNodeDiscoverReq:

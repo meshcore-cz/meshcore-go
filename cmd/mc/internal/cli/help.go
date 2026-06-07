@@ -153,15 +153,16 @@ Available shell commands:
 
 Trace the network route to a node and report per-link signal quality.
 
-The target is either a hash path (one hex byte per hop) or a contact name /
-key prefix whose node hash is used:
+The target is either a hash path or a contact name:
 
-  mc trace 25        trace the direct neighbour with hash 0x25
-  mc trace 25,a1     trace through 0x25 then 0xa1
-  mc trace alice     trace the contact "alice"
+  mc trace 25              1-byte hash, direct neighbour
+  mc trace 25,a1           multi-hop, 1 byte per hop
+  mc trace a1b2,c3d4       multi-hop, 2 bytes per hop
+  mc trace 252525ce        4-byte hash (explicit; not contact lookup)
+  mc trace alice           use contact out-path when known, or direct hash for zero-hop contacts
 
-A single-hash target only reaches a direct neighbour; distant nodes need the
-full multi-hop path.
+Hex targets are always treated as explicit paths (1, 2, 4, or 8 bytes per hop).
+Use a contact name to trace via stored routes.
 ` + globalFlags,
 
 	"channel": `Usage: mc channel <list|show|send> [args] [flags]

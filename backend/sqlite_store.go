@@ -81,7 +81,24 @@ CREATE TABLE IF NOT EXISTS repeater_sessions (
 	PRIMARY KEY (device, repeater)
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.migrateContacts(ctx)
+}
+
+func (s *SQLiteStore) migrateContacts(ctx context.Context) error {
+	for _, stmt := range []string{
+		`ALTER TABLE contacts ADD COLUMN out_path_enc INTEGER NOT NULL DEFAULT 255`,
+		`ALTER TABLE contacts ADD COLUMN out_path BLOB NOT NULL DEFAULT X''`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) UpsertContacts(ctx context.Context, device string, contacts []meshcore.Contact) error {
@@ -93,8 +110,8 @@ func (s *SQLiteStore) UpsertContacts(ctx context.Context, device string, contact
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO contacts(device, public_key, name, type, has_path, latitude, longitude, last_advert, cached_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contacts(device, public_key, name, type, has_path, latitude, longitude, last_advert, cached_at, out_path_enc, out_path)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(device, public_key) DO UPDATE SET
 	name=excluded.name,
 	type=excluded.type,
@@ -102,7 +119,9 @@ ON CONFLICT(device, public_key) DO UPDATE SET
 	latitude=excluded.latitude,
 	longitude=excluded.longitude,
 	last_advert=excluded.last_advert,
-	cached_at=excluded.cached_at
+	cached_at=excluded.cached_at,
+	out_path_enc=excluded.out_path_enc,
+	out_path=excluded.out_path
 `)
 	if err != nil {
 		return err
@@ -122,7 +141,11 @@ ON CONFLICT(device, public_key) DO UPDATE SET
 		if ct.HasPath {
 			hasPath = 1
 		}
-		if _, err := stmt.ExecContext(ctx, device, key, ct.Name, string(ct.Type), hasPath, ct.Latitude, ct.Longitude, lastAdvert, now); err != nil {
+		outPath := ct.OutPath
+		if outPath == nil {
+			outPath = []byte{}
+		}
+		if _, err := stmt.ExecContext(ctx, device, key, ct.Name, string(ct.Type), hasPath, ct.Latitude, ct.Longitude, lastAdvert, now, int(ct.OutPathEnc), outPath); err != nil {
 			return err
 		}
 	}
@@ -135,7 +158,7 @@ func (s *SQLiteStore) UpsertContact(ctx context.Context, device string, contact 
 
 func (s *SQLiteStore) Contacts(ctx context.Context, device string) ([]ContactCacheEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT public_key, name, type, has_path, latitude, longitude, last_advert, cached_at
+SELECT public_key, name, type, has_path, latitude, longitude, last_advert, cached_at, out_path_enc, out_path
 FROM contacts
 WHERE device = ?
 ORDER BY lower(name)
@@ -273,12 +296,16 @@ func scanContact(rows contactScanner, device string) (ContactCacheEntry, error) 
 	var ct meshcore.Contact
 	var typ string
 	var hasPath int
+	var outPathEnc int
+	var outPath []byte
 	var lastAdvert, cachedAt string
-	if err := rows.Scan(&ct.PublicKey, &ct.Name, &typ, &hasPath, &ct.Latitude, &ct.Longitude, &lastAdvert, &cachedAt); err != nil {
+	if err := rows.Scan(&ct.PublicKey, &ct.Name, &typ, &hasPath, &ct.Latitude, &ct.Longitude, &lastAdvert, &cachedAt, &outPathEnc, &outPath); err != nil {
 		return ContactCacheEntry{}, err
 	}
 	ct.Type = meshcore.ContactType(typ)
 	ct.HasPath = hasPath != 0
+	ct.OutPathEnc = byte(outPathEnc)
+	ct.OutPath = append([]byte(nil), outPath...)
 	if lastAdvert != "" {
 		t, err := time.Parse(time.RFC3339Nano, lastAdvert)
 		if err != nil {

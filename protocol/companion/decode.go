@@ -273,7 +273,7 @@ func decodeSendConfirmed(b []byte) SendConfirmed {
 //	[0:32]    public_key
 //	[32]      type (1=chat, 2=repeater, 3=room, 4=sensor)
 //	[33]      flags
-//	[34]      out_path_len (int8; -1/0xff = no path)
+//	[34]      out_path_len (0xff = flood; else encoded hop count + hash size)
 //	[35:99]   out_path (64 bytes)
 //	[99:131]  adv_name (32 bytes, NUL-terminated)
 //	[131:135] last_advert (uint32 LE)
@@ -298,7 +298,11 @@ func decodeContact(b []byte) Contact {
 		c.Flags = b[33]
 	}
 	if len(b) > 34 {
-		c.HasPath = int8(b[34]) >= 0
+		c.OutPathEnc = b[34]
+		c.HasPath = b[34] != 0xff
+	}
+	if len(b) >= 99 {
+		c.OutPath = append([]byte(nil), b[35:99]...)
 	}
 	if len(b) >= 131 {
 		c.Name = trimString(b[99:131])
@@ -454,16 +458,46 @@ func decodeChannelMessage(b []byte, v3 bool) ChannelMessage {
 
 // decodeTraceData parses PUSH_CODE_TRACE_DATA.
 //
-// Layout (verified against MeshCore v1.15):
+// Layout (companion radio push):
 //
-//	[0]      flags
-//	[1]      path_len (number of intermediate hops)
-//	[2]      reserved
-//	[3:7]    tag (uint32 LE)
-//	[7:11]   auth (uint32 LE)
-//	[11:11+n]   node hashes
-//	[11+n:]     per-link SNR (int8, 0.25 dB units); usually n+1 values for the
-//	            round trip (each forward hop plus the return to the origin)
+//	[0]         reserved
+//	[1]         path byte length (hop_count * hash_size)
+//	[2]         flags (lower two bits: hash_size = 1 << bits)
+//	[3:7]       tag (uint32 LE)
+//	[7:11]      auth (uint32 LE)
+//	[11:11+n]   path hashes
+//	[11+n:…]    per-hop SNRs (path_byte_len >> path_sz), plus one final SNR
+func decodeTraceData(b []byte) TraceData {
+	var t TraceData
+	if len(b) < 11 {
+		return t
+	}
+	pathByteLen := int(b[1])
+	flags := b[2]
+	t.Flags = flags
+	t.Tag = binary.LittleEndian.Uint32(b[3:7])
+	t.Auth = binary.LittleEndian.Uint32(b[7:11])
+
+	pathEnd := 11 + pathByteLen
+	if pathEnd > len(b) {
+		pathEnd = len(b)
+	}
+	t.Path = append([]byte(nil), b[11:pathEnd]...)
+
+	pathSZ := flags & 0x03
+	snrEnd := pathEnd + (pathByteLen >> pathSZ)
+	if snrEnd > len(b) {
+		snrEnd = len(b)
+	}
+	for _, s := range b[pathEnd:snrEnd] {
+		t.SNRs = append(t.SNRs, float64(int8(s))/4)
+	}
+	if snrEnd < len(b) {
+		t.SNRs = append(t.SNRs, float64(int8(b[snrEnd]))/4)
+	}
+	return t
+}
+
 func decodeLoginSuccess(b []byte) LoginSuccess {
 	var l LoginSuccess
 	if len(b) > 0 {
@@ -557,29 +591,6 @@ func decodeNodeDiscoverResp(payload []byte, snr float64, rssi int, pathLen byte)
 		r.PublicKey = hex.EncodeToString(key)
 	}
 	return r
-}
-
-func decodeTraceData(b []byte) TraceData {
-	var t TraceData
-	if len(b) > 0 {
-		t.Flags = b[0]
-	}
-	if len(b) < 11 {
-		return t
-	}
-	n := int(b[1])
-	t.Tag = binary.LittleEndian.Uint32(b[3:7])
-	t.Auth = binary.LittleEndian.Uint32(b[7:11])
-
-	end := 11 + n
-	if end > len(b) {
-		end = len(b)
-	}
-	t.Path = append([]byte(nil), b[11:end]...)
-	for _, s := range b[end:] {
-		t.SNRs = append(t.SNRs, float64(int8(s))/4)
-	}
-	return t
 }
 
 // trimString decodes bytes as UTF-8 up to the first NUL.

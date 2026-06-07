@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	"github.com/meshcore-cz/meshcore-go/protocol"
+	"github.com/meshcore-cz/meshcore-go/protocol/pathhash"
 )
 
 // Server owns one long-lived MeshCore client and exposes it over a local Unix
@@ -372,14 +372,14 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		if _, ok := parseBackendHashPath(p.Query); !ok {
-			ct, err := s.contact(ctx, client, p.Query)
-			if err != nil {
-				return nil, err
-			}
-			return client.TraceContact(ctx, ct)
+		if pathhash.IsHexTraceTarget(p.Query) {
+			return client.Trace(ctx, p.Query)
 		}
-		return client.Trace(ctx, p.Query)
+		ct, err := s.contact(ctx, client, p.Query)
+		if err != nil {
+			return nil, err
+		}
+		return client.TraceContactWithHint(ctx, ct, 0)
 	case "send_channel_text":
 		var p channelSendParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -1125,21 +1125,3 @@ func RawResultFromMessage(msg protocol.Message) RawResult {
 	}
 }
 
-func parseBackendHashPath(s string) ([]byte, bool) {
-	fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
-	if len(fields) == 0 {
-		return nil, false
-	}
-	path := make([]byte, 0, len(fields))
-	for _, f := range fields {
-		if len(f) != 2 {
-			return nil, false
-		}
-		b, err := hex.DecodeString(f)
-		if err != nil {
-			return nil, false
-		}
-		path = append(path, b[0])
-	}
-	return path, true
-}

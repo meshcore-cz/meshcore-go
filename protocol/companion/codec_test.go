@@ -328,13 +328,21 @@ func TestEncodeMessagingCommands(t *testing.T) {
 }
 
 func TestEncodeSendTracePath(t *testing.T) {
-	got, err := encode(SendTracePath{Tag: 0x11223344, Auth: 0x0a0b0c0d, Flags: 1})
+	got, err := encode(SendTracePath{Tag: 0x11223344, Auth: 0x0a0b0c0d, Flags: 1, Path: []byte{0x25}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{cmdSendTracePath, 0x44, 0x33, 0x22, 0x11, 0x0d, 0x0c, 0x0b, 0x0a, 1}
+	want := []byte{cmdSendTracePath, 0x44, 0x33, 0x22, 0x11, 0x0d, 0x0c, 0x0b, 0x0a, 1, 0x25}
 	if !bytes.Equal(got, want) {
 		t.Errorf("SendTracePath = %x, want %x", got, want)
+	}
+
+	got, err = encode(SendTracePath{Tag: 1, Auth: 2, Flags: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 11 || got[len(got)-1] != 0x00 {
+		t.Fatalf("empty SendTracePath should pad to 11 bytes, got %x", got)
 	}
 }
 
@@ -400,7 +408,7 @@ func TestDecodeControlDataUnknownSubtype(t *testing.T) {
 
 func TestDecodeTraceDataGolden(t *testing.T) {
 	// Captured verbatim from MeshCore v1.15: trace through repeater 0x25.
-	// flags, path_len=1, rsvd, tag, auth, hash 0x25, two SNR bytes (0x30, 0x2e).
+	// reserved, path_byte_len=1, flags, tag, auth, hash 0x25, two SNR bytes.
 	pkt := mustHex(t, "89 00 01 00 62 69 d9 49 00 00 00 00 25 30 2e")
 	td := mustDecode(t, pkt).(TraceData)
 	if td.Tag != 0x49d96962 {
@@ -414,6 +422,18 @@ func TestDecodeTraceDataGolden(t *testing.T) {
 	}
 	if !td.Async() {
 		t.Error("trace data must be async")
+	}
+}
+
+func TestDecodeTraceDataTwoBytePath(t *testing.T) {
+	// reserved, path_byte_len=4, flags=1 (2-byte hashes), tag/auth, two hops, 3 SNRs.
+	pkt := mustHex(t, "89 00 04 01 01 00 00 00 00 00 00 00 aa bb cc dd 30 2e 28")
+	td := mustDecode(t, pkt).(TraceData)
+	if len(td.Path) != 4 || td.Path[0] != 0xaa || td.Path[3] != 0xdd {
+		t.Fatalf("path = %x", td.Path)
+	}
+	if len(td.SNRs) != 3 {
+		t.Fatalf("snrs = %v, want 3 values", td.SNRs)
 	}
 }
 
