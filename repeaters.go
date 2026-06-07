@@ -18,9 +18,9 @@ type RepeaterStats = companion.RepeaterStats
 type RepeaterResponse struct {
 	Repeater   string
 	Command    string
-	Text       string               // plain-text CLI or sensor output
-	Stats      *RepeaterStats       // populated for binary status responses
-	Neighbours []RepeaterNeighbour  // populated for neighbors responses
+	Text       string              // plain-text CLI or sensor output
+	Stats      *RepeaterStats      // populated for binary status responses
+	Neighbours []RepeaterNeighbour // populated for neighbors responses
 	Received   time.Time
 }
 

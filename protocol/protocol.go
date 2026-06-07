@@ -38,6 +38,8 @@ type SessionInfo struct {
 	RadioSF         byte
 	RadioCR         byte
 	TxPowerDBm      byte
+	Latitude        float64
+	Longitude       float64
 }
 
 // Protocol encodes commands, decodes packets and performs the initial

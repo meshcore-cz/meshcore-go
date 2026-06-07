@@ -44,20 +44,20 @@ type Client struct {
 	acks        chan uint32                     // SendConfirmed ack codes, for WaitForAcknowledgement
 	traces      chan companion.TraceData        // TraceData pushes, for Trace
 	discoveries chan companion.NodeDiscoverResp // NodeDiscoverResp pushes, for Discover
-	autoSync  bool                     // drain inbound messages on MSG_WAITING
-	syncReq   chan struct{}            // signals the sync loop
-	eventHook func(Event)              // optional observer called before Events emits
+	autoSync    bool                            // drain inbound messages on MSG_WAITING
+	syncReq     chan struct{}                   // signals the sync loop
+	eventHook   func(Event)                     // optional observer called before Events emits
 
 	mu      sync.RWMutex
 	session protocol.SessionInfo
 
-	cancel    context.CancelFunc
-	eventCh   <-chan Event
+	cancel     context.CancelFunc
+	eventCh    <-chan Event
 	eventUnsub func()
-	rawCh     <-chan RawPacket
-	rawUnsub  func()
-	closeOnce sync.Once
-	closed    chan struct{}
+	rawCh      <-chan RawPacket
+	rawUnsub   func()
+	closeOnce  sync.Once
+	closed     chan struct{}
 }
 
 // Option configures a Client.
@@ -101,18 +101,18 @@ func WithEventHook(hook func(Event)) Option {
 // responsible for calling Connect.
 func New(conn transport.PacketConn, opts ...Option) *Client {
 	c := &Client{
-		conn:    conn,
-		proto:   companion.New(),
-		queue:   queue.New(),
-		events:  dispatcher.New[Event](64),
-		raw:     dispatcher.New[RawPacket](256),
-		timeout: DefaultTimeout,
-		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		conn:        conn,
+		proto:       companion.New(),
+		queue:       queue.New(),
+		events:      dispatcher.New[Event](64),
+		raw:         dispatcher.New[RawPacket](256),
+		timeout:     DefaultTimeout,
+		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		acks:        make(chan uint32, 16),
 		traces:      make(chan companion.TraceData, 8),
 		discoveries: make(chan companion.NodeDiscoverResp, 32),
 		syncReq:     make(chan struct{}, 1),
-		closed:  make(chan struct{}),
+		closed:      make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(c)

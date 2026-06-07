@@ -16,6 +16,24 @@ func TestRelativeTime(t *testing.T) {
 	if got := RelativeTime(time.Time{}); got != "never" {
 		t.Fatalf("zero = %q", got)
 	}
+	if got := RelativeTime(time.Now().Add(-23*time.Hour - 26*time.Minute)); got != "23h 26m ago" {
+		t.Fatalf("compound hours = %q", got)
+	}
+}
+
+func TestContactAge(t *testing.T) {
+	if got := ContactAge(time.Time{}); got != "never" {
+		t.Fatalf("zero = %q", got)
+	}
+	if got := ContactAge(time.Now().Add(-17 * time.Hour)); got != "17h" {
+		t.Fatalf("hours = %q, want 17h", got)
+	}
+	if got := ContactAge(time.Now().Add(-23*time.Hour - 26*time.Minute)); got != "23h" {
+		t.Fatalf("hours truncate = %q, want 23h", got)
+	}
+	if got := ContactAge(time.Now().Add(-706*24*time.Hour - 5*time.Hour)); got != "706d" {
+		t.Fatalf("days = %q, want 706d", got)
+	}
 }
 
 func TestStatsUpdatedRelative(t *testing.T) {
@@ -66,10 +84,10 @@ func TestRenderStatusLayout(t *testing.T) {
 			Available: true,
 		},
 		Backend: BackendInfo{
-			Running: true,
-			Healthy: true,
-			State:   "ready",
-			PID:     41148,
+			Running:   true,
+			Healthy:   true,
+			State:     "ready",
+			PID:       41148,
 			UptimeSec: 39420,
 			RadioIO: RadioIOInfo{
 				LastAt:         time.Now().Add(-4 * time.Second),

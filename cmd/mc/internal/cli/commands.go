@@ -144,6 +144,8 @@ func deviceStatusFromInfo(info meshcore.DeviceInfo, transport string, backendRun
 		RadioSF:         info.RadioSF,
 		RadioCR:         info.RadioCR,
 		TxPowerDBm:      info.TxPowerDBm,
+		Latitude:        info.Latitude,
+		Longitude:       info.Longitude,
 	}
 }
 

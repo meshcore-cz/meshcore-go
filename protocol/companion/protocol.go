@@ -85,6 +85,8 @@ func (p *Protocol) Initialize(ctx context.Context, conn transport.PacketConn) (p
 		RadioSF:         self.RadioSF,
 		RadioCR:         self.RadioCR,
 		TxPowerDBm:      self.TxPower,
+		Latitude:        self.AdvLat,
+		Longitude:       self.AdvLon,
 	}
 
 	// Device query is best-effort: older firmware may not implement it and the

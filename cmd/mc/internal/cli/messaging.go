@@ -43,28 +43,31 @@ func cmdContacts(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
+
+	query, err := contactListQueryFromEnv(e)
+	if err != nil {
+		return err
+	}
+	originLat, originLon := localOriginFromBackend(ctx, backend)
+	contacts, err = filterContacts(contacts, query, originLat, originLon)
+	if err != nil {
+		return err
+	}
+
 	if e.out.JSON {
 		return e.out.JSONValue(contacts)
 	}
 	if len(contacts) == 0 {
-		if e.args.has("cached") {
+		if query.filtered() {
+			e.out.Human("No contacts matching filters.\n")
+		} else if e.args.has("cached") {
 			e.out.Human("No contacts in local replica.\n")
 		} else {
 			e.out.Human("No contacts.\n")
 		}
 		return nil
 	}
-	if e.args.has("cached") {
-		e.out.Human("Local replica:\n")
-	}
-	e.out.Human("%-26s %-9s %-5s %s\n", "NAME", "TYPE", "PATH", "PUBLIC KEY")
-	for _, ct := range contacts {
-		path := "-"
-		if ct.HasPath {
-			path = "yes"
-		}
-		e.out.Human("%-26s %-9s %-5s %s\n", ct.Name, ct.Type, path, shortKey(ct.PublicKey))
-	}
+	printContactsHuman(ctx, e, backend, contacts, e.args.has("wide"))
 	return nil
 }
 
@@ -98,16 +101,7 @@ func cmdContact(ctx context.Context, e *env) error {
 	if e.out.JSON {
 		return e.out.JSONValue(ct)
 	}
-	e.out.Human("Name:       %s\n", ct.Name)
-	e.out.Human("Type:       %s\n", ct.Type)
-	e.out.Human("Public key: %s\n", ct.PublicKey)
-	e.out.Human("Has path:   %t\n", ct.HasPath)
-	if !ct.LastAdvert.IsZero() {
-		e.out.Human("Last advert: %s\n", ct.LastAdvert.Format("2006-01-02 15:04:05"))
-	}
-	if ct.Latitude != 0 || ct.Longitude != 0 {
-		e.out.Human("Location:   %.6f, %.6f\n", ct.Latitude, ct.Longitude)
-	}
+	printContactDetailHuman(ctx, e, backend, ct)
 	return nil
 }
 

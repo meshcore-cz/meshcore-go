@@ -32,6 +32,8 @@ type deviceStatusSnapshot struct {
 	RadioSF         byte     `json:"radio_sf,omitempty"`
 	RadioCR         byte     `json:"radio_cr,omitempty"`
 	TxPowerDBm      byte     `json:"tx_power_dbm,omitempty"`
+	Latitude        float64  `json:"latitude,omitempty"`
+	Longitude       float64  `json:"longitude,omitempty"`
 }
 
 type statusResult struct {
@@ -71,10 +73,10 @@ type channelStatus struct {
 }
 
 type radioStatus struct {
-	Active     bool      `json:"active"`
-	Idle       bool      `json:"idle"`
-	Method     string    `json:"method,omitempty"`
-	Since      time.Time `json:"since,omitempty"`
+	Active         bool      `json:"active"`
+	Idle           bool      `json:"idle"`
+	Method         string    `json:"method,omitempty"`
+	Since          time.Time `json:"since,omitempty"`
 	DurationMs     int64     `json:"duration_ms,omitempty"`
 	LastAt         time.Time `json:"last_at,omitempty"`
 	LastMethod     string    `json:"last_method,omitempty"`

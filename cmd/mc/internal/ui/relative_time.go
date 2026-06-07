@@ -5,6 +5,33 @@ import (
 	"time"
 )
 
+// ContactAge formats advert age using a single largest unit ("17h", "706d").
+func ContactAge(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	d := time.Since(t)
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Second:
+		ms := d.Round(time.Millisecond).Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		return fmt.Sprintf("%dms", ms)
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
 // RelativeTime formats t as a compact relative time ("3s ago", "2h ago").
 func RelativeTime(t time.Time) string {
 	if t.IsZero() {

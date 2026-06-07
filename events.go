@@ -84,15 +84,15 @@ type RawPacket struct {
 	DecodeError string    `json:"decode_error,omitempty"`
 }
 
-func (MessageReceived) isMeshCoreEvent()       {}
-func (MessageAcknowledged) isMeshCoreEvent()   {}
-func (AdvertisementReceived) isMeshCoreEvent() {}
-func (TelemetryReceived) isMeshCoreEvent()     {}
-func (Disconnected) isMeshCoreEvent()          {}
+func (MessageReceived) isMeshCoreEvent()        {}
+func (MessageAcknowledged) isMeshCoreEvent()    {}
+func (AdvertisementReceived) isMeshCoreEvent()  {}
+func (TelemetryReceived) isMeshCoreEvent()      {}
+func (Disconnected) isMeshCoreEvent()           {}
 func (RepeaterLoginSucceeded) isMeshCoreEvent() {}
 func (RepeaterLoginFailed) isMeshCoreEvent()    {}
 func (RepeaterStatusReceived) isMeshCoreEvent() {}
-func (RawEvent) isMeshCoreEvent()              {}
+func (RawEvent) isMeshCoreEvent()               {}
 
 // Telemetry is a placeholder for decoded telemetry payloads (Phase 5).
 type Telemetry struct {

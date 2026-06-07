@@ -41,10 +41,10 @@ func (s *Server) tryLockRadio(method string) bool {
 func (s *Server) radioStatusLocked() radioStatus {
 	if !s.radioActive {
 		return radioStatus{
-			Idle:             true,
-			LastAt:           s.radioLastAt,
-			LastMethod:       s.radioLastMethod,
-			LastDurationMs:   s.radioLastDurationMs,
+			Idle:           true,
+			LastAt:         s.radioLastAt,
+			LastMethod:     s.radioLastMethod,
+			LastDurationMs: s.radioLastDurationMs,
 		}
 	}
 	st := radioStatus{

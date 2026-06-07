@@ -21,8 +21,10 @@ var (
 // commandAliases maps short command names to their canonical form.
 var commandAliases = map[string]string{
 	"add":  "connect",
+	"c":    "contacts",
 	"h":    "help",
 	"rep":  "repeater",
+	"s":    "status",
 	"conf": "config",
 	"ls":   "device",
 	"list": "device",

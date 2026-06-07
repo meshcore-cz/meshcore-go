@@ -5,10 +5,10 @@ import "sync"
 // Dispatcher fans asynchronous events out to subscribers without blocking the
 // producer (the client read loop).
 type Dispatcher[T any] struct {
-	mu     sync.Mutex
-	subs   map[uint64]chan T
-	nextID uint64
-	closed bool
+	mu        sync.Mutex
+	subs      map[uint64]chan T
+	nextID    uint64
+	closed    bool
 	closeOnce sync.Once
 }
 

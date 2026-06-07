@@ -28,41 +28,41 @@ type Server struct {
 	listener net.Listener
 	store    Store
 
-	mu               sync.RWMutex
-	state            string
-	lastSeen         time.Time
-	lastError        string
-	bridgeStatuses   map[string]BridgeStatus
-	contactSyncing   bool
-	contactSyncRecv  int
-	contactSyncTotal int
-	contactCount     int
-	contactSyncedAt  time.Time
-	contactError     string
-	contactSyncMu    sync.Mutex
-	refreshMu        sync.Mutex
-	refreshCancel    context.CancelFunc
-	channelSyncing   bool
-	channelCount     int
-	channelSyncedAt  time.Time
-	channelError     string
-	channelSyncMu    sync.Mutex
-	radioMu          sync.Mutex // serialises live radio I/O
-	radioActive      bool
-	radioMethod      string
-	radioSince           time.Time
-	radioLastAt          time.Time
-	radioLastMethod      string
-	radioLastDurationMs  int64
-	deviceInfo       meshcore.DeviceInfo
-	deviceInfoOK     bool
-	deviceStats      meshcore.LocalStats
-	deviceStatsOK    bool
-	deviceStatsAt    time.Time
+	mu                  sync.RWMutex
+	state               string
+	lastSeen            time.Time
+	lastError           string
+	bridgeStatuses      map[string]BridgeStatus
+	contactSyncing      bool
+	contactSyncRecv     int
+	contactSyncTotal    int
+	contactCount        int
+	contactSyncedAt     time.Time
+	contactError        string
+	contactSyncMu       sync.Mutex
+	refreshMu           sync.Mutex
+	refreshCancel       context.CancelFunc
+	channelSyncing      bool
+	channelCount        int
+	channelSyncedAt     time.Time
+	channelError        string
+	channelSyncMu       sync.Mutex
+	radioMu             sync.Mutex // serialises live radio I/O
+	radioActive         bool
+	radioMethod         string
+	radioSince          time.Time
+	radioLastAt         time.Time
+	radioLastMethod     string
+	radioLastDurationMs int64
+	deviceInfo          meshcore.DeviceInfo
+	deviceInfoOK        bool
+	deviceStats         meshcore.LocalStats
+	deviceStatsOK       bool
+	deviceStatsAt       time.Time
 
 	startedAt time.Time
-	stopOnce sync.Once
-	stopped  chan struct{}
+	stopOnce  sync.Once
+	stopped   chan struct{}
 }
 
 const (
@@ -70,8 +70,8 @@ const (
 	stateDegraded = "degraded"
 	stateBridge   = "bridge"
 
-	keepAliveInterval = 30 * time.Second
-	statsPollTimeout  = 15 * time.Second
+	keepAliveInterval   = 30 * time.Second
+	statsPollTimeout    = 15 * time.Second
 	statsPollTimeoutBLE = 30 * time.Second
 
 	initialContactSyncTimeout = 90 * time.Second
@@ -1178,6 +1178,8 @@ func (s *Server) deviceStatusSnapshotLocked() *deviceStatusSnapshot {
 		RadioSF:         info.RadioSF,
 		RadioCR:         info.RadioCR,
 		TxPowerDBm:      info.TxPowerDBm,
+		Latitude:        info.Latitude,
+		Longitude:       info.Longitude,
 	}
 }
 
@@ -1226,4 +1228,3 @@ func RawResultFromMessage(msg protocol.Message) RawResult {
 		}
 	}
 }
-

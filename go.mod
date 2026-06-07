@@ -3,6 +3,7 @@ module github.com/meshcore-cz/meshcore-go
 go 1.25.0
 
 require (
+	github.com/clipperhouse/displaywidth v0.5.0
 	github.com/creack/pty v1.1.24
 	go.bug.st/serial v1.7.1
 	golang.org/x/term v0.43.0
@@ -12,6 +13,8 @@ require (
 )
 
 require (
+	github.com/clipperhouse/stringish v0.1.1 // indirect
+	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect

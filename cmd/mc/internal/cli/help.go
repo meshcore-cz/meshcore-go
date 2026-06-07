@@ -102,6 +102,11 @@ Flags:
   --refresh        Start a background radio sync (returns immediately)
   --wait           With --refresh, block until synchronization finishes
   --full           With --refresh, rebuild the full contact list (ignore cursor)
+  --wide           Show full public keys, stored advert paths and coordinates
+  --type <kind>    Filter by contact type (companion, repeater, room, sensor)
+  --within <dist>  Filter by distance from local companion (e.g. 10km, 500m)
+  --sort <field>   Sort contacts (default: name)
+                   Fields: name, type, age, adv, route, key, distance
 ` + globalFlags,
 
 	"contact": `Usage: mc contact show <name> [flags]

@@ -29,6 +29,8 @@ type DeviceStatus struct {
 	RadioSF         byte
 	RadioCR         byte
 	TxPowerDBm      byte
+	Latitude        float64
+	Longitude       float64
 }
 
 func (d DeviceStatus) Available() bool {
@@ -78,10 +80,10 @@ type ChannelStatus struct {
 
 // RadioStatus describes whether the backend transport is busy with radio I/O.
 type RadioStatus struct {
-	Active     bool
-	Idle       bool
-	Method     string
-	Since      time.Time
+	Active         bool
+	Idle           bool
+	Method         string
+	Since          time.Time
 	DurationMs     int64
 	LastAt         time.Time
 	LastMethod     string
@@ -166,6 +168,8 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 			RadioSF:         res.Device.RadioSF,
 			RadioCR:         res.Device.RadioCR,
 			TxPowerDBm:      res.Device.TxPowerDBm,
+			Latitude:        res.Device.Latitude,
+			Longitude:       res.Device.Longitude,
 		}
 	}
 	if res.Stats != nil {

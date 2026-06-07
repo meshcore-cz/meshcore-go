@@ -19,6 +19,7 @@ const (
 
 const (
 	ansiReset      = "\x1b[0m"
+	ansiDim        = "\x1b[2m"
 	ansiBoldGreen  = "\x1b[1;32m"
 	ansiBoldYellow = "\x1b[1;33m"
 	ansiBoldRed    = "\x1b[1;31m"
@@ -60,4 +61,12 @@ func (t Theme) StatusWord(health Health, word string) string {
 	default:
 		return word
 	}
+}
+
+// Dim renders text with reduced intensity when color is enabled.
+func (t Theme) Dim(text string) string {
+	if !t.enabled || text == "" {
+		return text
+	}
+	return ansiDim + text + ansiReset
 }

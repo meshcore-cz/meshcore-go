@@ -20,6 +20,8 @@ type DeviceInfo struct {
 	RadioSF         byte
 	RadioCR         byte
 	TxPowerDBm      byte
+	Latitude        float64
+	Longitude       float64
 
 	Capabilities Capabilities
 	Extensions   map[string]ExtensionInfo
@@ -52,6 +54,8 @@ func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
 		RadioSF:         s.RadioSF,
 		RadioCR:         s.RadioCR,
 		TxPowerDBm:      s.TxPowerDBm,
+		Latitude:        s.Latitude,
+		Longitude:       s.Longitude,
 		Capabilities:    s.Capabilities,
 		Extensions:      map[string]ExtensionInfo{},
 	}
