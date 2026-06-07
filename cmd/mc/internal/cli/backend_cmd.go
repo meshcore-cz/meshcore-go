@@ -338,6 +338,9 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	e.out.Human("Backend:  running\n")
 	e.out.Human("State:    %s\n", st.State)
 	e.out.Human("PID:      %d\n", st.PID)
+	if st.UptimeSec > 0 {
+		e.out.Human("Uptime:   %s\n", ui.FormatDurationSecs(uint32(st.UptimeSec)))
+	}
 	e.out.Human("Endpoint: %s\n", st.URI)
 	e.out.Human("Transport: %s\n", st.Transport)
 	e.out.Human("Socket:   %s\n", st.Socket)
@@ -423,6 +426,8 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"healthy":    st.Healthy,
 		"state":      st.State,
 		"pid":        st.PID,
+		"started_at": st.StartedAt,
+		"uptime_sec": st.UptimeSec,
 		"uri":        st.URI,
 		"transport":  st.Transport,
 		"socket":     st.Socket,

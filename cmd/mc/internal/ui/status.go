@@ -61,6 +61,8 @@ type BackendInfo struct {
 	State     string
 	PID       int
 	URI       string
+	StartedAt time.Time
+	UptimeSec int64
 	LastError string
 	LastSeen  time.Time
 	Contacts  ReplicaInfo
@@ -272,10 +274,14 @@ func backendLabel(be BackendInfo, theme Theme) string {
 		display = "running"
 	}
 	word := theme.StatusWord(backendHealth(be), display)
+	label := word
 	if be.PID > 0 {
-		return word + fmt.Sprintf(" (pid %d)", be.PID)
+		label += fmt.Sprintf(" (pid %d)", be.PID)
 	}
-	return word
+	if be.UptimeSec > 0 {
+		label += fmt.Sprintf(" · %s uptime", FormatDurationSecs(uint32(be.UptimeSec)))
+	}
+	return label
 }
 
 func backendHealth(be BackendInfo) Health {

@@ -60,6 +60,7 @@ type Server struct {
 	deviceStatsOK    bool
 	deviceStatsAt    time.Time
 
+	startedAt time.Time
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
@@ -104,6 +105,7 @@ func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfi
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
 	}
 	s.client = client
+	s.startedAt = time.Now()
 	s.refreshStartupCaches(context.Background(), client)
 	return s, nil
 }
@@ -911,6 +913,7 @@ func (s *Server) status() statusResult {
 		URI:       s.uri,
 		Transport: transport,
 		PID:       os.Getpid(),
+		StartedAt: s.startedAt,
 		LastSeen:  s.lastSeen,
 		LastError: s.lastError,
 		Bridges:   s.bridgeStatusLocked(),
@@ -929,6 +932,9 @@ func (s *Server) status() statusResult {
 			Error:    s.channelError,
 		},
 		Radio: s.radioStatusLocked(),
+	}
+	if !s.startedAt.IsZero() {
+		out.UptimeSec = int64(time.Since(s.startedAt).Seconds())
 	}
 	if snap := s.deviceStatusSnapshotLocked(); snap != nil {
 		out.Device = snap
@@ -1044,24 +1050,46 @@ func (s *Server) observeEvent(ev meshcore.Event) {
 func (s *Server) upsertObservedContact(contact meshcore.Contact) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	contact.LastAdvert = time.Now()
+
+	existing, existingErr := s.store.Contact(ctx, s.uri, contact.PublicKey)
+	if contact.Name == "" {
+		if existingErr != nil {
+			return
+		}
+		contact.Name = existing.Contact.Name
+	}
+	if contact.LastAdvert.IsZero() {
+		contact.LastAdvert = time.Now()
+	}
 	if contact.Type == "" {
 		contact.Type = meshcore.ContactUnknown
 	}
-	if existing, err := s.store.Contact(ctx, s.uri, contact.PublicKey); err == nil {
-		if contact.Name == "" {
-			contact.Name = existing.Contact.Name
-		}
+	if existingErr == nil {
 		if contact.Type == meshcore.ContactUnknown && existing.Contact.Type != "" {
 			contact.Type = existing.Contact.Type
 		}
-		contact.HasPath = existing.Contact.HasPath
-		contact.Latitude = existing.Contact.Latitude
-		contact.Longitude = existing.Contact.Longitude
+		if contact.HasPath == false && existing.Contact.HasPath {
+			contact.HasPath = existing.Contact.HasPath
+			contact.OutPathEnc = existing.Contact.OutPathEnc
+			contact.OutPath = existing.Contact.OutPath
+		}
+		if contact.Latitude == 0 && contact.Longitude == 0 {
+			contact.Latitude = existing.Contact.Latitude
+			contact.Longitude = existing.Contact.Longitude
+		}
 	}
 	if err := s.store.UpsertContact(ctx, s.uri, contact); err != nil {
 		s.recordContactSyncError(err)
 		return
+	}
+	if contact.LastMod != 0 {
+		if current, err := s.store.ContactLastMod(ctx, s.uri); err != nil {
+			s.recordContactSyncError(err)
+		} else if contact.LastMod > current {
+			if err := s.store.SetContactLastMod(ctx, s.uri, contact.LastMod); err != nil {
+				s.recordContactSyncError(err)
+			}
+		}
 	}
 	if contacts, err := s.replicaContacts(ctx); err == nil {
 		s.mu.Lock()

@@ -61,6 +61,7 @@ func TestRenderStatusLayout(t *testing.T) {
 			Healthy: true,
 			State:   "ready",
 			PID:     41148,
+			UptimeSec: 39420,
 			RadioIO: RadioIOInfo{
 				LastAt:         time.Now().Add(-4 * time.Second),
 				LastMethod:     "stats",
@@ -93,7 +94,7 @@ func TestRenderStatusLayout(t *testing.T) {
 		"  Packets:     12,846 rx · 1,284 tx · 7 errors",
 		"  Airtime:     2h 14m rx · 8m 37s tx",
 		"  Queue:       0 pending",
-		"Backend:       running (pid 41148)",
+		"Backend:       running (pid 41148) · 10h 57m uptime",
 		"  Activity:    idle · last: stats (120ms) · 4s ago",
 		"  Replica:     fresh · 286 contacts · 2 channels · updated 48s ago",
 	} {

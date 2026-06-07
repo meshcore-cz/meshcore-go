@@ -94,10 +94,19 @@ type StatsPackets struct {
 	RecvErrors uint32
 }
 
-// Advert is a PUSH_CODE_ADVERT/NEW_ADVERT push notification.
+// Advert is a PUSH_CODE_ADVERT/NEW_ADVERT push notification. NEW_ADVERT uses
+// the full contact frame and may populate the optional fields below.
 type Advert struct {
-	PublicKey string
-	Name      string
+	PublicKey  string
+	Name       string
+	Type       byte
+	HasPath    bool
+	OutPathEnc byte
+	OutPath    []byte
+	Latitude   float64
+	Longitude  float64
+	LastAdvert time.Time
+	LastMod    uint32
 }
 
 func (Advert) Async() bool { return true }

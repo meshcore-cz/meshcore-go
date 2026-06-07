@@ -104,7 +104,7 @@ type Telemetry struct {
 func translate(msg protocol.Message) Event {
 	switch m := msg.(type) {
 	case companion.Advert:
-		return AdvertisementReceived{Contact: Contact{Name: m.Name, PublicKey: m.PublicKey}}
+		return AdvertisementReceived{Contact: contactFromAdvert(m)}
 	case companion.SendConfirmed:
 		return MessageAcknowledged{Code: hex32(m.Code), RTT: m.RoundTrip}
 	case companion.MsgWaiting:
@@ -159,4 +159,20 @@ func hex32(v uint32) string {
 		v >>= 4
 	}
 	return string(b[:])
+}
+
+func contactFromAdvert(m companion.Advert) Contact {
+	ct := Contact{
+		Name:       m.Name,
+		PublicKey:  m.PublicKey,
+		Type:       contactType(m.Type),
+		HasPath:    m.HasPath,
+		OutPathEnc: m.OutPathEnc,
+		OutPath:    cloneBytes(m.OutPath),
+		Latitude:   m.Latitude,
+		Longitude:  m.Longitude,
+		LastAdvert: m.LastAdvert,
+		LastMod:    m.LastMod,
+	}
+	return ct
 }

@@ -43,6 +43,8 @@ type Status struct {
 	URI       string
 	Transport string
 	PID       int
+	StartedAt time.Time
+	UptimeSec int64
 	Socket    string
 	LastSeen  time.Time
 	LastError string
@@ -120,6 +122,8 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		URI:       res.URI,
 		Transport: res.Transport,
 		PID:       res.PID,
+		StartedAt: res.StartedAt,
+		UptimeSec: res.UptimeSec,
 		Socket:    c.socket,
 		LastSeen:  res.LastSeen,
 		LastError: res.LastError,

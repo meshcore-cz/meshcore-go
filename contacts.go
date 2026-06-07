@@ -49,6 +49,7 @@ type Contact struct {
 	Latitude   float64
 	Longitude  float64
 	LastAdvert time.Time
+	LastMod    uint32 // radio modification marker; 0 if unknown
 }
 
 // ContactSyncProgress reports contact-list download progress from the radio.
@@ -188,7 +189,15 @@ func fromCompanionContact(m companion.Contact) Contact {
 		Latitude:   m.Latitude,
 		Longitude:  m.Longitude,
 		LastAdvert: m.LastAdvert,
+		LastMod:    contactLastModU32(m.LastMod),
 	}
+}
+
+func contactLastModU32(t time.Time) uint32 {
+	if t.IsZero() {
+		return 0
+	}
+	return uint32(t.Unix())
 }
 
 func cloneBytes(b []byte) []byte {

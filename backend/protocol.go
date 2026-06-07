@@ -41,6 +41,8 @@ type statusResult struct {
 	URI       string                `json:"uri"`
 	Transport string                `json:"transport"`
 	PID       int                   `json:"pid"`
+	StartedAt time.Time             `json:"started_at,omitempty"`
+	UptimeSec int64                 `json:"uptime_sec,omitempty"`
 	LastSeen  time.Time             `json:"last_seen,omitempty"`
 	LastError string                `json:"last_error,omitempty"`
 	Bridges   []BridgeStatus        `json:"bridges,omitempty"`

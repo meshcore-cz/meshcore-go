@@ -85,8 +85,11 @@ func decode(packet []byte) (protocol.Message, error) {
 	case respChannelMsgRecv, respChannelMsgRecvV3:
 		return decodeChannelMessage(body, code == respChannelMsgRecvV3), nil
 
-	case pushAdvert, pushNewAdvert:
+	case pushAdvert:
 		return decodeAdvert(body), nil
+
+	case pushNewAdvert:
+		return advertFromContact(decodeContact(body)), nil
 
 	case pushSendConfirmed:
 		return decodeSendConfirmed(body), nil
@@ -256,6 +259,25 @@ func decodeAdvert(b []byte) Advert {
 		a.Name = trimString(b)
 	}
 	return a
+}
+
+func advertFromContact(c Contact) Advert {
+	var lastMod uint32
+	if !c.LastMod.IsZero() {
+		lastMod = uint32(c.LastMod.Unix())
+	}
+	return Advert{
+		PublicKey:  c.PublicKey,
+		Name:       c.Name,
+		Type:       c.Type,
+		HasPath:    c.HasPath,
+		OutPathEnc: c.OutPathEnc,
+		OutPath:    append([]byte(nil), c.OutPath...),
+		Latitude:   c.Latitude,
+		Longitude:  c.Longitude,
+		LastAdvert: c.LastAdvert,
+		LastMod:    lastMod,
+	}
 }
 
 func decodeSendConfirmed(b []byte) SendConfirmed {
