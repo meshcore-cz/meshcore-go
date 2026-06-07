@@ -46,6 +46,9 @@ type Server struct {
 	channelError     string
 	channelSyncMu    sync.Mutex
 	radioMu          sync.Mutex // serialises live radio I/O
+	radioActive      bool
+	radioMethod      string
+	radioSince       time.Time
 	deviceInfo       meshcore.DeviceInfo
 	deviceInfoOK     bool
 
@@ -169,8 +172,8 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
-		s.radioMu.Lock()
-		defer s.radioMu.Unlock()
+		s.lockRadio("watch")
+		defer s.unlockRadio()
 		s.watch(conn, req.ID)
 		return
 	}
@@ -179,8 +182,8 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
-		s.radioMu.Lock()
-		defer s.radioMu.Unlock()
+		s.lockRadio("watch_raw")
+		defer s.unlockRadio()
 		s.watchRaw(conn, req.ID)
 		return
 	}
@@ -189,8 +192,8 @@ func (s *Server) handle(conn net.Conn) {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
 			return
 		}
-		s.radioMu.Lock()
-		defer s.radioMu.Unlock()
+		s.lockRadio("discover")
+		defer s.unlockRadio()
 		s.discover(conn, req.ID, req.Params)
 		return
 	}
@@ -198,8 +201,8 @@ func (s *Server) handle(conn net.Conn) {
 	var result any
 	var err error
 	if s.methodUsesRadio(req.Method, req.Params) {
-		s.radioMu.Lock()
-		defer s.radioMu.Unlock()
+		s.lockRadio(req.Method)
+		defer s.unlockRadio()
 	}
 	result, err = s.dispatch(connContext(), req.Method, req.Params)
 	resp := response{ID: req.ID, OK: err == nil}
@@ -555,8 +558,8 @@ func (s *Server) replicaContacts(ctx context.Context) ([]meshcore.Contact, error
 
 func (s *Server) scheduleInitialContactSync() {
 	go func() {
-		s.radioMu.Lock()
-		defer s.radioMu.Unlock()
+		s.lockRadio("replicate")
+		defer s.unlockRadio()
 
 		ctx, cancel := context.WithTimeout(context.Background(), initialContactSyncTimeout)
 		defer cancel()
@@ -806,18 +809,18 @@ func (s *Server) keepAlive() {
 			if s.stateSnapshot() == stateBridge {
 				continue
 			}
-			if !s.radioMu.TryLock() {
+			if !s.tryLockRadio("keepalive") {
 				continue
 			}
 			if !s.healthy() {
 				s.tryReconnect()
-				s.radioMu.Unlock()
+				s.unlockRadio()
 				continue
 			}
 			client := s.clientSnapshot()
 			if client == nil {
 				s.markDegraded(fmt.Errorf("no active client"))
-				s.radioMu.Unlock()
+				s.unlockRadio()
 				continue
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), s.keepAliveTimeout())
@@ -825,11 +828,11 @@ func (s *Server) keepAlive() {
 			cancel()
 			if err != nil {
 				s.markDegraded(err)
-				s.radioMu.Unlock()
+				s.unlockRadio()
 				continue
 			}
 			s.markReady()
-			s.radioMu.Unlock()
+			s.unlockRadio()
 		}
 	}
 }
@@ -865,6 +868,7 @@ func (s *Server) status() statusResult {
 			SyncedAt: s.channelSyncedAt,
 			Error:    s.channelError,
 		},
+		Radio: s.radioStatusLocked(),
 	}
 	if snap := s.deviceStatusSnapshotLocked(); snap != nil {
 		out.Device = snap

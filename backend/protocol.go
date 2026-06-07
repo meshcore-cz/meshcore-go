@@ -45,6 +45,7 @@ type statusResult struct {
 	Contacts  contactStatus         `json:"contacts,omitempty"`
 	Channels  channelStatus         `json:"channels,omitempty"`
 	Device    *deviceStatusSnapshot `json:"device,omitempty"`
+	Radio     radioStatus           `json:"radio,omitempty"`
 }
 
 type contactStatus struct {
@@ -61,6 +62,14 @@ type channelStatus struct {
 	Count    int       `json:"count"`
 	SyncedAt time.Time `json:"synced_at,omitempty"`
 	Error    string    `json:"error,omitempty"`
+}
+
+type radioStatus struct {
+	Active     bool      `json:"active"`
+	Idle       bool      `json:"idle"`
+	Method     string    `json:"method,omitempty"`
+	Since      time.Time `json:"since,omitempty"`
+	DurationMs int64     `json:"duration_ms,omitempty"`
 }
 
 type sendTextParams struct {

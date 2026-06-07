@@ -15,6 +15,7 @@ import (
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 )
 
 const (
@@ -278,6 +279,7 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	e.out.Human("PID:      %d\n", st.PID)
 	e.out.Human("Endpoint: %s\n", st.URI)
 	e.out.Human("Transport: %s\n", st.Transport)
+	e.out.Human("Activity: %s\n", ui.RadioIOLabel(radioIOFromStatus(st.Radio)))
 	e.out.Human("Socket:   %s\n", st.Socket)
 	printContactStatus(e, st)
 	printChannelStatus(e, st)
@@ -368,6 +370,7 @@ func backendStatusJSON(st localbackend.Status) map[string]any {
 		"bridges":    st.Bridges,
 		"contacts": contactStatusJSON(st.Contacts),
 		"channels": channelStatusJSON(st.Channels),
+		"radio":    radioStatusJSON(st.Radio),
 	}
 	if st.Device.Available() {
 		out["device"] = map[string]any{
@@ -451,6 +454,23 @@ func channelStatusJSON(cs localbackend.ChannelStatus) map[string]any {
 		"synced_at": cs.SyncedAt,
 		"error":     cs.Error,
 	}
+}
+
+func radioStatusJSON(r localbackend.RadioStatus) map[string]any {
+	out := map[string]any{
+		"active": r.Active,
+		"idle":   r.Idle || !r.Active,
+	}
+	if r.Method != "" {
+		out["method"] = r.Method
+	}
+	if !r.Since.IsZero() {
+		out["since"] = r.Since
+	}
+	if r.DurationMs > 0 {
+		out["duration_ms"] = r.DurationMs
+	}
+	return out
 }
 
 func printChannelStatus(e *env, st localbackend.Status) {

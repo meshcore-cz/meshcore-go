@@ -50,7 +50,16 @@ func statusDataFromBackend(st localbackend.Status, dev localbackend.DeviceStatus
 			LastSeen:  st.LastSeen,
 			Contacts:  replicaInfoFromStatus(st.Contacts),
 			Channels:  replicaInfoFromChannel(st.Channels),
+			RadioIO:   radioIOFromStatus(st.Radio),
 		},
+	}
+}
+
+func radioIOFromStatus(r localbackend.RadioStatus) ui.RadioIOInfo {
+	return ui.RadioIOInfo{
+		Active:     r.Active,
+		Method:     r.Method,
+		DurationMs: r.DurationMs,
 	}
 }
 
@@ -91,6 +100,7 @@ func statusDataUnavailableBackend(st localbackend.Status) ui.StatusData {
 			LastSeen:  st.LastSeen,
 			Contacts:  replicaInfoFromStatus(st.Contacts),
 			Channels:  replicaInfoFromChannel(st.Channels),
+			RadioIO:   radioIOFromStatus(st.Radio),
 		},
 	}
 }

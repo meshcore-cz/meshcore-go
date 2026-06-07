@@ -40,6 +40,7 @@ func TestRenderStatusLayout(t *testing.T) {
 			Healthy: true,
 			State:   "ready",
 			PID:     41148,
+			RadioIO: RadioIOInfo{Active: false},
 			Contacts: ReplicaInfo{
 				Count:    286,
 				SyncedAt: time.Now().Add(-3 * time.Second),
@@ -62,6 +63,7 @@ func TestRenderStatusLayout(t *testing.T) {
 		"Radio:         869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
 		"Backend:       running (pid 41148)",
 		"Replica:       fresh",
+		"Activity:      idle",
 		"Contacts:      286, updated",
 		"Channels:      2, updated",
 	} {

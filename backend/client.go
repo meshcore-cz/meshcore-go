@@ -50,6 +50,7 @@ type Status struct {
 	Contacts  ContactStatus
 	Channels  ChannelStatus
 	Device    DeviceStatus
+	Radio     RadioStatus
 }
 
 // ContactStatus describes the backend's local contact replica.
@@ -68,6 +69,15 @@ type ChannelStatus struct {
 	Count    int
 	SyncedAt time.Time
 	Error    string
+}
+
+// RadioStatus describes whether the backend transport is busy with radio I/O.
+type RadioStatus struct {
+	Active     bool
+	Idle       bool
+	Method     string
+	Since      time.Time
+	DurationMs int64
 }
 
 // Client talks to a running local backend process.
@@ -121,6 +131,13 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 			Count:    res.Channels.Count,
 			SyncedAt: res.Channels.SyncedAt,
 			Error:    res.Channels.Error,
+		},
+		Radio: RadioStatus{
+			Active:     res.Radio.Active,
+			Idle:       res.Radio.Idle,
+			Method:     res.Radio.Method,
+			Since:      res.Radio.Since,
+			DurationMs: res.Radio.DurationMs,
 		},
 	}
 	if res.Device != nil {

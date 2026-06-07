@@ -42,6 +42,13 @@ type ReplicaInfo struct {
 	Error        string
 }
 
+// RadioIOInfo describes backend transport lock state for status output.
+type RadioIOInfo struct {
+	Active     bool
+	Method     string
+	DurationMs int64
+}
+
 // BackendInfo is backend daemon state for status output.
 type BackendInfo struct {
 	Running   bool
@@ -53,6 +60,7 @@ type BackendInfo struct {
 	LastSeen  time.Time
 	Contacts  ReplicaInfo
 	Channels  ReplicaInfo
+	RadioIO   RadioIOInfo
 }
 
 // StatusData is the input model for status rendering.
@@ -92,6 +100,7 @@ func RenderStatus(data StatusData, printer Printer) string {
 
 	if data.Backend.Running {
 		b.WriteString(statusLine("Replica", replicaLabel(data.Backend, theme)))
+		b.WriteString(statusLine("Activity", RadioIOLabel(data.Backend.RadioIO)))
 		b.WriteString(statusLine("Contacts", contactsLabel(data.Backend.Contacts)))
 		b.WriteString(statusLine("Channels", channelsLabel(data.Backend.Channels)))
 		b.WriteString("\n")
@@ -277,6 +286,53 @@ func replicaSyncProgress(contacts ReplicaInfo) string {
 		return fmt.Sprintf("replicating (%d/?)", contacts.SyncReceived)
 	}
 	return "replicating"
+}
+
+func RadioIOLabel(io RadioIOInfo) string {
+	if !io.Active {
+		return "idle"
+	}
+	label := radioMethodLabel(io.Method)
+	if io.DurationMs <= 0 {
+		return label
+	}
+	return fmt.Sprintf("%s (%s)", label, formatDuration(time.Duration(io.DurationMs)*time.Millisecond))
+}
+
+func radioMethodLabel(method string) string {
+	switch method {
+	case "replicate":
+		return "replicate"
+	case "watch_raw":
+		return "watch raw"
+	case "send_text":
+		return "send"
+	case "repeater_status":
+		return "repeater status"
+	case "repeater_exec":
+		return "repeater exec"
+	case "repeater_login":
+		return "repeater login"
+	case "channel_send":
+		return "channel send"
+	case "keepalive":
+		return "keepalive"
+	default:
+		return strings.ReplaceAll(method, "_", " ")
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) % 60
+	if s == 0 {
+		return fmt.Sprintf("%dm", m)
+	}
+	return fmt.Sprintf("%dm%ds", m, s)
 }
 
 func formatCapabilities(items []string) string {
