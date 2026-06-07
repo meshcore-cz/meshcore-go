@@ -41,3 +41,15 @@ func RelativeTime(t time.Time) string {
 		return fmt.Sprintf("%dd %dh ago", days, h)
 	}
 }
+
+// StatsUpdatedRelative formats when cached radio stats were last refreshed.
+// Values under 5ms are shown as "now".
+func StatsUpdatedRelative(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	if time.Since(t) < 5*time.Millisecond {
+		return "now"
+	}
+	return RelativeTime(t)
+}

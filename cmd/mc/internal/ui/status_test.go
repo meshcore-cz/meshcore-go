@@ -18,6 +18,15 @@ func TestRelativeTime(t *testing.T) {
 	}
 }
 
+func TestStatsUpdatedRelative(t *testing.T) {
+	if got := StatsUpdatedRelative(time.Now()); got != "now" {
+		t.Fatalf("recent = %q, want now", got)
+	}
+	if got := StatsUpdatedRelative(time.Now().Add(-10 * time.Millisecond)); got != "10ms ago" {
+		t.Fatalf("got %q, want 10ms ago", got)
+	}
+}
+
 func TestRenderStatusLayout(t *testing.T) {
 	data := StatusData{
 		Device: DeviceInfo{
@@ -86,11 +95,10 @@ func TestRenderStatusLayout(t *testing.T) {
 		"Protocol:      companion-v3",
 		"Transport:     ble://C4:20:12:34:56:78",
 		"Public key:    eff01ef21805abcd",
-		"Radio:         ok · updated 124ms ago",
+		"Radio:         ok · 10h 57m uptime · updated 124ms ago",
 		"  Modem:       869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
 		"  Signal:      -104 dBm RSSI · +7.5 dB SNR · -118 dBm noise",
 		"  Battery:     4.08 V",
-		"  Uptime:      10h 57m",
 		"  Packets:     12,846 rx · 1,284 tx · 7 errors",
 		"  Airtime:     2h 14m rx · 8m 37s tx",
 		"  Queue:       0 pending",

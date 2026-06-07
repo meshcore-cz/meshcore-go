@@ -142,9 +142,14 @@ func writeRadioSection(b *strings.Builder, dev DeviceInfo, backend BackendInfo, 
 	}
 	health, word := radioSectionHealth(dev, backend)
 	header := theme.StatusWord(health, word)
-	if dev.Stats.Available && !dev.Stats.UpdatedAt.IsZero() {
-		header += " · updated " + RelativeTime(dev.Stats.UpdatedAt)
-	} else if !dev.Stats.Available {
+	if dev.Stats.Available {
+		if uptime := uptimeLabel(dev.Stats); uptime != "" {
+			header += " · " + uptime + " uptime"
+		}
+		if !dev.Stats.UpdatedAt.IsZero() {
+			header += " · updated " + StatsUpdatedRelative(dev.Stats.UpdatedAt)
+		}
+	} else {
 		header += " · not synced"
 	}
 	b.WriteString(statusLine("Radio", header))
@@ -191,7 +196,6 @@ func deviceStatsLines(stats DeviceStatsInfo) []string {
 	}
 	add("Signal", signalLabel(stats))
 	add("Battery", batteryLabel(stats))
-	add("Uptime", uptimeLabel(stats))
 	add("Packets", packetsLabel(stats))
 	add("Airtime", airtimeLabel(stats))
 	add("Queue", queueLabel(stats))
