@@ -58,19 +58,21 @@ Run connection diagnostics: configuration, endpoint reachability, handshake,
 firmware and clock difference.
 ` + globalFlags,
 
-	"backend": `Usage: mc backend <start|restart|stop|status|log> [flags]
+	"backend": `Usage: mc backend <start|restart|stop|status|log|reset> [flags]
 
 Manage the local backend process. When it is running, ordinary commands use it
 automatically; when it is not running, commands dial the radio directly.
 
   mc backend start             start the backend for the selected profile
   mc backend restart           restart using the current backend endpoint
+  mc backend restart --reset   restart and delete local replica state first
   mc backend restart --uri ... restart onto an explicit endpoint
   mc backend start --uri ...   start the backend for an explicit endpoint
   mc backend status            show backend socket, pid and endpoint
   mc backend log               show recent backend log output
   mc backend log --follow      stream new log lines
   mc backend stop              stop the running backend
+  mc backend reset             stop the backend and delete local replica state
 
 Log flags:
   -n, --lines <count>          number of lines to show (default: 100)

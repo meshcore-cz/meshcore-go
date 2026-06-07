@@ -39,6 +39,8 @@ func cmdBackend(ctx context.Context, e *env) error {
 		return backendServe(ctx, e)
 	case "log", "logs":
 		return backendLog(ctx, e)
+	case "reset":
+		return backendReset(ctx, e)
 	default:
 		return fmt.Errorf("unknown backend subcommand %q", e.restArg(0))
 	}
@@ -228,6 +230,59 @@ func readLogLines(path string, maxLines int) ([]string, error) {
 	return all[len(all)-maxLines:], nil
 }
 
+func backendReset(ctx context.Context, e *env) error {
+	var stopped bool
+	var stopStatus localbackend.Status
+	if st, ok := backendStatus(ctx); ok {
+		e.out.Human("Stopping backend for %s (pid %d)...\n", st.URI, st.PID)
+		var err error
+		stopStatus, stopped, err = stopBackend(ctx)
+		if err != nil {
+			return err
+		}
+		if !stopped {
+			return fmt.Errorf("backend did not stop")
+		}
+	}
+
+	removed, err := resetBackendState(e)
+	if err != nil {
+		return err
+	}
+
+	if e.out.JSON {
+		out := map[string]any{
+			"stopped": stopped,
+			"removed": removed,
+		}
+		if stopped {
+			out["uri"] = stopStatus.URI
+			out["pid"] = stopStatus.PID
+		}
+		return e.out.JSONValue(out)
+	}
+	return nil
+}
+
+func resetBackendState(e *env) ([]string, error) {
+	removed, err := localbackend.ResetState()
+	if err != nil {
+		return nil, err
+	}
+	if e.out.JSON {
+		return removed, nil
+	}
+	if len(removed) == 0 {
+		e.out.Human("No backend state files found.\n")
+		return removed, nil
+	}
+	e.out.Human("Removed backend state:\n")
+	for _, path := range removed {
+		e.out.Human("  %s\n", path)
+	}
+	return removed, nil
+}
+
 func backendStop(ctx context.Context, e *env) error {
 	client := localbackend.NewClient("")
 	st, err := client.Status(ctx)
@@ -261,8 +316,14 @@ func backendRestart(ctx context.Context, e *env) error {
 		if _, _, err := stopBackend(ctx); err != nil {
 			return err
 		}
-	} else {
+	} else if !e.args.has("reset") {
 		e.out.Human("Backend is not running; starting a new backend.\n")
+	}
+
+	if e.args.has("reset") {
+		if _, err := resetBackendState(e); err != nil {
+			return err
+		}
 	}
 
 	return backendStartURI(ctx, e, uri)
