@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // DeviceListRow is one rendered device list row.
@@ -66,27 +67,27 @@ func renderWideDeviceTable(b *strings.Builder, rows []DeviceListRow, theme Theme
 }
 
 func defaultDeviceHeaders() []string {
-	return []string{"", "PROFILE", "DEVICE", "BACKEND", "RADIO", "REPLICA", "TRANSPORT", "ACTIVITY"}
+	return []string{"", "PROFILE", "DEVICE", "TRANSPORT", "BACKEND", "RADIO", "REPLICA", "ACTIVITY"}
 }
 
 func wideDeviceHeaders() []string {
-	return []string{"", "PROFILE", "DEVICE", "BACKEND", "RADIO", "REPLICA", "TRANSPORT", "ENDPOINT", "ACTIVITY"}
+	return []string{"", "PROFILE", "DEVICE", "TRANSPORT", "BACKEND", "RADIO", "REPLICA", "ENDPOINT", "ACTIVITY"}
 }
 
 const (
 	deviceSelectCol    = 0
 	deviceProfileCol   = 1
 	deviceIDCol        = 2
-	deviceBackendCol   = 3
-	deviceRadioCol     = 4
-	deviceReplicaCol   = 5
-	deviceTransportCol = 6
+	deviceTransportCol = 3
+	deviceBackendCol   = 4
+	deviceRadioCol     = 5
+	deviceReplicaCol   = 6
 	deviceActivityCol  = 7
 	deviceEndpointCol  = 7
 )
 
 func defaultDeviceColumnWidths(rows []DeviceListRow) []int {
-	widths := []int{1, 12, 8, 9, 13, 7, 9, 12}
+	widths := []int{1, 12, 8, 9, 9, 13, 7, 18}
 	headers := defaultDeviceHeaders()
 	for i, header := range headers {
 		widths[i] = max(widths[i], DisplayWidth(header))
@@ -95,10 +96,10 @@ func defaultDeviceColumnWidths(rows []DeviceListRow) []int {
 		widths[deviceSelectCol] = max(widths[deviceSelectCol], DisplayWidth(selectionLabel(row)))
 		widths[deviceProfileCol] = max(widths[deviceProfileCol], DisplayWidth(row.Profile))
 		widths[deviceIDCol] = max(widths[deviceIDCol], DisplayWidth(row.Device))
+		widths[deviceTransportCol] = max(widths[deviceTransportCol], DisplayWidth(row.Transport))
 		widths[deviceBackendCol] = max(widths[deviceBackendCol], DisplayWidth(row.Backend))
 		widths[deviceRadioCol] = max(widths[deviceRadioCol], DisplayWidth(row.Radio))
 		widths[deviceReplicaCol] = max(widths[deviceReplicaCol], DisplayWidth(row.Replica))
-		widths[deviceTransportCol] = max(widths[deviceTransportCol], DisplayWidth(row.Transport))
 		widths[deviceActivityCol] = max(widths[deviceActivityCol], DisplayWidth(row.Activity))
 	}
 	return widths
@@ -122,6 +123,7 @@ type deviceCell struct {
 	text    string
 	health  Health
 	dimDash bool
+	dim     bool
 }
 
 func deviceRowCells(row DeviceListRow, theme Theme, wide bool) []deviceCell {
@@ -129,16 +131,25 @@ func deviceRowCells(row DeviceListRow, theme Theme, wide bool) []deviceCell {
 		{text: selectionLabel(row)},
 		{text: row.Profile},
 		{text: row.Device, dimDash: true},
+		{text: row.Transport},
 		{text: row.Backend, health: deviceBackendHealth(row.Backend)},
 		{text: row.Radio, health: deviceRadioHealth(row.Radio), dimDash: true},
 		{text: row.Replica, health: deviceReplicaHealth(row.Replica)},
-		{text: row.Transport},
 	}
 	if wide {
 		cells = append(cells, deviceCell{text: row.Endpoint, dimDash: true})
 	}
-	cells = append(cells, deviceCell{text: row.Activity, health: deviceActivityHealth(row.Activity), dimDash: true})
+	cells = append(cells, deviceActivityCell(row))
 	return cells
+}
+
+func deviceActivityCell(row DeviceListRow) deviceCell {
+	return deviceCell{
+		text:    row.Activity,
+		health:  deviceActivityHealth(row.Activity),
+		dimDash: row.Activity == "-",
+		dim:     strings.HasPrefix(row.Activity, "last "),
+	}
 }
 
 func selectionLabel(row DeviceListRow) string {
@@ -188,11 +199,15 @@ func deviceReplicaHealth(state string) Health {
 }
 
 func deviceActivityHealth(state string) Health {
-	switch state {
-	case "idle":
+	switch {
+	case state == "idle":
 		return HealthOK
-	case "-", "":
+	case state == "-", state == "":
 		return HealthUnknown
+	case strings.HasPrefix(state, "last "):
+		return HealthUnknown
+	case state == "reconnecting", strings.HasPrefix(state, "syncing"):
+		return HealthWarning
 	default:
 		return HealthWarning
 	}
@@ -236,7 +251,7 @@ func styleDeviceCell(cell deviceCell, text string, theme Theme) string {
 	switch {
 	case cell.health != HealthUnknown && text != "" && text != "-":
 		return theme.StatusWord(cell.health, text)
-	case cell.dimDash && text == "-":
+	case cell.dim || (cell.dimDash && text == "-"):
 		return theme.Dim(text)
 	default:
 		return text
@@ -347,7 +362,18 @@ func DeviceListActivityState(active bool, running bool, state string, contacts, 
 		return "syncing channels"
 	}
 	if radio.Active {
-		return radioMethodLabel(radio.Method)
+		label := radioMethodLabel(radio.Method)
+		if radio.DurationMs > 0 {
+			return label + " · " + formatRunningDuration(time.Duration(radio.DurationMs)*time.Millisecond)
+		}
+		return label
+	}
+	if !radio.LastAt.IsZero() {
+		label := "last " + RelativeTime(radio.LastAt)
+		if radio.LastMethod != "" {
+			label += " (" + radioMethodLabel(radio.LastMethod) + ")"
+		}
+		return label
 	}
 	return "idle"
 }

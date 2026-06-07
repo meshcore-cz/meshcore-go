@@ -9,8 +9,8 @@ import (
 func TestRenderDeviceListDefault(t *testing.T) {
 	data := DeviceListData{
 		Devices: []DeviceListRow{
-			{Profile: "handheld", Selected: true, Device: "EFF01EF2", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "BLE", Activity: "idle"},
-			{Profile: "desk-radio", Device: "A82F910C", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "SERIAL", Activity: "idle"},
+			{Profile: "handheld", Selected: true, Device: "EFF01EF2", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "BLE", Activity: "last 45s ago (stats)"},
+			{Profile: "desk-radio", Device: "A82F910C", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "SERIAL", Activity: "last 45s ago (stats)"},
 			{Profile: "field-node", Device: "B71A44C2", Backend: "stopped", Radio: "-", Replica: "cached", Transport: "BLE", Activity: "-"},
 			{Profile: "test-node", Device: "C40A109E", Backend: "degraded", Radio: "reconnecting", Replica: "stale", Transport: "BLE", Activity: "reconnecting"},
 		},
@@ -48,7 +48,7 @@ func TestRenderDeviceListDefault(t *testing.T) {
 		"degraded",
 		"reconnecting",
 		"stale",
-		"idle",
+		"last 45s ago (stats)",
 		"4 devices · handheld selected · 2 ready · 1 degraded · 1 stopped",
 	} {
 		if !strings.Contains(out, want) {
@@ -60,6 +60,10 @@ func TestRenderDeviceListDefault(t *testing.T) {
 	}
 	if !strings.Contains(out, "* ") || !strings.Contains(out, "  desk-radio") {
 		t.Fatalf("expected separate selection marker column:\n%s", out)
+	}
+	header := strings.Split(strings.TrimRight(out, "\n"), "\n")[0]
+	if strings.Index(header, "TRANSPORT") > strings.Index(header, "BACKEND") {
+		t.Fatalf("TRANSPORT should precede BACKEND in header: %q", header)
 	}
 }
 
@@ -74,7 +78,7 @@ func TestRenderDeviceListWide(t *testing.T) {
 				Radio:     "connected",
 				Replica:   "fresh",
 				Transport: "BLE",
-				Activity:  "idle",
+				Activity:  "last 45s ago (stats)",
 				Endpoint:  "ble://90d56c84-42ef-36f3-89ae-9e8f42231b00",
 			},
 		},
@@ -138,6 +142,10 @@ func TestDeviceListActivityState(t *testing.T) {
 	if got := DeviceListActivityState(true, true, "ready", ReplicaInfo{}, ReplicaInfo{}, radio); got != "trace" {
 		t.Fatalf("got %q, want trace", got)
 	}
+	active := RadioIOInfo{Active: true, Method: "trace", DurationMs: 1234}
+	if got := DeviceListActivityState(true, true, "ready", ReplicaInfo{}, ReplicaInfo{}, active); got != "trace · 1.2s" {
+		t.Fatalf("got %q, want trace · 1.2s", got)
+	}
 	if got := DeviceListActivityState(true, true, "degraded", ReplicaInfo{}, ReplicaInfo{}, RadioIOInfo{}); got != "reconnecting" {
 		t.Fatalf("got %q, want reconnecting", got)
 	}
@@ -147,6 +155,14 @@ func TestDeviceListActivityState(t *testing.T) {
 	syncing := ReplicaInfo{Syncing: true}
 	if got := DeviceListActivityState(true, true, "ready", syncing, ReplicaInfo{}, RadioIOInfo{}); got != "syncing contacts" {
 		t.Fatalf("got %q, want syncing contacts", got)
+	}
+	last := RadioIOInfo{LastMethod: "stats", LastAt: time.Now().Add(-45 * time.Second)}
+	if got := DeviceListActivityState(true, true, "ready", ReplicaInfo{}, ReplicaInfo{}, last); got != "last 45s ago (stats)" {
+		t.Fatalf("got %q, want last 45s ago (stats)", got)
+	}
+	lastOnly := RadioIOInfo{LastAt: time.Now().Add(-45 * time.Second)}
+	if got := DeviceListActivityState(true, true, "ready", ReplicaInfo{}, ReplicaInfo{}, lastOnly); got != "last 45s ago" {
+		t.Fatalf("got %q, want last 45s ago", got)
 	}
 }
 

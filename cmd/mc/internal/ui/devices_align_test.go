@@ -8,8 +8,8 @@ import (
 func TestDeviceListColumnAlignment(t *testing.T) {
 	data := DeviceListData{
 		Devices: []DeviceListRow{
-			{Profile: "handheld", Selected: true, Device: "EFF01EF2", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "BLE", Activity: "idle"},
-			{Profile: "desk-radio", Device: "A82F910C", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "SERIAL", Activity: "idle"},
+			{Profile: "handheld", Selected: true, Device: "EFF01EF2", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "BLE", Activity: "last 45s ago (stats)"},
+			{Profile: "desk-radio", Device: "A82F910C", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "SERIAL", Activity: "last 45s ago (stats)"},
 		},
 		Meta: DeviceListMeta{Count: 2, Selected: "handheld", Ready: 2},
 	}
@@ -38,9 +38,18 @@ func TestDeviceListColumnAlignment(t *testing.T) {
 		t.Fatalf("selected row should start with selection marker, got %q", lines[1][:1])
 	}
 
+	hTransport := strings.Index(lines[0], "TRANSPORT")
+	dTransport := strings.Index(lines[1], "BLE")
+	if hTransport <= hDevice {
+		t.Fatalf("TRANSPORT should follow DEVICE in header: device@%d transport@%d", hDevice, hTransport)
+	}
+	if dTransport <= dDevice {
+		t.Fatalf("transport should follow device ID: device@%d transport@%d", dDevice, dTransport)
+	}
+
 	// DEVICE header should occupy the same width as the device ID values below.
 	deviceColEnd := strings.Index(lines[1], "EFF01EF2") + len("EFF01EF2")
-	headerDeviceEnd := strings.Index(lines[0], "BACKEND") - 1 // space before BACKEND
+	headerDeviceEnd := strings.Index(lines[0], "TRANSPORT") - 1 // space before TRANSPORT
 	if headerDeviceEnd != deviceColEnd {
 		t.Fatalf("DEVICE column width mismatch: header ends@%d data ends@%d", headerDeviceEnd, deviceColEnd)
 	}
