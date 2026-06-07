@@ -316,14 +316,22 @@ Print version information.
 `,
 }
 
-// printCommandHelp writes a command's help to stdout and returns an exit code.
-func printCommandHelp(cmd string) int {
+// writeCommandHelp writes a command's help to stdout.
+func writeCommandHelp(cmd string) error {
 	h, ok := commandHelp[resolveAlias(cmd)]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "mc: no help available for %q\n", cmd)
 		usage()
-		return 2
+		return fmt.Errorf("no help available for %q", cmd)
 	}
 	fmt.Fprint(os.Stdout, h)
+	return nil
+}
+
+// printCommandHelp writes a command's help to stdout and returns an exit code.
+func printCommandHelp(cmd string) int {
+	if err := writeCommandHelp(cmd); err != nil {
+		return 2
+	}
 	return 0
 }

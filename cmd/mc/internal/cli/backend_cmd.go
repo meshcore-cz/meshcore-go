@@ -26,7 +26,15 @@ const (
 )
 
 func cmdBackend(ctx context.Context, e *env) error {
-	switch e.restArg(0) {
+	sub := e.restArg(0)
+	if e.exec.TemporaryShellBackend {
+		switch sub {
+		case "start", "restart", "stop", "reset", "serve":
+			return fmt.Errorf("cannot %s the temporary shell backend; use `exit`", sub)
+		}
+	}
+
+	switch sub {
 	case "start":
 		return backendStart(ctx, e)
 	case "restart":
@@ -47,7 +55,7 @@ func cmdBackend(ctx context.Context, e *env) error {
 }
 
 func backendStart(ctx context.Context, e *env) error {
-	if st, ok := backendStatus(ctx); ok {
+	if st, ok := backendStatus(ctx, e); ok {
 		e.out.Human("Backend already running for %s (pid %d).\n", st.URI, st.PID)
 		return e.out.JSONValue(backendStatusJSON(st))
 	}
@@ -92,7 +100,7 @@ func backendStartURI(ctx context.Context, e *env, uri string) error {
 
 	deadline := time.Now().Add(backendReadyTimeout(uri))
 	for time.Now().Before(deadline) {
-		if st, ok := backendStatus(ctx); ok && st.Healthy {
+		if st, ok := backendStatus(ctx, e); ok && st.Healthy {
 			printBackendStartSummary(e, st)
 			return e.out.JSONValue(backendStatusJSON(st))
 		}
@@ -233,10 +241,10 @@ func readLogLines(path string, maxLines int) ([]string, error) {
 func backendReset(ctx context.Context, e *env) error {
 	var stopped bool
 	var stopStatus localbackend.Status
-	if st, ok := backendStatus(ctx); ok {
+	if st, ok := backendStatus(ctx, e); ok {
 		e.out.Human("Stopping backend for %s (pid %d)...\n", st.URI, st.PID)
 		var err error
-		stopStatus, stopped, err = stopBackend(ctx)
+		stopStatus, stopped, err = stopBackend(ctx, e)
 		if err != nil {
 			return err
 		}
@@ -284,13 +292,13 @@ func resetBackendState(e *env) ([]string, error) {
 }
 
 func backendStop(ctx context.Context, e *env) error {
-	client := localbackend.NewClient("")
+	client := backendClientForEnv(e)
 	st, err := client.Status(ctx)
 	if err != nil {
 		e.out.Human("Backend is not running.\n")
 		return e.out.JSONValue(map[string]any{"running": false, "socket": client.Socket()})
 	}
-	st, stopped, err := stopBackend(ctx)
+	st, stopped, err := stopBackend(ctx, e)
 	if err != nil {
 		return err
 	}
@@ -299,7 +307,7 @@ func backendStop(ctx context.Context, e *env) error {
 }
 
 func backendRestart(ctx context.Context, e *env) error {
-	running, ok := backendStatus(ctx)
+	running, ok := backendStatus(ctx, e)
 	uri := ""
 	if e.args.flag("uri") != "" || e.args.flag("device") != "" || !ok {
 		resolved, _, err := resolveURI(e)
@@ -313,7 +321,7 @@ func backendRestart(ctx context.Context, e *env) error {
 
 	if ok {
 		e.out.Human("Stopping backend for %s (pid %d)...\n", running.URI, running.PID)
-		if _, _, err := stopBackend(ctx); err != nil {
+		if _, _, err := stopBackend(ctx, e); err != nil {
 			return err
 		}
 	} else if !e.args.has("reset") {
@@ -330,7 +338,7 @@ func backendRestart(ctx context.Context, e *env) error {
 }
 
 func backendStatusCmd(ctx context.Context, e *env) error {
-	st, ok := backendStatus(ctx)
+	st, ok := backendStatus(ctx, e)
 	if !ok {
 		e.out.Human("Backend: not running\n")
 		return e.out.JSONValue(map[string]any{"running": false, "socket": localbackend.SocketPath()})
@@ -370,8 +378,8 @@ func backendServe(ctx context.Context, e *env) error {
 	return server.Serve()
 }
 
-func stopBackend(ctx context.Context) (localbackend.Status, bool, error) {
-	client := localbackend.NewClient("")
+func stopBackend(ctx context.Context, e *env) (localbackend.Status, bool, error) {
+	client := backendClientForEnv(e)
 	st, err := client.Status(ctx)
 	if err != nil {
 		return st, false, err
@@ -382,7 +390,7 @@ func stopBackend(ctx context.Context) (localbackend.Status, bool, error) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := backendStatus(ctx); !ok {
+		if _, ok := backendStatus(ctx, e); !ok {
 			return st, true, nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -390,8 +398,8 @@ func stopBackend(ctx context.Context) (localbackend.Status, bool, error) {
 	return st, false, fmt.Errorf("backend did not stop")
 }
 
-func backendStatus(ctx context.Context) (localbackend.Status, bool) {
-	st, err := localbackend.NewClient("").Status(ctx)
+func backendStatus(ctx context.Context, e *env) (localbackend.Status, bool) {
+	st, err := backendClientForEnv(e).Status(ctx)
 	if err != nil {
 		return localbackend.Status{Running: false, Socket: localbackend.SocketPath()}, false
 	}

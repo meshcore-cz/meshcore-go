@@ -49,7 +49,7 @@ func deviceList(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	st, backendRunning := backendStatus(ctx)
+	st, backendRunning := backendStatus(ctx, e)
 
 	if e.out.JSON {
 		return e.out.JSONValue(deviceListJSON(cfg, st, backendRunning))
@@ -76,7 +76,7 @@ func deviceShow(ctx context.Context, e *env) error {
 }
 
 func deviceShowConnected(ctx context.Context, e *env) error {
-	st, backendRunning := backendStatus(ctx)
+	st, backendRunning := backendStatus(ctx, e)
 	if backendRunning && st.Healthy && !e.args.has("direct") && st.Device.Available() {
 		dev := st.Device
 		dev.Transport = st.Transport

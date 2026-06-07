@@ -86,7 +86,7 @@ func maybeOfferBackendStart(ctx context.Context, e *env, uri string) error {
 	if e.out.JSON {
 		return nil
 	}
-	if _, ok := backendStatus(ctx); ok {
+	if _, ok := backendStatus(ctx, e); ok {
 		return nil
 	}
 	if !promptYes("Start backend?", true) {

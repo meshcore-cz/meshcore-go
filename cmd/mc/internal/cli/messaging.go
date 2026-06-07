@@ -75,7 +75,7 @@ func cmdContacts(ctx context.Context, e *env) error {
 
 func openContactsBackend(ctx context.Context, e *env) (Backend, error) {
 	if e.args.has("cached") {
-		return openIPCBackendAllowDegraded(ctx)
+		return openIPCBackendAllowDegraded(ctx, e)
 	}
 	return openBackend(ctx, e)
 }
@@ -625,7 +625,7 @@ func cmdWatch(ctx context.Context, e *env) error {
 		if err == nil {
 			return nil
 		}
-		if errors.Is(err, errBackendDegraded) {
+		if errors.Is(err, errBackendDegraded) || e.exec.RequireIPC {
 			return err
 		}
 	}
@@ -667,7 +667,7 @@ func cmdWatchRaw(ctx context.Context, e *env) error {
 		if err == nil {
 			return nil
 		}
-		if errors.Is(err, errBackendDegraded) {
+		if errors.Is(err, errBackendDegraded) || e.exec.RequireIPC {
 			return err
 		}
 	}
@@ -701,7 +701,7 @@ func cmdWatchRaw(ctx context.Context, e *env) error {
 }
 
 func cmdWatchRawBackend(ctx context.Context, e *env) error {
-	client := localbackend.NewClient("")
+	client := backendClientForEnv(e)
 	st, err := client.Status(ctx)
 	if err != nil {
 		return err
@@ -725,7 +725,7 @@ func cmdWatchRawBackend(ctx context.Context, e *env) error {
 }
 
 func cmdWatchBackend(ctx context.Context, e *env) error {
-	client := localbackend.NewClient("")
+	client := backendClientForEnv(e)
 	st, err := client.Status(ctx)
 	if err != nil {
 		return err

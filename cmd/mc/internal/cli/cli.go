@@ -42,12 +42,127 @@ var commandAliasSubcommand = map[string]string{
 	"list": "list",
 }
 
+// ExecuteOptions configures shared command execution.
+type ExecuteOptions struct {
+	// BackendSocket overrides the normal per-device backend socket.
+	// Used by mc shell when it starts a private temporary backend.
+	BackendSocket string
+
+	// RequireIPC prevents silent fallback to a new direct radio connection.
+	// A shell session should keep using its session backend.
+	RequireIPC bool
+
+	// InShell allows commands to adapt behavior where necessary.
+	InShell bool
+
+	// TemporaryShellBackend marks the session backend as owned by mc shell.
+	TemporaryShellBackend bool
+}
+
 // resolveAlias returns the canonical command name for cmd, or cmd unchanged.
 func resolveAlias(cmd string) string {
 	if canonical, ok := commandAliases[cmd]; ok {
 		return canonical
 	}
 	return cmd
+}
+
+// Execute parses arguments and runs a single command.
+func Execute(ctx context.Context, args []string, opts ExecuteOptions) error {
+	pa, err := parseArgs(args)
+	if err != nil {
+		return err
+	}
+
+	originalCmd := pa.arg(0)
+	cmd := resolveAlias(originalCmd)
+	wantHelp := pa.has("help") || pa.has("h")
+
+	if cmd == "help" {
+		if sub := pa.arg(1); sub != "" {
+			return writeCommandHelp(sub)
+		}
+		usage()
+		if opts.InShell {
+			printShellHelpFooter()
+		}
+		return nil
+	}
+
+	if cmd == "" {
+		return fmt.Errorf("missing command")
+	}
+
+	if wantHelp {
+		return writeCommandHelp(cmd)
+	}
+
+	rest := pa.positionals[1:]
+	if sub, ok := commandAliasSubcommand[originalCmd]; ok {
+		rest = append([]string{sub}, rest...)
+	}
+
+	e := &env{
+		args: pa,
+		rest: rest,
+		out:  output.New(pa.has("json")),
+		dbg:  newDebug(pa),
+		exec: opts,
+	}
+
+	return dispatch(ctx, cmd, e)
+}
+
+func dispatch(ctx context.Context, cmd string, e *env) error {
+	switch cmd {
+	case "version":
+		return cmdVersion(e)
+	case "connect":
+		return cmdConnect(ctx, e)
+	case "status":
+		return cmdStatus(ctx, e)
+	case "stats":
+		return cmdStats(ctx, e)
+	case "doctor":
+		return cmdDoctor(ctx, e)
+	case "backend":
+		return cmdBackend(ctx, e)
+	case "contacts":
+		return cmdContacts(ctx, e)
+	case "contact":
+		return cmdContact(ctx, e)
+	case "inbox":
+		return cmdInbox(ctx, e)
+	case "send":
+		return cmdSend(ctx, e)
+	case "watch":
+		return cmdWatch(ctx, e)
+	case "shell":
+		if e.exec.InShell {
+			return fmt.Errorf("already running inside mc shell")
+		}
+		return cmdShell(ctx, e)
+	case "trace":
+		return cmdTrace(ctx, e)
+	case "channel":
+		return cmdChannel(ctx, e)
+	case "advert":
+		return cmdAdvert(ctx, e)
+	case "discover":
+		return cmdDiscover(ctx, e)
+	case "repeater":
+		return cmdRepeater(ctx, e)
+	case "use":
+		return cmdUse(e)
+	case "device":
+		return cmdDevice(ctx, e)
+	case "config":
+		return cmdConfig(e)
+	case "raw":
+		return cmdRaw(ctx, e)
+	default:
+		return fmt.Errorf("unknown command %q", cmd)
+	}
 }
 
 // Run parses arguments and dispatches to a subcommand. It returns a process
@@ -61,96 +176,27 @@ func Run(args []string) int {
 
 	originalCmd := pa.arg(0)
 	cmd := resolveAlias(originalCmd)
-	wantHelp := pa.has("help") || pa.has("h")
-
-	// `mc help [command]`
-	if cmd == "help" {
-		if sub := pa.arg(1); sub != "" {
-			return printCommandHelp(sub)
-		}
-		usage()
-		return 0
-	}
 	if cmd == "" {
 		usage()
-		if wantHelp {
+		if pa.has("help") || pa.has("h") {
 			return 0
 		}
 		return 2
 	}
-	// `mc <command> -h` / `--help`
-	if wantHelp {
-		return printCommandHelp(cmd)
+
+	err = Execute(context.Background(), args, ExecuteOptions{})
+	if err == nil {
+		return 0
 	}
 
-	ctx := context.Background()
-	out := output.New(pa.has("json"))
+	fmt.Fprintln(os.Stderr, "mc:", err)
 
-	rest := pa.positionals[1:]
-	if sub, ok := commandAliasSubcommand[originalCmd]; ok {
-		rest = append([]string{sub}, rest...)
-	}
-	env := &env{args: pa, rest: rest, out: out, dbg: newDebug(pa)}
-
-	var runErr error
-	switch cmd {
-	case "version":
-		runErr = cmdVersion(env)
-	case "connect":
-		runErr = cmdConnect(ctx, env)
-	case "status":
-		runErr = cmdStatus(ctx, env)
-	case "stats":
-		runErr = cmdStats(ctx, env)
-	case "doctor":
-		runErr = cmdDoctor(ctx, env)
-	case "backend":
-		runErr = cmdBackend(ctx, env)
-	case "contacts":
-		runErr = cmdContacts(ctx, env)
-	case "contact":
-		runErr = cmdContact(ctx, env)
-	case "inbox":
-		runErr = cmdInbox(ctx, env)
-	case "send":
-		runErr = cmdSend(ctx, env)
-	case "watch":
-		runErr = cmdWatch(ctx, env)
-	case "shell":
-		runErr = cmdShell(ctx, env)
-	case "trace":
-		runErr = cmdTrace(ctx, env)
-	case "channel":
-		runErr = cmdChannel(ctx, env)
-	case "advert":
-		runErr = cmdAdvert(ctx, env)
-	case "discover":
-		runErr = cmdDiscover(ctx, env)
-	case "repeater":
-		runErr = cmdRepeater(ctx, env)
-	case "use":
-		runErr = cmdUse(env)
-	case "device":
-		runErr = cmdDevice(ctx, env)
-	case "config":
-		runErr = cmdConfig(env)
-	case "raw":
-		runErr = cmdRaw(ctx, env)
-	default:
-		fmt.Fprintf(os.Stderr, "mc: unknown command %q\n", cmd)
-		usage()
-		return 2
+	if errors.Is(err, serial.ErrBusy) {
+		fmt.Fprintln(os.Stderr, "hint: another program is using the serial port "+
+			"(serial monitor, firmware flasher, or another mc). Close it and retry.")
 	}
 
-	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "mc:", runErr)
-		if errors.Is(runErr, serial.ErrBusy) {
-			fmt.Fprintln(os.Stderr, "hint: another program is using the serial port "+
-				"(serial monitor, firmware flasher, or another mc). Close it and retry.")
-		}
-		return 1
-	}
-	return 0
+	return 1
 }
 
 // env carries parsed arguments and the output printer to each command.
@@ -159,6 +205,7 @@ type env struct {
 	rest []string // positional args after the subcommand
 	out  *output.Printer
 	dbg  Debug
+	exec ExecuteOptions
 }
 
 func (e *env) restArg(i int) string {
@@ -211,5 +258,12 @@ Global flags:
   --debug            Verbose logging
 
 Run "mc <command> -h" or "mc help <command>" for command-specific help.
+`)
+}
+
+func printShellHelpFooter() {
+	fmt.Fprint(os.Stderr, `
+Shell commands:
+  exit, quit    Close the shell
 `)
 }

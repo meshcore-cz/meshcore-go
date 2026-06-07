@@ -50,15 +50,29 @@ type directBackend struct {
 	svc    *service.Service
 }
 
+func resolveBackendSocket(e *env) string {
+	if e.exec.BackendSocket != "" {
+		return e.exec.BackendSocket
+	}
+	return localbackend.SocketPath()
+}
+
+func backendClientForEnv(e *env) *localbackend.Client {
+	return localbackend.NewClient(resolveBackendSocket(e))
+}
+
 func openBackend(ctx context.Context, e *env) (Backend, error) {
 	if preferIPCBackend(e) {
-		b, err := openIPCBackend(ctx)
+		b, err := openIPCBackend(ctx, e)
 		if err == nil {
 			e.dbg.Backend("ipc", b)
 			return b, nil
 		}
 		if errors.Is(err, errBackendDegraded) {
 			return nil, err
+		}
+		if e.exec.RequireIPC {
+			return nil, fmt.Errorf("shell backend unavailable: %w", err)
 		}
 		e.dbg.Log("ipc backend unavailable", "error", err)
 	}
@@ -77,14 +91,14 @@ func preferIPCBackend(e *env) bool {
 		e.args.flag("device") == ""
 }
 
-func openIPCBackend(ctx context.Context) (*ipcBackend, error) {
-	client := localbackend.NewClient("")
+func openIPCBackend(ctx context.Context, e *env) (*ipcBackend, error) {
+	client := backendClientForEnv(e)
 	status, err := client.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if !status.Healthy {
-		msg := fmt.Sprintf("current active device is %s", status.State)
+		msg := fmt.Sprintf("backend is %s", status.State)
 		if status.LastError != "" {
 			msg += ": " + status.LastError
 		}
@@ -93,8 +107,8 @@ func openIPCBackend(ctx context.Context) (*ipcBackend, error) {
 	return &ipcBackend{client: client, status: status}, nil
 }
 
-func openIPCBackendAllowDegraded(ctx context.Context) (*ipcBackend, error) {
-	client := localbackend.NewClient("")
+func openIPCBackendAllowDegraded(ctx context.Context, e *env) (*ipcBackend, error) {
+	client := backendClientForEnv(e)
 	status, err := client.Status(ctx)
 	if err != nil {
 		return nil, err

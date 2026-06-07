@@ -41,7 +41,7 @@ func cmdVersion(e *env) error {
 }
 
 func cmdStatus(ctx context.Context, e *env) error {
-	st, backendRunning := backendStatus(ctx)
+	st, backendRunning := backendStatus(ctx, e)
 	if backendRunning && !e.args.has("direct") {
 		if !st.Healthy {
 			if e.out.JSON {
@@ -84,7 +84,7 @@ func statusStats(ctx context.Context, e *env, st localbackend.Status) (meshcore.
 	if !e.args.has("live") {
 		return st.Stats, st.StatsOK, st.StatsAt, nil
 	}
-	stats, err := localbackend.NewClient("").StatsWithOptions(ctx, true)
+	stats, err := backendClientForEnv(e).StatsWithOptions(ctx, true)
 	if err != nil {
 		return meshcore.LocalStats{}, false, time.Time{}, fmt.Errorf("live stats: %w", err)
 	}
@@ -186,7 +186,7 @@ func cmdDoctor(ctx context.Context, e *env) error {
 	add("Endpoint", uri, true)
 
 	if !e.args.has("direct") {
-		if st, ok := backendStatus(ctx); ok {
+		if st, ok := backendStatus(ctx, e); ok {
 			add("Local backend", fmt.Sprintf("running (pid %d)", st.PID), true)
 			if st.Device.Available() {
 				add("Companion radio", "reachable via backend", true)
@@ -195,7 +195,7 @@ func cmdDoctor(ctx context.Context, e *env) error {
 				add("Protocol", orDash(st.Device.Protocol), true)
 				return finishDoctor(e, checks)
 			}
-			client := localbackend.NewClient("")
+			client := backendClientForEnv(e)
 			info, err := client.DeviceInfo(ctx)
 			if err != nil {
 				add("Companion radio", "backend error: "+err.Error(), false)

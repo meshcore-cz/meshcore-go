@@ -85,27 +85,51 @@ const (
 	initialContactSyncTimeout = 90 * time.Second
 )
 
+// ServerOptions configures a backend server instance.
+type ServerOptions struct {
+	Socket  string
+	Store   Store
+	Bridges []BridgeConfig
+}
+
 // NewServer dials uri and prepares a local backend server.
 func NewServer(ctx context.Context, uri string, opts ...meshcore.DialOption) (*Server, error) {
-	return NewServerWithBridges(ctx, uri, nil, opts...)
+	return NewServerWithOptions(ctx, uri, ServerOptions{}, opts...)
 }
 
 // NewServerWithBridges dials uri and prepares a backend with configured bridge
 // listeners.
 func NewServerWithBridges(ctx context.Context, uri string, bridges []BridgeConfig, opts ...meshcore.DialOption) (*Server, error) {
-	store, err := OpenSQLiteStore("")
-	if err != nil {
-		return nil, fmt.Errorf("opening backend store: %w", err)
+	return NewServerWithOptions(ctx, uri, ServerOptions{Bridges: bridges}, opts...)
+}
+
+// NewServerWithOptions dials uri and prepares a backend server with explicit
+// socket, store, and bridge configuration.
+func NewServerWithOptions(ctx context.Context, uri string, cfg ServerOptions, opts ...meshcore.DialOption) (*Server, error) {
+	socket := cfg.Socket
+	if socket == "" {
+		socket = SocketPath()
 	}
+
+	store := cfg.Store
+	if store == nil {
+		var err error
+		store, err = OpenSQLiteStore("")
+		if err != nil {
+			return nil, fmt.Errorf("opening backend store: %w", err)
+		}
+	}
+
 	s := &Server{
-		uri:      uri,
-		socket:   SocketPath(),
-		opts:     append([]meshcore.DialOption(nil), opts...),
-		bridges:  append([]BridgeConfig(nil), bridges...),
-		store:    store,
-		state:    stateReady,
-		lastSeen: time.Now(),
-		stopped:  make(chan struct{}),
+		uri:            uri,
+		socket:         socket,
+		opts:           append([]meshcore.DialOption(nil), opts...),
+		bridges:        append([]BridgeConfig(nil), cfg.Bridges...),
+		store:          store,
+		state:          stateReady,
+		lastSeen:       time.Now(),
+		stopped:        make(chan struct{}),
+		bridgeStatuses: make(map[string]BridgeStatus),
 	}
 	client, err := s.dialClient(ctx)
 	if err != nil {

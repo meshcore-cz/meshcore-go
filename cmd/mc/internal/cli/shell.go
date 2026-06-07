@@ -3,64 +3,204 @@ package cli
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
+	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 )
 
+type shellSession struct {
+	Profile   string
+	Socket    string
+	Temporary bool
+
+	server  *localbackend.Server
+	done    chan error
+	cleanup func()
+}
+
+func (s *shellSession) close() {
+	if s.cleanup != nil {
+		s.cleanup()
+	}
+}
+
 func cmdShell(ctx context.Context, e *env) error {
-	backend, err := openShellBackend(ctx, e)
+	session, err := openShellSession(ctx, e)
 	if err != nil {
 		return err
 	}
-	defer backend.Close()
+	defer func() {
+		if session.Temporary {
+			e.out.Human("Stopping temporary backend...\n")
+		}
+		session.close()
+	}()
 
-	e.out.Human("Connected to %s. Type help for commands, exit to quit.\n", backend.URI())
-	return runShell(ctx, e, backend, os.Stdin)
+	printShellBanner(e, session)
+	e.out.Human("Type `help` for commands, `exit` to quit.\n\n")
+	return runShell(ctx, e, session, os.Stdin)
 }
 
-func openShellBackend(ctx context.Context, e *env) (Backend, error) {
-	if !e.args.has("direct") {
-		b, err := openIPCBackend(ctx)
-		if err == nil {
-			return b, nil
+func printShellBanner(e *env, session *shellSession) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client := localbackend.NewClient(session.Socket)
+	st, err := client.Status(ctx)
+	if err != nil {
+		if session.Temporary {
+			e.out.Human("Starting temporary backend for %s...\n", session.Profile)
 		}
-		if errors.Is(err, errBackendDegraded) {
-			return nil, err
-		}
+		return
 	}
-	uri, _, err := resolveURI(e)
+
+	if session.Temporary {
+		e.out.Human("Starting temporary backend for %s...\n", session.Profile)
+		label := shellConnectedLabel(st)
+		transport := strings.ToUpper(st.Transport)
+		if transport == "" {
+			transport = strings.ToUpper(schemeOf(st.URI))
+		}
+		e.out.Human("Connected to %s via %s.\n", label, transport)
+		e.out.Human("Temporary backend will stop when this shell exits.\n")
+		return
+	}
+
+	e.out.Human("Using backend for %s (pid %d).\n", session.Profile, st.PID)
+}
+
+func shellConnectedLabel(st localbackend.Status) string {
+	if st.Device.PublicKey != "" {
+		return shortKey(st.Device.PublicKey)
+	}
+	if st.Device.Name != "" {
+		return st.Device.Name
+	}
+	return st.URI
+}
+
+func openShellSession(ctx context.Context, e *env) (*shellSession, error) {
+	profile, uri, err := resolveShellTarget(e)
 	if err != nil {
 		return nil, err
 	}
-	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
-	client, err := meshcore.Dial(ctx, uri, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
+	if profile == "" {
+		profile = "default"
 	}
-	return newDirectBackend(uri, client), nil
+
+	socket := resolveBackendSocket(e)
+	client := localbackend.NewClient(socket)
+	if st, err := client.Status(ctx); err == nil && st.Healthy {
+		return &shellSession{
+			Profile:   profile,
+			Socket:    socket,
+			Temporary: false,
+		}, nil
+	}
+
+	tmpDir, err := os.MkdirTemp("", "mc-shell-*")
+	if err != nil {
+		return nil, err
+	}
+
+	tmpSocket := filepath.Join(tmpDir, "backend.sock")
+	opts := append(
+		e.dbg.DialOptions(),
+		meshcore.WithClientOptions(
+			meshcore.WithMessageSync(),
+			meshcore.WithTimeout(backendContactSyncTimeout),
+		),
+	)
+
+	server, err := localbackend.NewServerWithOptions(
+		ctx,
+		uri,
+		localbackend.ServerOptions{Socket: tmpSocket},
+		opts...,
+	)
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Serve()
+	}()
+
+	if err := waitForShellBackend(ctx, uri, tmpSocket); err != nil {
+		server.Stop()
+		<-done
+		os.RemoveAll(tmpDir)
+		return nil, err
+	}
+
+	return &shellSession{
+		Profile:   profile,
+		Socket:    tmpSocket,
+		Temporary: true,
+		server:    server,
+		done:      done,
+		cleanup: func() {
+			server.Stop()
+			<-done
+			os.RemoveAll(tmpDir)
+		},
+	}, nil
 }
 
-func runShell(ctx context.Context, e *env, backend Backend, in io.Reader) error {
+func resolveShellTarget(e *env) (profile, uri string, err error) {
+	uri, profile, err = resolveURI(e)
+	return profile, uri, err
+}
+
+func waitForShellBackend(ctx context.Context, uri, socket string) error {
+	client := localbackend.NewClient(socket)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.NewTimer(backendReadyTimeout(uri))
+	defer timeout.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout.C:
+			return fmt.Errorf("temporary backend did not become ready")
+		case <-ticker.C:
+			st, err := client.Status(ctx)
+			if err == nil && st.Healthy {
+				return nil
+			}
+		}
+	}
+}
+
+func runShell(ctx context.Context, parent *env, session *shellSession, in io.Reader) error {
 	scanner := bufio.NewScanner(in)
 	for {
-		e.out.Human("mc> ")
+		parent.out.Human("mc[%s]> ", session.Profile)
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				return err
 			}
-			e.out.Human("\n")
+			parent.out.Human("\n")
 			return nil
 		}
+
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
+
 		fields, err := splitShellFields(line)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "mc:", err)
@@ -69,10 +209,25 @@ func runShell(ctx context.Context, e *env, backend Backend, in io.Reader) error 
 		if len(fields) == 0 {
 			continue
 		}
+
+		if fields[0] == "?" {
+			fields[0] = "help"
+		}
 		if shellShouldExit(fields[0]) {
 			return nil
 		}
-		if err := runShellCommand(ctx, e, backend, fields); err != nil {
+
+		args := inheritShellArgs(fields, parent.args)
+		cmdCtx, cancel := signal.NotifyContext(ctx, os.Interrupt)
+		err = Execute(cmdCtx, args, ExecuteOptions{
+			BackendSocket:         session.Socket,
+			RequireIPC:            true,
+			InShell:               true,
+			TemporaryShellBackend: session.Temporary,
+		})
+		cancel()
+
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "mc:", err)
 		}
 	}
@@ -87,314 +242,24 @@ func shellShouldExit(cmd string) bool {
 	}
 }
 
-func runShellCommand(ctx context.Context, parent *env, backend Backend, fields []string) error {
-	pa, err := parseArgs(fields)
-	if err != nil {
-		return err
+func inheritShellArgs(child []string, parent parsedArgs) []string {
+	args := append([]string(nil), child...)
+	if parent.has("debug") && !containsFlag(args, "--debug") {
+		args = append(args, "--debug")
 	}
-	inheritShellFlags(&pa, parent.args)
-	cmd := pa.arg(0)
-	e := &env{args: pa, rest: pa.positionals[1:], out: parent.out, dbg: newDebug(pa)}
-
-	switch cmd {
-	case "help", "?":
-		printShellHelp(e)
-	case "status":
-		return shellStatus(ctx, e, backend)
-	case "contacts":
-		return shellContacts(ctx, e, backend)
-	case "contact":
-		return shellContact(ctx, e, backend)
-	case "inbox":
-		return shellInbox(ctx, e, backend)
-	case "send":
-		return shellSend(ctx, e, backend)
-	case "trace":
-		return shellTrace(ctx, e, backend)
-	case "channel":
-		return shellChannel(ctx, e, backend)
-	case "advert":
-		return shellAdvert(ctx, e, backend)
-	case "watch":
-		return shellWatch(ctx, e, backend)
-	default:
-		return fmt.Errorf("unknown shell command %q", cmd)
+	if parent.has("json") && !containsFlag(args, "--json") {
+		args = append(args, "--json")
 	}
-	return nil
+	return args
 }
 
-func inheritShellFlags(child *parsedArgs, parent parsedArgs) {
-	for _, name := range []string{"debug", "json"} {
-		if parent.has(name) {
-			child.bools[name] = true
+func containsFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
 		}
 	}
-	for _, name := range []string{"uri", "device"} {
-		if child.flag(name) == "" && parent.flag(name) != "" {
-			child.flags[name] = parent.flag(name)
-		}
-	}
-}
-
-func printShellHelp(e *env) {
-	e.out.Human(`Commands:
-  status
-  contacts
-  contact show <name>
-  inbox
-  send <recipient> <text> [--wait]
-  trace <target>
-  channel list
-  channel show <name|index>
-  channel send <name|index> <text>
-  advert [--flood]
-  watch
-  exit
-`)
-}
-
-func shellStatus(ctx context.Context, e *env, backend Backend) error {
-	info, err := backend.DeviceInfo(ctx)
-	if err != nil {
-		return err
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(map[string]any{
-			"name":             info.Name,
-			"firmware":         info.FirmwareName,
-			"firmware_version": info.FirmwareVersion,
-			"protocol":         info.ProtocolVersion,
-			"transport":        backend.Transport(),
-			"public_key":       info.PublicKey,
-			"capabilities":     info.Capabilities.List(),
-		})
-	}
-	e.out.Human("Device:       %s\n", orDash(info.Name))
-	e.out.Human("Firmware:     %s %s\n", info.FirmwareName, info.FirmwareVersion)
-	e.out.Human("Protocol:     %s\n", orDash(info.ProtocolVersion))
-	e.out.Human("Transport:    %s\n", backend.URI())
-	e.out.Human("Public key:   %s\n", shortKey(info.PublicKey))
-	e.out.Human("Capabilities: %s\n", info.Capabilities.String())
-	return nil
-}
-
-func shellContacts(ctx context.Context, e *env, backend Backend) error {
-	contacts, err := backend.Contacts(ctx)
-	if err != nil {
-		return err
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(contacts)
-	}
-	if len(contacts) == 0 {
-		e.out.Human("No contacts.\n")
-		return nil
-	}
-	printContactsHuman(ctx, e, backend, contacts, false)
-	return nil
-}
-
-func shellContact(ctx context.Context, e *env, backend Backend) error {
-	if e.restArg(0) != "show" {
-		return fmt.Errorf("usage: contact show <name>")
-	}
-	name := e.restArg(1)
-	if name == "" {
-		return fmt.Errorf("usage: contact show <name>")
-	}
-	ct, err := backend.Contact(ctx, name)
-	if err != nil {
-		return err
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(ct)
-	}
-	printContactDetailHuman(ctx, e, backend, ct)
-	return nil
-}
-
-func shellInbox(ctx context.Context, e *env, backend Backend) error {
-	msgs, err := backend.Inbox(ctx)
-	if err != nil {
-		return err
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(msgs)
-	}
-	if len(msgs) == 0 {
-		e.out.Human("No new messages.\n")
-		return nil
-	}
-	names := backendContactNames(ctx, backend)
-	for _, m := range msgs {
-		ts := m.Timestamp.Format("15:04:05")
-		e.out.Human("[%s] %s: %s\n", ts, resolveName(names, m.From), m.Text)
-	}
-	return nil
-}
-
-func shellSend(ctx context.Context, e *env, backend Backend) error {
-	recipient := e.restArg(0)
-	text := e.restArg(1)
-	if recipient == "" || text == "" {
-		return fmt.Errorf("usage: send <recipient> <text> [--wait]")
-	}
-	receipt, err := backend.SendText(ctx, recipient, text)
-	if err != nil {
-		return err
-	}
-	e.out.Human("Queued message %s to %s.\n", receipt.ID(), receipt.To)
-	if !e.args.has("wait") {
-		return e.out.JSONValue(map[string]any{"id": receipt.ID(), "to": receipt.To})
-	}
-	ack, err := backend.WaitForAcknowledgement(ctx, receipt)
-	if err != nil {
-		return fmt.Errorf("waiting for acknowledgement: %w", err)
-	}
-	e.out.Human("Acknowledged after %s.\n", ack.RTT.Round(1e6))
-	return e.out.JSONValue(map[string]any{"id": receipt.ID(), "to": receipt.To, "rtt_ms": ack.RTT.Milliseconds()})
-}
-
-func shellTrace(ctx context.Context, e *env, backend Backend) error {
-	target := e.restArg(0)
-	if target == "" {
-		return fmt.Errorf("usage: trace <target>")
-	}
-	start := time.Now()
-	e.dbg.TraceStarted(target, start)
-
-	plan, planErr := planTrace(ctx, backend, target)
-	if planErr == nil {
-		e.dbg.TracePlan(plan)
-		if plan.Contact != "" {
-			if ct, err := backend.Contact(ctx, target); err == nil {
-				e.dbg.Contact(ct)
-			}
-		}
-	} else {
-		e.dbg.Log("trace plan failed", "target", target, "error", planErr)
-	}
-
-	trace, err := backend.Trace(ctx, target)
-	e.dbg.TraceDone(start, trace, err)
-	if err != nil {
-		return err
-	}
-	hopIndex := traceHopIndex(ctx, backend)
-	origin := traceOriginNode(ctx, backend, trace)
-	var planPtr *meshcore.TracePlan
-	if planErr == nil {
-		planPtr = &plan
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(traceJSON(trace, hopIndex, origin, planPtr))
-	}
-	printTrace(e, trace, hopIndex, origin, planPtr)
-	return nil
-}
-
-func shellChannel(ctx context.Context, e *env, backend Backend) error {
-	switch e.restArg(0) {
-	case "", "list":
-		return shellChannelList(ctx, e, backend)
-	case "show":
-		return shellChannelShow(ctx, e, backend)
-	case "send":
-		return shellChannelSend(ctx, e, backend)
-	default:
-		return fmt.Errorf("unknown channel subcommand %q", e.restArg(0))
-	}
-}
-
-func shellChannelList(ctx context.Context, e *env, backend Backend) error {
-	channels, err := backend.Channels(ctx)
-	if err != nil {
-		return err
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(channels)
-	}
-	if len(channels) == 0 {
-		e.out.Human("No channels.\n")
-		return nil
-	}
-	e.out.Human("%-6s %s\n", "INDEX", "NAME")
-	for _, ch := range channels {
-		e.out.Human("%-6d %s\n", ch.Index, ch.Name)
-	}
-	return nil
-}
-
-func shellChannelShow(ctx context.Context, e *env, backend Backend) error {
-	name := e.restArg(1)
-	if name == "" {
-		return fmt.Errorf("usage: channel show <name|index>")
-	}
-	ch, err := backend.Channel(ctx, name)
-	if err != nil {
-		return err
-	}
-	if e.out.JSON {
-		return e.out.JSONValue(ch)
-	}
-	e.out.Human("Index: %d\n", ch.Index)
-	e.out.Human("Name:  %s\n", ch.Name)
-	return nil
-}
-
-func shellChannelSend(ctx context.Context, e *env, backend Backend) error {
-	channel := e.restArg(1)
-	text := e.restArg(2)
-	if channel == "" || text == "" {
-		return fmt.Errorf("usage: channel send <name|index> <text>")
-	}
-	receipt, err := backend.SendChannelText(ctx, channel, text)
-	if err != nil {
-		return err
-	}
-	e.out.Human("Sent to %s.\n", receipt.To)
-	return e.out.JSONValue(map[string]any{"to": receipt.To, "id": receipt.ID()})
-}
-
-func shellAdvert(ctx context.Context, e *env, backend Backend) error {
-	flood := e.args.has("flood")
-	if err := backend.Advertise(ctx, flood); err != nil {
-		return err
-	}
-	mode := "zero-hop"
-	if flood {
-		mode = "flood"
-	}
-	e.out.Human("Advert sent (%s).\n", mode)
-	return e.out.JSONValue(map[string]any{"sent": true, "flood": flood, "mode": mode})
-}
-
-func shellWatch(ctx context.Context, e *env, backend Backend) error {
-	if b, ok := backend.(*ipcBackend); ok {
-		events, err := b.client.Watch(ctx)
-		if err != nil {
-			return err
-		}
-		e.out.Human("Watching backend %s. Press Ctrl-C to leave the shell.\n", backend.URI())
-		for ev := range events {
-			printBackendEvent(e, ev)
-		}
-		return nil
-	}
-
-	e.out.Human("Watching %s. Press Ctrl-C to leave the shell.\n", backend.URI())
-	names := backendContactNames(ctx, backend)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case ev, ok := <-backend.Events():
-			if !ok {
-				return nil
-			}
-			printEvent(e, ev, names)
-		}
-	}
+	return false
 }
 
 func splitShellFields(s string) ([]string, error) {
@@ -434,10 +299,10 @@ func splitShellFields(s string) ([]string, error) {
 		}
 	}
 	if escaped {
-		return nil, errors.New("unfinished escape")
+		return nil, fmt.Errorf("unfinished escape")
 	}
 	if quote != 0 {
-		return nil, errors.New("unterminated quote")
+		return nil, fmt.Errorf("unterminated quote")
 	}
 	if inField {
 		fields = append(fields, b.String())
