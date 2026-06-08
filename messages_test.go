@@ -251,16 +251,22 @@ func TestClientAutoSyncEmitsMessages(t *testing.T) {
 	// Inject the MSG_WAITING push that drives auto-sync.
 	ft.ReadPackets <- msgWaitingPacket()
 
-	select {
-	case ev := <-client.Events():
-		m, ok := ev.(meshcore.MessageReceived)
-		if !ok {
-			t.Fatalf("event type %T, want MessageReceived", ev)
+	// Auto-sync first surfaces a MessagesWaiting event, then the drained
+	// MessageReceived. Skip any non-message events until the message arrives.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-client.Events():
+			m, ok := ev.(meshcore.MessageReceived)
+			if !ok {
+				continue
+			}
+			if m.Text != "ping" {
+				t.Errorf("text = %q", m.Text)
+			}
+			return
+		case <-deadline:
+			t.Fatal("no message event from auto-sync")
 		}
-		if m.Text != "ping" {
-			t.Errorf("text = %q", m.Text)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("no message event from auto-sync")
 	}
 }

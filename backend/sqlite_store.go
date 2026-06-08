@@ -307,6 +307,18 @@ FROM messages`
 		conds = append(conds, "direction = ?")
 		args = append(args, filter.Direction)
 	}
+	if filter.Kind != "" {
+		conds = append(conds, "kind = ?")
+		args = append(args, filter.Kind)
+	}
+	if filter.Peer != "" {
+		conds = append(conds, "peer = ?")
+		args = append(args, filter.Peer)
+	}
+	if filter.Channel != "" {
+		conds = append(conds, "channel = ?")
+		args = append(args, filter.Channel)
+	}
 	if filter.UnreadOnly {
 		conds = append(conds, "read = 0")
 	}

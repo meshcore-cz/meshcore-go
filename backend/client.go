@@ -431,6 +431,21 @@ func (c *Client) ChannelRemove(ctx context.Context, channel string) (meshcore.Ch
 	return out, err
 }
 
+// Messages returns stored direct or channel messages from the targeted device's
+// local state, newest last. It is served entirely from the store and never
+// touches the radio.
+func (c *Client) Messages(ctx context.Context, filter MessageFilter) ([]MessageRecord, error) {
+	var out []MessageRecord
+	err := c.call(ctx, "messages", messagesParams{
+		Direction: filter.Direction,
+		Kind:      filter.Kind,
+		Peer:      filter.Peer,
+		Channel:   filter.Channel,
+		Limit:     filter.Limit,
+	}, &out)
+	return out, err
+}
+
 func (c *Client) Advertise(ctx context.Context, flood bool) error {
 	return c.call(ctx, "advert", advertParams{Flood: flood}, nil)
 }

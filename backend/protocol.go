@@ -172,6 +172,14 @@ type channelSendParams struct {
 	Text    string `json:"text"`
 }
 
+type messagesParams struct {
+	Direction string `json:"direction,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Peer      string `json:"peer,omitempty"`
+	Channel   string `json:"channel,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
 type channelAddParams struct {
 	Name   string `json:"name"`
 	Secret []byte `json:"secret"`

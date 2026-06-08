@@ -106,4 +106,35 @@ func TestStateStoreMessages(t *testing.T) {
 	if len(all) != 2 {
 		t.Fatalf("all messages = %d, want 2", len(all))
 	}
+
+	// A channel message in a different conversation.
+	chMsg := MessageRecord{
+		Direction: MessageIn, Kind: MessageChannel, Peer: "chankey", Channel: "0",
+		Text: "ahoj", Timestamp: time.Now(), Status: StatusReceived,
+	}
+	if _, err := store.RecordReceivedMessage(ctx, &chMsg, Reception{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Per-target filters isolate each conversation.
+	direct, err := store.Messages(ctx, MessageFilter{Kind: MessageDirect, Peer: "abc123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(direct) != 2 {
+		t.Fatalf("direct conversation = %d, want 2", len(direct))
+	}
+	for _, rec := range direct {
+		if rec.Kind != MessageDirect || rec.Peer != "abc123" {
+			t.Fatalf("direct filter leaked %+v", rec)
+		}
+	}
+
+	channel, err := store.Messages(ctx, MessageFilter{Kind: MessageChannel, Channel: "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(channel) != 1 || channel[0].Text != "ahoj" {
+		t.Fatalf("channel conversation = %+v, want one 'ahoj'", channel)
+	}
 }

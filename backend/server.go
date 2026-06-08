@@ -508,6 +508,14 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 			return nil, err
 		}
 		return s.channel(ctx, p.Query)
+	case "messages":
+		var p messagesParams
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+		}
+		return s.messages(ctx, p)
 	}
 	if !s.healthy() {
 		return nil, fmt.Errorf("backend radio unavailable: %s", s.lastErr())
@@ -805,6 +813,28 @@ func (s *DeviceSession) contact(ctx context.Context, client *meshcore.Client, qu
 		return meshcore.Contact{}, err
 	}
 	return entry.Contact, nil
+}
+
+// messages returns stored direct or channel messages from device-local state.
+// It never touches the radio; history is served entirely from the store.
+func (s *DeviceSession) messages(ctx context.Context, p messagesParams) ([]MessageRecord, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("backend message store is unavailable")
+	}
+	records, err := s.store.Messages(ctx, MessageFilter{
+		Direction: p.Direction,
+		Kind:      p.Kind,
+		Peer:      p.Peer,
+		Channel:   p.Channel,
+		Limit:     p.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if records == nil {
+		records = []MessageRecord{}
+	}
+	return records, nil
 }
 
 func (s *DeviceSession) replicaContacts(ctx context.Context) ([]meshcore.Contact, error) {
@@ -1385,7 +1415,7 @@ func (s *DeviceSession) methodUsesRadio(method string, params json.RawMessage) b
 			_ = json.Unmarshal(params, &p)
 		}
 		return p.Refresh
-	case "contact", "channel", "device_info":
+	case "contact", "channel", "device_info", "messages":
 		return false
 	case "stats":
 		var p statsParams

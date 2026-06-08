@@ -52,6 +52,7 @@ func NewRoot(app *App) *cobra.Command {
 		newContactCommand(app),
 		newInboxCommand(app),
 		newSendCommand(app),
+		newChatCommand(app),
 		newWatchCommand(app),
 		newShellCommand(app),
 		newTraceCommand(app),
@@ -312,6 +313,26 @@ mc send --channel rem-ha "ahoj!"`),
 	cmd.Flags().Bool("wait", false, "wait for acknowledgement")
 	cmd.Flags().String("channel", "", "send to a channel")
 	return cmd
+}
+
+func newChatCommand(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "chat <contact|channel>",
+		Short: "Open an interactive chat",
+		Long: strings.TrimSpace(`
+Open a full-screen interactive chat with a contact or channel.
+
+The target is matched against contacts first (by name or key prefix), then
+channels (by name or index). When the local backend is running, prior messages
+are loaded from device-local state and new messages stream in live; otherwise mc
+connects directly to the radio and shows live messages only.
+
+Press Enter to send, PgUp/PgDn to scroll, and Ctrl-C to quit.`),
+		Example:           "mc chat alice\nmc chat Public\nmc chat #test",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeContactsCobra,
+		RunE:              runWithEnv(app, nil, cmdChat),
+	}
 }
 
 func newWatchCommand(app *App) *cobra.Command {

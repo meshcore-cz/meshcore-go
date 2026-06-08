@@ -62,6 +62,9 @@ type MessageRecord struct {
 // newest last.
 type MessageFilter struct {
 	Direction  string // "" for any, else MessageIn/MessageOut
+	Kind       string // "" for any, else MessageDirect/MessageChannel
+	Peer       string // "" for any, else the contact/channel key (exact match)
+	Channel    string // "" for any, else the device channel slot index
 	UnreadOnly bool
 	Limit      int // 0 = no limit
 }
