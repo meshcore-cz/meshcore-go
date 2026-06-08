@@ -109,10 +109,10 @@ func openShellSession(ctx context.Context, e *env) (*shellSession, error) {
 	}
 
 	tmpSocket := filepath.Join(tmpDir, "backend.sock")
+	// No WithMessageSync: the temporary backend session drains the inbox itself.
 	opts := append(
 		e.dbg.DialOptions(),
 		meshcore.WithClientOptions(
-			meshcore.WithMessageSync(),
 			meshcore.WithTimeout(backendContactSyncTimeout),
 		),
 	)

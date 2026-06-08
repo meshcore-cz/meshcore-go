@@ -120,8 +120,10 @@ public-key hex prefix.
 
 	"inbox": `Usage: mc inbox [flags]
 
-Drain and print messages buffered on the device. Synced messages are removed
-from the device buffer.
+Print unread incoming messages and mark them read. When the backend is running
+it drains the radio inbox itself, persists every message to device-local state,
+and broadcasts it to ` + "`mc watch`" + `; mc inbox then reads the stored unread
+messages. Without a backend, mc inbox drains the radio directly.
 ` + globalFlags,
 
 	"send": `Usage: mc send <recipient> <text> [flags]

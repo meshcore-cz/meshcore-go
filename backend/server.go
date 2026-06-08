@@ -65,6 +65,7 @@ type DeviceSession struct {
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	started     bool
+	drainReq    chan struct{} // signals the inbox drain loop
 
 	ipcClients        int32
 	radioQueuePending int32
@@ -114,6 +115,7 @@ func newSession(ctx context.Context, uri string, cfg SessionOptions, opts ...mes
 		state:          stateReady,
 		lastSeen:       time.Now(),
 		stopped:        make(chan struct{}),
+		drainReq:       make(chan struct{}, 1),
 		bridgeStatuses: make(map[string]BridgeStatus),
 	}
 
@@ -206,6 +208,7 @@ func (s *DeviceSession) start() {
 	s.mu.Unlock()
 
 	go s.pollStats()
+	go s.drainLoop()
 	s.startBridges()
 	s.scheduleInitialContactSync()
 }
@@ -528,7 +531,9 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 		s.storeDeviceStats(stats)
 		return stats, nil
 	case "inbox":
-		return client.SyncMessages(ctx)
+		// The backend is the sole radio-inbox drainer; serve persisted history
+		// instead of draining the radio again here.
+		return s.storedInbox(ctx)
 	case "send_text":
 		var p sendTextParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -538,13 +543,33 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 		if err != nil {
 			return nil, err
 		}
-		return client.SendTextToContact(ctx, ct, p.Text)
+		// Persist the outgoing message before sending so it is never lost.
+		id := s.persistOutgoing(ctx, MessageRecord{
+			Kind:     MessageDirect,
+			Peer:     ct.PublicKey,
+			PeerName: ct.Name,
+			Text:     p.Text,
+		})
+		receipt, err := client.SendTextToContact(ctx, ct, p.Text)
+		if err != nil {
+			s.setMessageStatus(id, StatusFailed, "")
+			return nil, err
+		}
+		s.setMessageStatus(id, StatusSent, receipt.ID())
+		return receipt, nil
 	case "wait_ack":
 		var receipt meshcore.Receipt
 		if err := json.Unmarshal(params, &receipt); err != nil {
 			return nil, err
 		}
-		return client.WaitForAcknowledgement(ctx, receipt)
+		ack, err := client.WaitForAcknowledgement(ctx, receipt)
+		if err != nil {
+			// No ack within the window: delivery is unconfirmed (not failed).
+			s.setMessageStatusByAck(receipt.ID(), StatusUnconfirmed)
+			return nil, err
+		}
+		s.setMessageStatusByAck(receipt.ID(), StatusDelivered)
+		return ack, nil
 	case "trace":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -563,7 +588,19 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		return client.SendChannelText(ctx, p.Channel, p.Text)
+		id := s.persistOutgoing(ctx, MessageRecord{
+			Kind:    MessageChannel,
+			Channel: p.Channel,
+			Text:    p.Text,
+		})
+		receipt, err := client.SendChannelText(ctx, p.Channel, p.Text)
+		if err != nil {
+			s.setMessageStatus(id, StatusFailed, "")
+			return nil, err
+		}
+		// Channel sends are not individually acknowledged.
+		s.setMessageStatus(id, StatusSent, "")
+		return receipt, nil
 	case "advert":
 		var p advertParams
 		if len(params) > 0 {
@@ -1200,11 +1237,26 @@ func (s *DeviceSession) markReconnectFailed(err error) {
 }
 
 func (s *DeviceSession) observeEvent(ev meshcore.Event) {
-	adv, ok := ev.(meshcore.AdvertisementReceived)
-	if !ok || s.store == nil || adv.Contact.PublicKey == "" {
-		return
+	switch m := ev.(type) {
+	case meshcore.MessagesWaiting:
+		// The device has buffered messages; the drain loop is the sole inbox
+		// consumer. Signal it (non-blocking) rather than draining inline, which
+		// runs on the SDK read-loop goroutine.
+		s.requestDrain()
+	case meshcore.MessageAcknowledged:
+		// Deliveries are confirmed asynchronously via SendConfirmed, regardless
+		// of whether a client is waiting (--wait). Record the ack so the stored
+		// outgoing message reflects delivery and its timestamp.
+		if s.store == nil || m.Code == "" {
+			return
+		}
+		go s.setMessageStatusByAck(m.Code, StatusDelivered)
+	case meshcore.AdvertisementReceived:
+		if s.store == nil || m.Contact.PublicKey == "" {
+			return
+		}
+		go s.upsertObservedContact(m.Contact)
 	}
-	go s.upsertObservedContact(adv.Contact)
 }
 
 func (s *DeviceSession) upsertObservedContact(contact meshcore.Contact) {

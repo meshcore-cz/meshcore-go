@@ -30,6 +30,11 @@ type MessageAcknowledged struct {
 	RTT  time.Duration
 }
 
+// MessagesWaiting is emitted when the device signals that messages are buffered
+// and ready to be drained (companion MSG_WAITING). The consumer responsible for
+// draining the inbox should call DrainMessages in response.
+type MessagesWaiting struct{}
+
 // AdvertisementReceived is emitted when a contact advertisement is heard.
 type AdvertisementReceived struct {
 	Contact Contact
@@ -97,6 +102,7 @@ type RawPacket struct {
 
 func (MessageReceived) isMeshCoreEvent()        {}
 func (MessageAcknowledged) isMeshCoreEvent()    {}
+func (MessagesWaiting) isMeshCoreEvent()        {}
 func (AdvertisementReceived) isMeshCoreEvent()  {}
 func (TelemetryReceived) isMeshCoreEvent()      {}
 func (Disconnected) isMeshCoreEvent()           {}
@@ -120,8 +126,9 @@ func translate(msg protocol.Message) Event {
 	case companion.SendConfirmed:
 		return MessageAcknowledged{Code: hex32(m.Code), RTT: m.RoundTrip}
 	case companion.MsgWaiting:
-		// Surfaced via the sync loop as MessageReceived, not on its own.
-		return nil
+		// Signal that the inbox should be drained; the actual messages are
+		// surfaced as MessageReceived by whoever drains via DrainMessages.
+		return MessagesWaiting{}
 	case companion.LoginSuccess:
 		prefix := ""
 		if len(m.PublicKeyPrefix) > 0 {

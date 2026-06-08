@@ -190,14 +190,18 @@ mc send alice "hello" --wait
 
 ### Inbox
 
-Drain messages buffered on the radio:
+Show unread incoming messages:
 
 ```sh
 mc inbox
 ```
 
 > [!NOTE]
-> Synced messages are removed from the device buffer after they are printed.
+> When the backend is running it is the **only** consumer that drains the radio
+> inbox: it persists every message to device-local state as it arrives, then
+> broadcasts it to `mc watch`. `mc inbox` returns the stored unread messages and
+> marks them read — it does not drain the radio again. Without a backend,
+> `mc inbox` drains the radio directly over a one-shot connection.
 
 ### Live events
 
@@ -380,7 +384,7 @@ Each connected device keeps its own SQLite database of contacts, channels, and r
 ~/.local/state/mc/devices/<public-key-prefix>.db
 ```
 
-This is **device-local state**, not a cache: it may be stale, incomplete, or locally enriched. Each database is scoped to one device — identified by the device's full public key, which is recorded in the database and verified on every open. If a database ever belongs to a different key than expected, `mc` fails loudly rather than reusing the wrong state.
+It holds the device's contacts, channels, repeater sessions, and **message history** (incoming and outgoing direct and channel messages, with timestamp, SNR, read state, and delivery status). This is **device-local state**, not a cache: it may be stale, incomplete, or locally enriched. Each database is scoped to one device — identified by the device's full public key, which is recorded in the database and verified on every open. If a database ever belongs to a different key than expected, `mc` fails loudly rather than reusing the wrong state. Raw RF packet captures are kept separately under `~/.local/state/mc/captures/`, not in message history.
 
 Inspect and manage it with `mc state`:
 

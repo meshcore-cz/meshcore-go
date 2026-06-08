@@ -440,8 +440,10 @@ func backendServe(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
+	// No WithMessageSync: the backend is the sole inbox drainer and drives it
+	// explicitly (DrainMessages) so it can persist each message before
+	// broadcasting.
 	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(
-		meshcore.WithMessageSync(),
 		meshcore.WithTimeout(backendContactSyncTimeout),
 	))
 

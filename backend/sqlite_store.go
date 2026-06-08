@@ -103,8 +103,169 @@ CREATE TABLE IF NOT EXISTS meta (
 	key TEXT PRIMARY KEY,
 	value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS messages (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	direction TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	peer TEXT NOT NULL DEFAULT '',
+	peer_name TEXT NOT NULL DEFAULT '',
+	channel TEXT NOT NULL DEFAULT '',
+	text TEXT NOT NULL,
+	txt_type INTEGER NOT NULL DEFAULT 0,
+	timestamp TEXT NOT NULL,
+	snr REAL NOT NULL DEFAULT 0,
+	read INTEGER NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT '',
+	ack_code TEXT NOT NULL DEFAULT '',
+	acknowledged_at TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_ack ON messages(ack_code);
 `)
 	return err
+}
+
+func rfc3339(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func parseRFC3339(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func (s *SQLiteStateStore) InsertMessage(ctx context.Context, rec *MessageRecord) error {
+	now := time.Now().UTC()
+	if rec.CreatedAt.IsZero() {
+		rec.CreatedAt = now
+	}
+	if rec.Timestamp.IsZero() {
+		rec.Timestamp = now
+	}
+	read := 0
+	if rec.Read {
+		read = 1
+	}
+	res, err := s.db.ExecContext(ctx, `
+INSERT INTO messages(direction, kind, peer, peer_name, channel, text, txt_type, timestamp, snr, read, status, ack_code, acknowledged_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, rec.Direction, rec.Kind, rec.Peer, rec.PeerName, rec.Channel, rec.Text, int(rec.TxtType),
+		rfc3339(rec.Timestamp), rec.SNR, read, rec.Status, rec.AckCode, rfc3339(rec.AcknowledgedAt), rfc3339(rec.CreatedAt))
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	rec.ID = id
+	return nil
+}
+
+func (s *SQLiteStateStore) SetMessageStatus(ctx context.Context, id int64, status, ackCode string) error {
+	ackedAt := ackTimeFor(status)
+	if ackCode == "" {
+		_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, acknowledged_at = ? WHERE id = ?`, status, ackedAt, id)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, ack_code = ?, acknowledged_at = ? WHERE id = ?`, status, ackCode, ackedAt, id)
+	return err
+}
+
+func (s *SQLiteStateStore) SetMessageStatusByAck(ctx context.Context, ackCode, status string) error {
+	if ackCode == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, acknowledged_at = ? WHERE ack_code = ? AND direction = ?`,
+		status, ackTimeFor(status), ackCode, MessageOut)
+	return err
+}
+
+// ackTimeFor returns the acknowledgement timestamp to record for a status: the
+// current time when a message is delivered, otherwise empty.
+func ackTimeFor(status string) string {
+	if status == StatusDelivered {
+		return rfc3339(time.Now().UTC())
+	}
+	return ""
+}
+
+func (s *SQLiteStateStore) Messages(ctx context.Context, filter MessageFilter) ([]MessageRecord, error) {
+	query := `
+SELECT id, direction, kind, peer, peer_name, channel, text, txt_type, timestamp, snr, read, status, ack_code, acknowledged_at, created_at
+FROM messages`
+	var conds []string
+	var args []any
+	if filter.Direction != "" {
+		conds = append(conds, "direction = ?")
+		args = append(args, filter.Direction)
+	}
+	if filter.UnreadOnly {
+		conds = append(conds, "read = 0")
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY timestamp, id"
+	if filter.Limit > 0 {
+		query += " LIMIT " + strconv.Itoa(filter.Limit)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []MessageRecord
+	for rows.Next() {
+		var rec MessageRecord
+		var txtType, read int
+		var ts, acked, created string
+		if err := rows.Scan(&rec.ID, &rec.Direction, &rec.Kind, &rec.Peer, &rec.PeerName, &rec.Channel,
+			&rec.Text, &txtType, &ts, &rec.SNR, &read, &rec.Status, &rec.AckCode, &acked, &created); err != nil {
+			return nil, err
+		}
+		rec.TxtType = byte(txtType)
+		rec.Read = read != 0
+		rec.Timestamp = parseRFC3339(ts)
+		rec.AcknowledgedAt = parseRFC3339(acked)
+		rec.CreatedAt = parseRFC3339(created)
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStateStore) MarkMessagesRead(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, `UPDATE messages SET read = 1 WHERE id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, id := range ids {
+		if _, err := stmt.ExecContext(ctx, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ensureIdentity records the device public key on first use and validates it on

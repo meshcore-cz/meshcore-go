@@ -76,15 +76,37 @@ func (c *Client) SendTextToContact(ctx context.Context, contact Contact, text st
 // device, oldest first.
 func (c *Client) SyncMessages(ctx context.Context) ([]Message, error) {
 	var out []Message
+	if err := c.DrainMessages(ctx, func(m Message) error {
+		out = append(out, m)
+		return nil
+	}); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// DrainMessages drains the device inbox one message at a time, oldest first. For
+// each message it invokes cb (so the caller can persist or act on the message)
+// before fetching the next, then emits a MessageReceived event. Draining stops
+// when the inbox is empty, ctx is done, or cb returns an error.
+//
+// Only one consumer should drain the inbox on a given connection; concurrent
+// drainers would race for the device's message buffer.
+func (c *Client) DrainMessages(ctx context.Context, cb func(Message) error) error {
 	for {
 		msg, more, err := c.syncNext(ctx)
 		if err != nil {
-			return out, err
+			return err
 		}
 		if !more {
-			return out, nil
+			return nil
 		}
-		out = append(out, msg)
+		if cb != nil {
+			if err := cb(msg); err != nil {
+				return err
+			}
+		}
+		c.emitEvent(messageEvent(msg))
 	}
 }
 

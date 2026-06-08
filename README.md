@@ -259,7 +259,8 @@ It provides reusable building blocks for:
 
 * a multi-session daemon (`backend.Daemon`) and per-radio sessions (`backend.DeviceSession`);
 * a local IPC client (`backend.Client`) with optional per-device routing;
-* one persistent local-state database per device (`backend.SQLiteStateStore`), keyed and validated by the device's full public key at `~/.local/state/mc/devices/<public-key-prefix>.db`;
+* one persistent local-state database per device (`backend.SQLiteStateStore`), keyed and validated by the device's full public key at `~/.local/state/mc/devices/<public-key-prefix>.db`, holding contacts, channels, repeater sessions, and message history;
+* backend-driven inbox draining (`Client.DrainMessages`): the backend is the sole inbox consumer, persisting each message before broadcasting it;
 * per-device autostart and lifecycle control;
 * optional per-device TCP and PTY bridge endpoints.
 

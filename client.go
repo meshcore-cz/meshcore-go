@@ -250,13 +250,10 @@ func (c *Client) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-c.syncReq:
-			msgs, err := c.SyncMessages(ctx)
-			if err != nil {
+			// DrainMessages emits a MessageReceived event for each message.
+			if err := c.DrainMessages(ctx, nil); err != nil {
 				c.log.Debug("sync failed", "error", err)
 				continue
-			}
-			for _, m := range msgs {
-				c.emitEvent(messageEvent(m))
 			}
 		}
 	}
