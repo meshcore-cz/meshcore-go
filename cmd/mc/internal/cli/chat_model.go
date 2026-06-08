@@ -49,15 +49,17 @@ type (
 var (
 	chatHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
 	chatHintStyle   = lipgloss.NewStyle().Faint(true)
+	chatPromptStyle = lipgloss.NewStyle().Faint(true).Bold(true)
 	chatTimeStyle   = lipgloss.NewStyle().Faint(true)
+	chatSelfStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 	chatStatusStyle = lipgloss.NewStyle().Faint(true)
 	chatRuleStyle   = lipgloss.NewStyle().Faint(true)
 	chatErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 )
 
-// Distinct terminal colors assigned per author name.
+// Distinct terminal colors assigned per author name. Green (10) is reserved for self.
 var chatAuthorColors = []string{
-	"14", "13", "11", "12", "39", "81", "99", "201", "208", "214", "172", "42",
+	"14", "13", "11", "12", "39", "81", "99", "201", "208", "214", "172",
 }
 
 func chatAuthorColor(name string) string {
@@ -116,10 +118,19 @@ type chatModel struct {
 	now     time.Time // optional clock for rendering; zero uses time.Now()
 }
 
+func chatInputPrompt(selfName string) string {
+	if selfName == "" {
+		return "> "
+	}
+	return selfName + "> "
+}
+
 func newChatModel(ctx context.Context, session chatSession) chatModel {
+	selfName := session.selfName()
 	in := textinput.New()
 	in.Placeholder = "Type a message…"
-	in.Prompt = "> "
+	in.Prompt = chatInputPrompt(selfName)
+	in.PromptStyle = chatPromptStyle
 	in.CharLimit = 0
 	in.Focus()
 
@@ -307,14 +318,26 @@ func (m *chatModel) layout() {
 		m.viewport.Width = m.width
 		m.viewport.Height = vpHeight
 	}
-	m.input.Width = m.width - 4
+	promptWidth := ansi.StringWidth(m.input.Prompt)
+	m.input.Width = max(m.width-promptWidth-1, 1)
+}
+
+func padChatContent(content string, height int) string {
+	if height <= 0 || content == "" {
+		return content
+	}
+	lines := strings.Count(content, "\n") + 1
+	if pad := height - lines; pad > 0 {
+		return strings.Repeat("\n", pad) + content
+	}
+	return content
 }
 
 func (m *chatModel) refreshViewport() {
 	if !m.ready {
 		return
 	}
-	m.viewport.SetContent(m.renderMessages())
+	m.viewport.SetContent(padChatContent(m.renderMessages(), m.viewport.Height))
 	m.viewport.GotoBottom()
 }
 
@@ -358,7 +381,7 @@ func (m chatModel) senderDisplay(msg chatMessage) (plain, styled string) {
 		if name == "" {
 			name = "you"
 		}
-		return name, chatAuthorStyle(name).Render(name)
+		return name, chatSelfStyle.Render(name)
 	}
 	plain = msg.sender
 	if plain == "" {

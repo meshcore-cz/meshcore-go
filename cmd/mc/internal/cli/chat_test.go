@@ -11,6 +11,28 @@ import (
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 )
 
+func TestChatInputPrompt(t *testing.T) {
+	if got := chatInputPrompt("rem"); got != "rem> " {
+		t.Fatalf("chatInputPrompt(rem) = %q", got)
+	}
+	if got := chatInputPrompt(""); got != "> " {
+		t.Fatalf("chatInputPrompt(empty) = %q", got)
+	}
+}
+
+func TestPadChatContent(t *testing.T) {
+	got := padChatContent("one\n\ntwo", 5)
+	if strings.Count(got, "\n") != 4 {
+		t.Fatalf("padding lines = %d, want 4 newlines total:\n%q", strings.Count(got, "\n"), got)
+	}
+	if !strings.HasSuffix(got, "two") {
+		t.Fatalf("content should stay at bottom: %q", got)
+	}
+	if padChatContent("many\nlines\nhere\nalready", 2) != "many\nlines\nhere\nalready" {
+		t.Fatal("should not pad when content fills viewport")
+	}
+}
+
 func TestChatKeyPrefix(t *testing.T) {
 	if got := chatKeyPrefix("ABCDEF0123456789"); got != "abcdef012345" {
 		t.Fatalf("chatKeyPrefix = %q", got)
@@ -178,6 +200,16 @@ func TestAddOrUpdateOutgoing(t *testing.T) {
 	}
 	if m.msgs[0].status != localbackend.StatusSent || m.msgs[0].ackCode != "abc" {
 		t.Fatalf("updated = %+v", m.msgs[0])
+	}
+}
+
+func TestChatSelfNameUsesReservedGreen(t *testing.T) {
+	_, styled := chatModel{selfName: "EFF01EF2"}.senderDisplay(chatMessage{mine: true})
+	if stripANSI(styled) != "EFF01EF2" {
+		t.Fatalf("sender = %q", stripANSI(styled))
+	}
+	if chatAuthorColor("EFF01EF2") == "10" {
+		t.Fatal("self name should not use hashed palette green")
 	}
 }
 
