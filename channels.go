@@ -2,15 +2,43 @@ package meshcore
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/meshcore-cz/meshcore-go/protocol"
 	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
 // maxChannels bounds how many channel slots are probed when enumerating.
 const maxChannels = 8
+
+// ChannelSecretLen is the length of a channel pre-shared key.
+const ChannelSecretLen = 16
+
+// ChannelDisplayName returns a channel name for display, ensuring a single
+// leading '#'. Hashtag channels are stored with the '#'; others are shown with
+// one prepended.
+func ChannelDisplayName(name string) string {
+	if strings.HasPrefix(name, "#") {
+		return name
+	}
+	return "#" + name
+}
+
+// DeriveChannelSecret derives the pre-shared key for a name-only ("hashtag")
+// channel from its name: the first 16 bytes of SHA-256(name). This lets peers
+// share a channel by agreeing only on a name.
+//
+// NOTE: this derivation is firmware-derived and not yet hardware-verified.
+// Confirm interoperability with other MeshCore clients before relying on it.
+func DeriveChannelSecret(name string) []byte {
+	sum := sha256.Sum256([]byte(name))
+	out := make([]byte, ChannelSecretLen)
+	copy(out, sum[:ChannelSecretLen])
+	return out
+}
 
 // Channel describes a channel slot on the device.
 type Channel struct {
@@ -62,7 +90,7 @@ func (c *Client) Channel(ctx context.Context, name string) (Channel, error) {
 		return Channel{}, err
 	}
 	for _, ch := range channels {
-		if strings.EqualFold(ch.Name, query) {
+		if strings.EqualFold(strings.TrimPrefix(ch.Name, "#"), query) {
 			return ch, nil
 		}
 	}
@@ -100,5 +128,83 @@ func (c *Client) SendChannelText(ctx context.Context, channel, text string) (Rec
 	if err != nil {
 		return Receipt{}, err
 	}
-	return channelReceiptFrom(msg, "#"+ch.Name)
+	return channelReceiptFrom(msg, ChannelDisplayName(ch.Name))
+}
+
+// SetChannelAt writes a channel slot by index. An empty name clears the slot.
+func (c *Client) SetChannelAt(ctx context.Context, index byte, name string, secret []byte) error {
+	if err := c.requireCapability(CapabilityChannels); err != nil {
+		return err
+	}
+	msg, err := c.request(ctx, companion.SetChannel{Index: index, Name: name, Secret: secret})
+	if err != nil {
+		return err
+	}
+	switch m := msg.(type) {
+	case companion.OK:
+		return nil
+	case companion.Err:
+		return fmt.Errorf("meshcore: device rejected channel write (error code %d)", m.Code)
+	default:
+		return protocol.ErrUnexpectedResponse
+	}
+}
+
+// AddChannel adds a channel by name with the given pre-shared key. If a channel
+// with the same name already exists its slot is updated; otherwise the first
+// free slot is used. Returns the resulting channel.
+func (c *Client) AddChannel(ctx context.Context, name string, secret []byte) (Channel, error) {
+	if err := c.requireCapability(CapabilityChannels); err != nil {
+		return Channel{}, err
+	}
+	if name == "" {
+		return Channel{}, fmt.Errorf("meshcore: channel name is required")
+	}
+	if len(secret) != ChannelSecretLen {
+		return Channel{}, fmt.Errorf("meshcore: channel key must be %d bytes, got %d", ChannelSecretLen, len(secret))
+	}
+
+	existing, free := -1, -1
+	for i := 0; i < maxChannels; i++ {
+		ch, ok, err := c.channelAt(ctx, byte(i))
+		if err != nil {
+			return Channel{}, err
+		}
+		if !ok || ch.Name == "" {
+			if free < 0 {
+				free = i
+			}
+			continue
+		}
+		if strings.EqualFold(ch.Name, name) {
+			existing = i
+			break
+		}
+	}
+	idx := existing
+	if idx < 0 {
+		idx = free
+	}
+	if idx < 0 {
+		return Channel{}, fmt.Errorf("meshcore: no free channel slot")
+	}
+	if err := c.SetChannelAt(ctx, byte(idx), name, secret); err != nil {
+		return Channel{}, err
+	}
+	return Channel{Index: idx, Name: name, Secret: secret}, nil
+}
+
+// RemoveChannel clears the channel slot matching query (name or index).
+func (c *Client) RemoveChannel(ctx context.Context, query string) (Channel, error) {
+	if err := c.requireCapability(CapabilityChannels); err != nil {
+		return Channel{}, err
+	}
+	ch, err := c.Channel(ctx, query)
+	if err != nil {
+		return Channel{}, err
+	}
+	if err := c.SetChannelAt(ctx, byte(ch.Index), "", nil); err != nil {
+		return Channel{}, err
+	}
+	return ch, nil
 }

@@ -611,6 +611,34 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 		// Channel sends are not individually acknowledged.
 		s.setMessageStatus(id, StatusSent, "")
 		return receipt, nil
+	case "channel_add":
+		var p channelAddParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		ch, err := client.AddChannel(ctx, p.Name, p.Secret)
+		if err != nil {
+			return nil, err
+		}
+		// Re-read channels from the device and update local state.
+		if _, err := s.syncChannels(ctx, client); err != nil {
+			Logf("channel sync after add failed: %v", err)
+		}
+		return ch, nil
+	case "channel_remove":
+		var p channelRemoveParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		// Remove from the device first, then reconcile local state.
+		ch, err := client.RemoveChannel(ctx, p.Channel)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.syncChannels(ctx, client); err != nil {
+			Logf("channel sync after remove failed: %v", err)
+		}
+		return ch, nil
 	case "advert":
 		var p advertParams
 		if len(params) > 0 {

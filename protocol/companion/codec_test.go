@@ -107,6 +107,38 @@ func TestEncodeAppStart(t *testing.T) {
 	}
 }
 
+func TestEncodeSetChannel(t *testing.T) {
+	secret := make([]byte, 16)
+	for i := range secret {
+		secret[i] = byte(i + 1)
+	}
+	got, err := encode(SetChannel{Index: 2, Name: "rem-ha", Secret: secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 50 {
+		t.Fatalf("len = %d, want 50", len(got))
+	}
+	if got[0] != cmdSetChannel || got[1] != 2 {
+		t.Fatalf("header = %#x %#x, want %#x 0x02", got[0], got[1], cmdSetChannel)
+	}
+	if name := trimString(got[2:34]); name != "rem-ha" {
+		t.Fatalf("name = %q, want rem-ha", name)
+	}
+	if !bytes.Equal(got[34:50], secret) {
+		t.Fatalf("secret = %x, want %x", got[34:50], secret)
+	}
+
+	// Empty name (slot clear) still encodes to a full 50-byte frame.
+	clear, err := encode(SetChannel{Index: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clear) != 50 || trimString(clear[2:34]) != "" {
+		t.Fatalf("clear frame = %x", clear)
+	}
+}
+
 func TestEncodeSetDeviceTime(t *testing.T) {
 	ts := time.Unix(1717675200, 0)
 	got, err := encode(SetDeviceTime{Time: ts})

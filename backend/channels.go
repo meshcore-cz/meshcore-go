@@ -3,15 +3,10 @@ package backend
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-)
 
-// publicChannelSecret is the well-known pre-shared key of MeshCore's default
-// public channel. A channel whose secret differs from this is treated as
-// private. This is the documented default; if a firmware uses a different
-// public key the private flag is the only thing affected.
-var publicChannelSecret, _ = base64.StdEncoding.DecodeString("izOH6cXN6mrJ5e26oRXNcg==")
+	meshcore "github.com/meshcore-cz/meshcore-go"
+)
 
 // channelKey derives a stable, collision-resistant universal identifier for a
 // channel from its pre-shared key. Two devices configured for the same channel
@@ -25,11 +20,14 @@ func channelKey(secret []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// isPrivateChannel reports whether a channel secret differs from the well-known
-// public channel key. Unknown (empty) secrets are treated as not private.
-func isPrivateChannel(secret []byte) bool {
+// isPrivateChannel reports whether a channel's key is NOT derivable from its
+// name. Public and hashtag channels derive their key from the name (the name is
+// effectively the key, so anyone who knows the name can read them); a channel
+// whose key does not match the name derivation is private (a random or
+// out-of-band key). Unknown (empty) secrets are treated as not private.
+func isPrivateChannel(name string, secret []byte) bool {
 	if len(secret) == 0 {
 		return false
 	}
-	return !bytes.Equal(secret, publicChannelSecret)
+	return !bytes.Equal(secret, meshcore.DeriveChannelSecret(name))
 }

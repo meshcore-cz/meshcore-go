@@ -30,6 +30,8 @@ type Backend interface {
 	ChannelsWithOptions(context.Context, bool) ([]meshcore.Channel, error)
 	Channel(context.Context, string) (meshcore.Channel, error)
 	SendChannelText(context.Context, string, string) (meshcore.Receipt, error)
+	ChannelAdd(context.Context, string, []byte) (meshcore.Channel, error)
+	ChannelRemove(context.Context, string) (meshcore.Channel, error)
 	Advertise(context.Context, bool) error
 	DiscoverNodes(context.Context, meshcore.NodeDiscoverOptions, func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error)
 	RawSend(context.Context, []byte) (localbackend.RawResult, error)
@@ -214,6 +216,14 @@ func (b *directBackend) SendChannelText(ctx context.Context, channel, text strin
 	return b.svc.SendChannelText(ctx, channel, text)
 }
 
+func (b *directBackend) ChannelAdd(ctx context.Context, name string, secret []byte) (meshcore.Channel, error) {
+	return b.client.AddChannel(ctx, name, secret)
+}
+
+func (b *directBackend) ChannelRemove(ctx context.Context, channel string) (meshcore.Channel, error) {
+	return b.client.RemoveChannel(ctx, channel)
+}
+
 func (b *directBackend) Advertise(ctx context.Context, flood bool) error {
 	return b.svc.Advertise(ctx, flood)
 }
@@ -321,6 +331,14 @@ func (b *ipcBackend) Channel(ctx context.Context, name string) (meshcore.Channel
 
 func (b *ipcBackend) SendChannelText(ctx context.Context, channel, text string) (meshcore.Receipt, error) {
 	return b.client.SendChannelText(ctx, channel, text)
+}
+
+func (b *ipcBackend) ChannelAdd(ctx context.Context, name string, secret []byte) (meshcore.Channel, error) {
+	return b.client.ChannelAdd(ctx, name, secret)
+}
+
+func (b *ipcBackend) ChannelRemove(ctx context.Context, channel string) (meshcore.Channel, error) {
+	return b.client.ChannelRemove(ctx, channel)
 }
 
 func (b *ipcBackend) Advertise(ctx context.Context, flood bool) error {

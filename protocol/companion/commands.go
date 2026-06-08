@@ -57,6 +57,17 @@ type GetChannel struct {
 	Index byte
 }
 
+// SetChannel writes a channel slot. Name is truncated/zero-padded to 32 bytes
+// and Secret to 16 bytes. An empty Name clears (removes) the slot.
+//
+// The request layout mirrors the (hardware-verified) RESP_CODE_CHANNEL_INFO
+// response; the SET direction is firmware-derived and not yet hardware-verified.
+type SetChannel struct {
+	Index  byte
+	Name   string
+	Secret []byte
+}
+
 // SyncNextMessage drains the next buffered inbound message, if any.
 type SyncNextMessage struct{}
 
@@ -186,6 +197,16 @@ func encode(cmd protocol.Command) ([]byte, error) {
 
 	case GetChannel:
 		return []byte{cmdGetChannel, c.Index}, nil
+
+	case SetChannel:
+		// [cmd][index][name(32, NUL-padded)][secret(16)] — mirrors the
+		// RESP_CODE_CHANNEL_INFO layout. An empty name clears the slot.
+		buf := make([]byte, 50)
+		buf[0] = cmdSetChannel
+		buf[1] = c.Index
+		copy(buf[2:34], c.Name) // zero-padded to 32 bytes
+		copy(buf[34:50], c.Secret)
+		return buf, nil
 
 	case SyncNextMessage:
 		return []byte{cmdSyncNextMessage}, nil

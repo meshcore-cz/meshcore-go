@@ -240,6 +240,8 @@ Commands:
   trace <target>     Trace the route to a node
   channel list       List channels
   channel send <c> <text>  Send a channel message
+  channel add <n> [key]    Add a channel (key, or #name to derive)
+  channel remove <c> Remove a channel
   advert             Broadcast this device's advert (--flood for mesh-wide)
   discover           Scan for nearby nodes (repeaters by default)
   repeater list      List saved repeaters

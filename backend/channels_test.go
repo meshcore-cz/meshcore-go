@@ -22,14 +22,17 @@ func TestChannelKeyAndPrivate(t *testing.T) {
 		t.Fatal("channelKey is not stable")
 	}
 
-	if isPrivateChannel(nil) {
+	if isPrivateChannel("anything", nil) {
 		t.Fatal("empty secret should not be private")
 	}
-	if len(publicChannelSecret) == 16 && isPrivateChannel(publicChannelSecret) {
-		t.Fatal("public channel secret should not be private")
+	// A name-derived key (public/hashtag channel) is not private.
+	derived := meshcore.DeriveChannelSecret("#test")
+	if isPrivateChannel("#test", derived) {
+		t.Fatal("name-derived channel should not be private")
 	}
-	if !isPrivateChannel(secret) {
-		t.Fatal("non-public secret should be private")
+	// A key that does not match the name derivation is private.
+	if !isPrivateChannel("#test", secret) {
+		t.Fatal("non-name-derived secret should be private")
 	}
 }
 

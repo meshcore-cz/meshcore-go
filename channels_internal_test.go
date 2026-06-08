@@ -8,6 +8,19 @@ import (
 	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
 
+func TestDeriveChannelSecret(t *testing.T) {
+	a := DeriveChannelSecret("test")
+	if len(a) != ChannelSecretLen {
+		t.Fatalf("len = %d, want %d", len(a), ChannelSecretLen)
+	}
+	if b := DeriveChannelSecret("test"); string(a) != string(b) {
+		t.Fatal("derivation is not deterministic")
+	}
+	if c := DeriveChannelSecret("other"); string(a) == string(c) {
+		t.Fatal("different names must derive different keys")
+	}
+}
+
 func TestChannelReceiptFrom(t *testing.T) {
 	// Broadcast channel send: device replies OK (no ack code).
 	r, err := channelReceiptFrom(companion.OK{}, "#rem-ha")

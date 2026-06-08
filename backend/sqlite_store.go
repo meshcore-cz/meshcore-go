@@ -546,7 +546,7 @@ ON CONFLICT(idx) DO UPDATE SET
 
 	for _, ch := range channels {
 		private := 0
-		if isPrivateChannel(ch.Secret) {
+		if isPrivateChannel(ch.Name, ch.Secret) {
 			private = 1
 		}
 		secretHex := ""
@@ -604,7 +604,7 @@ func (s *SQLiteStateStore) Channel(ctx context.Context, query string) (ChannelSt
 		return ChannelStateEntry{}, sql.ErrNoRows
 	}
 	for _, entry := range channels {
-		if strings.EqualFold(entry.Channel.Name, q) {
+		if strings.EqualFold(strings.TrimPrefix(entry.Channel.Name, "#"), q) {
 			return entry, nil
 		}
 	}

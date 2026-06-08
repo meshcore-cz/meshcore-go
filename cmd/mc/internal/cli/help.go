@@ -191,19 +191,26 @@ Use a contact name to trace using a stored contact route.
   --return        Append the reverse path (explicit hex paths only)
 ` + globalFlags,
 
-	"channel": `Usage: mc channel <list|show|send> [args] [flags]
+	"channel": `Usage: mc channel <list|show|send|add|remove> [args] [flags]
 
 Work with channel slots.
 
   mc channel list                  list configured channels
   mc channel show Public           show a channel by name or index
   mc channel send Public "hello"   send a message to a channel
+  mc channel add rem-ha <key>      add a channel with a 16-byte key (hex/base64)
+  mc channel add #test             add a hash channel (key derived from the name)
+  mc channel remove rem-ha         remove a channel by name or index
 
-Channels are served from the backend's local replica. Use --refresh to force a
-radio sync and update the replica.
+add/remove write to the device first, then re-sync local state from the device.
+A #name channel derives its key from the name; otherwise a 16-byte key (hex or
+base64) is required.
+
+Channels are served from the backend's local device state. Use --refresh to
+force a radio sync.
 
 Flags:
-  --refresh        Force a radio sync and update the local replica
+  --refresh        Force a radio sync and update local state
 ` + globalFlags,
 
 	"advert": `Usage: mc advert [flags]

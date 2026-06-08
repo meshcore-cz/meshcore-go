@@ -120,6 +120,8 @@ var shellCommands = []CommandSpec{
 				Description:  "Send a channel message",
 				CompleteArgs: completeChannelsArg,
 			},
+			{Name: "add", Description: "Add a channel (key or #hash)"},
+			{Name: "remove", Description: "Remove a channel", CompleteArgs: completeChannelsArg},
 		},
 	},
 	{

@@ -251,6 +251,20 @@ Send a channel message:
 mc channel send Public "hello everyone"
 ```
 
+Add a channel — with an explicit 16-byte key (hex or base64), or as a `#name`
+hash channel whose key is derived from the name:
+
+```sh
+mc channel add rem-ha 8b3387e9c5cdea6ac9e5edbaa115cd72
+mc channel add #test
+```
+
+Remove a channel (removed from the device first, then local state is re-synced):
+
+```sh
+mc channel remove rem-ha
+```
+
 Force a channel refresh from the radio:
 
 ```sh
@@ -437,7 +451,7 @@ Available shell commands:
 | `inbox`                            | Drain buffered messages |
 | `send <recipient> <text> [--wait]` | Send a direct message   |
 | `trace <target>`                   | Trace a route           |
-| `channel list\|show\|send`         | Work with channels      |
+| `channel list\|show\|send\|add\|remove` | Work with channels |
 | `watch`                            | Stream events           |
 | `help`                             | Show shell help         |
 | `exit`                             | Close the session       |
@@ -780,7 +794,7 @@ mc raw 14 --debug
 | `mc watch`                                               | Stream incoming events                            |
 | `mc shell`                                               | Open an interactive persistent session            |
 | `mc trace <target>`                                      | Trace the route to a node                         |
-| `mc channel <list\|show\|send>`                          | Work with channel slots                           |
+| `mc channel <list\|show\|send\|add\|remove>`             | Work with channel slots                           |
 | `mc advert`                                              | Broadcast this device's advertisement             |
 | `mc discover`                                            | Discover remote mesh nodes                        |
 | `mc repeater <list\|add\|del\|status\|neighbours\|exec>` | Manage remote repeaters                           |

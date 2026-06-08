@@ -390,6 +390,18 @@ func (c *Client) SendChannelText(ctx context.Context, channel, text string) (mes
 	return out, err
 }
 
+func (c *Client) ChannelAdd(ctx context.Context, name string, secret []byte) (meshcore.Channel, error) {
+	var out meshcore.Channel
+	err := c.call(ctx, "channel_add", channelAddParams{Name: name, Secret: secret}, &out)
+	return out, err
+}
+
+func (c *Client) ChannelRemove(ctx context.Context, channel string) (meshcore.Channel, error) {
+	var out meshcore.Channel
+	err := c.call(ctx, "channel_remove", channelRemoveParams{Channel: channel}, &out)
+	return out, err
+}
+
 func (c *Client) Advertise(ctx context.Context, flood bool) error {
 	return c.call(ctx, "advert", advertParams{Flood: flood}, nil)
 }

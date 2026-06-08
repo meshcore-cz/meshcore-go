@@ -170,6 +170,15 @@ type channelSendParams struct {
 	Text    string `json:"text"`
 }
 
+type channelAddParams struct {
+	Name   string `json:"name"`
+	Secret []byte `json:"secret"`
+}
+
+type channelRemoveParams struct {
+	Channel string `json:"channel"`
+}
+
 type advertParams struct {
 	Flood bool `json:"flood"`
 }
