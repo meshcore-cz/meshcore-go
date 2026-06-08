@@ -11,7 +11,7 @@ func TestEveryCommandHasHelp(t *testing.T) {
 	root := NewRoot(&App{})
 	commands := []string{
 		"connect", "status", "stats", "doctor", "contacts", "contact", "inbox",
-		"send", "watch", "trace", "channel", "repeater", "use", "device", "session", "state", "config", "raw", "version",
+		"send", "watch", "trace", "channel", "repeater", "use", "device", "session", "state", "config", "completion", "raw", "version",
 	}
 	for _, name := range commands {
 		cmd, _, err := root.Find([]string{name})
@@ -22,6 +22,67 @@ func TestEveryCommandHasHelp(t *testing.T) {
 		if cmd.Short == "" {
 			t.Errorf("missing short help for command %q", name)
 		}
+	}
+}
+
+func TestCompletionCommands(t *testing.T) {
+	tests := []struct {
+		shell string
+		want  []string
+	}{
+		{"bash", []string{"# bash completion for", "__start_mc", "complete -o default -F __start_mc mc"}},
+		{"zsh", []string{"#compdef mc", "compdef _mc mc", "_mc()"}},
+		{"fish", []string{"# fish completion for mc", "complete -c mc", "__mc_perform_completion"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.shell, func(t *testing.T) {
+			root := NewRoot(&App{})
+			var buf bytes.Buffer
+			root.SetOut(&buf)
+			root.SetErr(&buf)
+			root.SetArgs([]string{"completion", tc.shell})
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			out := buf.String()
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Fatalf("%s completion output missing %q:\n%s", tc.shell, want, out)
+				}
+			}
+		})
+	}
+}
+
+func TestCompletionHelpIncludesInstallExamples(t *testing.T) {
+	tests := []struct {
+		shell string
+		want  []string
+	}{
+		{"bash", []string{"source <(mc completion bash)", "mc completion bash > ~/.local/share/bash-completion/completions/mc"}},
+		{"zsh", []string{"source <(mc completion zsh)", "mc completion zsh > ~/.zsh/completions/_mc"}},
+		{"fish", []string{"mc completion fish | source", "mc completion fish > ~/.config/fish/completions/mc.fish"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.shell, func(t *testing.T) {
+			root := NewRoot(&App{})
+			var buf bytes.Buffer
+			root.SetOut(&buf)
+			cmd, _, err := root.Find([]string{"completion", tc.shell})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd.SetOut(&buf)
+			if err := cmd.Help(); err != nil {
+				t.Fatal(err)
+			}
+			out := buf.String()
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Fatalf("%s completion help missing %q:\n%s", tc.shell, want, out)
+				}
+			}
+		})
 	}
 }
 

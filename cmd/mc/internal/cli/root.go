@@ -64,6 +64,7 @@ func NewRoot(app *App) *cobra.Command {
 		newSessionCommand(app),
 		newStateCommand(app),
 		newConfigCommand(app),
+		newCompletionCommand(app),
 		newRawCommand(app),
 		newVersionCommand(app),
 	)
@@ -614,6 +615,97 @@ func newConfigCommand(app *App) *cobra.Command {
 		&cobra.Command{Use: "path", Short: "Print config file path", RunE: runWithEnvNoContext(app, []string{"path"}, cmdConfig)},
 		&cobra.Command{Use: "show", Short: "Print current configuration", RunE: runWithEnvNoContext(app, []string{"show"}, cmdConfig)},
 	)
+	return cmd
+}
+
+func newCompletionCommand(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion",
+		Short: "Generate shell completion scripts",
+		Long: strings.TrimSpace(`
+Generate shell completion scripts for mc.
+
+For one-shot use, source the generated script in the current shell. For
+permanent installation, write it to your shell's completion directory.`),
+		Example: strings.TrimSpace(`
+mc completion bash
+mc completion zsh
+mc completion fish | source
+mkdir -p ~/.local/share/bash-completion/completions
+mc completion bash > ~/.local/share/bash-completion/completions/mc
+mkdir -p ~/.zsh/completions
+mc completion zsh > ~/.zsh/completions/_mc
+mkdir -p ~/.config/fish/completions
+mc completion fish > ~/.config/fish/completions/mc.fish`),
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "bash",
+		Short: "Generate bash completion script",
+		Long: strings.TrimSpace(`
+Generate a bash completion script for mc.
+
+To load completion in the current shell:
+
+  source <(mc completion bash)
+
+To install completion permanently:
+
+  mkdir -p ~/.local/share/bash-completion/completions
+  mc completion bash > ~/.local/share/bash-completion/completions/mc`),
+		Example: strings.TrimSpace(`
+source <(mc completion bash)
+mc completion bash > ~/.local/share/bash-completion/completions/mc`),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Root().GenBashCompletion(cmd.OutOrStdout())
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "zsh",
+		Short: "Generate zsh completion script",
+		Long: strings.TrimSpace(`
+Generate a zsh completion script for mc.
+
+To load completion in the current shell:
+
+  source <(mc completion zsh)
+
+To install completion permanently:
+
+  mkdir -p ~/.zsh/completions
+  mc completion zsh > ~/.zsh/completions/_mc
+
+Make sure ~/.zsh/completions is in fpath before compinit runs.`),
+		Example: strings.TrimSpace(`
+source <(mc completion zsh)
+mc completion zsh > ~/.zsh/completions/_mc`),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Root().GenZshCompletion(cmd.OutOrStdout())
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "fish",
+		Short: "Generate fish completion script",
+		Long: strings.TrimSpace(`
+Generate a fish completion script for mc.
+
+To load completion in the current shell:
+
+  mc completion fish | source
+
+To install completion permanently:
+
+  mkdir -p ~/.config/fish/completions
+  mc completion fish > ~/.config/fish/completions/mc.fish`),
+		Example: strings.TrimSpace(`
+mc completion fish | source
+mc completion fish > ~/.config/fish/completions/mc.fish`),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Root().GenFishCompletion(cmd.OutOrStdout(), true)
+		},
+	})
 	return cmd
 }
 
