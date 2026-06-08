@@ -372,6 +372,29 @@ Each TCP port or PTY exposes exactly one radio.
 > [!NOTE]
 > On macOS, Chrome Web Serial does not list PTY bridges. The PTY bridge is intended for native serial clients. Use TCP only with clients that explicitly support a TCP MeshCore bridge.
 
+## Device-local state
+
+Each connected device keeps its own SQLite database of contacts, channels, and repeater sessions, stored at:
+
+```text
+~/.local/state/mc/devices/<public-key-prefix>.db
+```
+
+This is **device-local state**, not a cache: it may be stale, incomplete, or locally enriched. Each database is scoped to one device — identified by the device's full public key, which is recorded in the database and verified on every open. If a database ever belongs to a different key than expected, `mc` fails loudly rather than reusing the wrong state.
+
+Inspect and manage it with `mc state`:
+
+```sh
+mc state list                     # every device's local-state database
+mc state show handheld            # one device (by profile name, key, or prefix)
+mc state purge handheld           # delete one device's local state
+mc state prune --older-than 30d   # delete state not updated within a duration
+```
+
+Durations accept `d` (days), `w` (weeks), and Go units (`h`, `m`, `s`).
+
+Optional observer packet history, when enabled, is kept separately under `~/.local/state/mc/captures/`.
+
 ## Interactive shell
 
 For a foreground session that keeps a single radio connection alive:
@@ -634,7 +657,7 @@ $XDG_CONFIG_HOME/mc/config.yaml
 A configuration file may contain:
 
 * the selected device profile
-* saved device endpoints
+* saved device endpoints and identity (`public_key`, `public_key_prefix`)
 * preferred transports
 * per-device backend options (`backend.autostart`, `backend.bridges`)
 * saved repeater profiles
@@ -753,6 +776,7 @@ mc raw 14 --debug
 | `mc use <profile>`                                       | Select the default device profile                 |
 | `mc device <list\|show\|remove>`                         | Manage saved profiles                             |
 | `mc session <list\|start\|stop\|restart>`                | Manage device sessions (live radio connections)   |
+| `mc state <list\|show\|purge\|prune>`                    | Inspect and manage per-device local state         |
 | `mc config <path\|show>`                                 | Inspect CLI configuration                         |
 | `mc raw <hex bytes...>`                                  | Send raw companion-protocol bytes                 |
 | `mc version`                                             | Print version information                         |

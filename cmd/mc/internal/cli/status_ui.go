@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"strings"
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
@@ -10,6 +12,7 @@ import (
 
 func printStyledStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) error {
 	data := statusDataFromBackend(st, dev, stats, statsOK, statsAt)
+	data.ProfileName = statusProfileName(e)
 	printer := ui.NewPrinter(e.out.Out)
 	printer.Print(ui.RenderStatus(data, printer))
 	return nil
@@ -46,7 +49,8 @@ func deviceInfoFromBackend(st localbackend.Status, dev localbackend.DeviceStatus
 
 func statusDataFromBackend(st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) ui.StatusData {
 	return ui.StatusData{
-		Device: deviceInfoFromBackend(st, dev, stats, statsOK, statsAt),
+		Device:     deviceInfoFromBackend(st, dev, stats, statsOK, statsAt),
+		LocalState: localStateForPublicKey(dev.PublicKey),
 		Backend: ui.BackendInfo{
 			Running:   st.Running,
 			Healthy:   st.Healthy,
@@ -102,6 +106,7 @@ func statusDataUnavailableBackend(st localbackend.Status) ui.StatusData {
 			TransportURI: st.URI,
 			Available:    false,
 		},
+		LocalState: localStateForPublicKey(st.Device.PublicKey),
 		Backend: ui.BackendInfo{
 			Running:   st.Running,
 			Healthy:   st.Healthy,
@@ -121,7 +126,60 @@ func statusDataUnavailableBackend(st localbackend.Status) ui.StatusData {
 
 func printStyledUnavailableStatus(e *env, st localbackend.Status) error {
 	data := statusDataUnavailableBackend(st)
+	data.ProfileName = statusProfileName(e)
 	printer := ui.NewPrinter(e.out.Out)
 	printer.Print(ui.RenderStatus(data, printer))
 	return nil
+}
+
+func localStateForPublicKey(publicKey string) ui.LocalStateInfo {
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return ui.LocalStateInfo{}
+	}
+	path := localbackend.StateDBPath(publicKey)
+	if _, err := os.Stat(path); err != nil {
+		return ui.LocalStateInfo{}
+	}
+	sum, err := localbackend.ReadStateSummary(path)
+	if err != nil {
+		return ui.LocalStateInfo{}
+	}
+	return localStateFromSummary(sum)
+}
+
+func localStateFromSummary(sum localbackend.StateSummary) ui.LocalStateInfo {
+	return ui.LocalStateInfo{
+		Initialized:      true,
+		Contacts:         sum.Contacts,
+		Channels:         sum.Channels,
+		RepeaterSessions: sum.RepeaterSessions,
+		UpdatedAt:        sum.ModTime,
+	}
+}
+
+func localStatePathForPublicKey(publicKey string) string {
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return ""
+	}
+	path := localbackend.StateDBPath(publicKey)
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+func statusProfileName(e *env) string {
+	if e.args.flag("uri") != "" {
+		return ""
+	}
+	if name := e.args.flag("device"); name != "" {
+		return name
+	}
+	_, profile, err := resolveURI(e)
+	if err != nil {
+		return ""
+	}
+	return profile
 }

@@ -11,7 +11,7 @@ func TestRenderDeviceListDefault(t *testing.T) {
 		Devices: []DeviceListRow{
 			{Profile: "handheld", Selected: true, Device: "EFF01EF2", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "BLE", Activity: "last 45s ago (stats)"},
 			{Profile: "desk-radio", Device: "A82F910C", Backend: "ready", Radio: "connected", Replica: "fresh", Transport: "SERIAL", Activity: "last 45s ago (stats)"},
-			{Profile: "field-node", Device: "B71A44C2", Backend: "stopped", Radio: "-", Replica: "cached", Transport: "BLE", Activity: "-"},
+			{Profile: "field-node", Device: "B71A44C2", Backend: "stopped", Radio: "-", Replica: "unknown", Transport: "BLE", Activity: "-"},
 			{Profile: "test-node", Device: "C40A109E", Backend: "degraded", Radio: "reconnecting", Replica: "stale", Transport: "BLE", Activity: "reconnecting"},
 		},
 		Meta: DeviceListMeta{
@@ -28,9 +28,9 @@ func TestRenderDeviceListDefault(t *testing.T) {
 	for _, want := range []string{
 		"PROFILE",
 		"DEVICE",
-		"BACKEND",
+		"SESSION",
 		"RADIO",
-		"REPLICA",
+		"LOCAL",
 		"TRANSPORT",
 		"ACTIVITY",
 		"handheld",
@@ -43,7 +43,7 @@ func TestRenderDeviceListDefault(t *testing.T) {
 		"SERIAL",
 		"field-node",
 		"stopped",
-		"cached",
+		"unknown",
 		"test-node",
 		"degraded",
 		"reconnecting",
@@ -62,8 +62,8 @@ func TestRenderDeviceListDefault(t *testing.T) {
 		t.Fatalf("expected separate selection marker column:\n%s", out)
 	}
 	header := strings.Split(strings.TrimRight(out, "\n"), "\n")[0]
-	if strings.Index(header, "TRANSPORT") > strings.Index(header, "BACKEND") {
-		t.Fatalf("TRANSPORT should precede BACKEND in header: %q", header)
+	if strings.Index(header, "TRANSPORT") > strings.Index(header, "SESSION") {
+		t.Fatalf("TRANSPORT should precede SESSION in header: %q", header)
 	}
 }
 
@@ -124,8 +124,8 @@ func TestDeviceListReplicaState(t *testing.T) {
 	if got := DeviceListReplicaState(true, true, true, "ready", contacts, channels); got != "fresh" {
 		t.Fatalf("got %q, want fresh", got)
 	}
-	if got := DeviceListReplicaState(false, true, true, "ready", contacts, channels); got != "cached" {
-		t.Fatalf("got %q, want cached", got)
+	if got := DeviceListReplicaState(false, true, true, "ready", contacts, channels); got != "unknown" {
+		t.Fatalf("got %q, want unknown", got)
 	}
 	if got := DeviceListReplicaState(true, true, false, "degraded", contacts, channels); got != "stale" {
 		t.Fatalf("got %q, want stale", got)

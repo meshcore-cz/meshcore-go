@@ -67,6 +67,7 @@ func cmdConnect(ctx context.Context, e *env) error {
 	}
 	cfg.Put(name, config.Device{
 		Name:               info.Name,
+		PublicKey:          strings.ToLower(strings.TrimSpace(info.PublicKey)),
 		PublicKeyPrefix:    keyPrefix(info.PublicKey),
 		PreferredTransport: schemeOf(uri),
 		Transports:         []config.Endpoint{{URI: uri}},

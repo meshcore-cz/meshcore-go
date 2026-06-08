@@ -158,6 +158,8 @@ func dispatch(ctx context.Context, cmd string, e *env) error {
 		return cmdDevice(ctx, e)
 	case "session":
 		return cmdSession(ctx, e)
+	case "state":
+		return cmdState(e)
 	case "config":
 		return cmdConfig(e)
 	case "raw":
@@ -251,6 +253,10 @@ Commands:
   session start <n>  Connect a device's radio session
   session stop <n>   Disconnect a device's radio session
   session restart <n> Reconnect a device's radio session
+  state list         List per-device local-state databases
+  state show <d>     Show one device's local state
+  state purge <d>    Delete one device's local state
+  state prune        Delete state older than --older-than
   config path        Print the config file path
   config show        Print the current configuration
   raw <hex>          Send raw bytes and print the decoded response

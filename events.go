@@ -2,6 +2,7 @@ package meshcore
 
 import (
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/meshcore-cz/meshcore-go/protocol"
@@ -72,6 +73,16 @@ type RawEvent struct {
 	Payload []byte
 }
 
+// RFPacketReceived is emitted for companion PACKET_LOG_DATA / RF log frames
+// (0x88). Bytes contains only the raw over-the-air MeshCore packet, excluding
+// the companion frame code and signal metadata.
+type RFPacketReceived struct {
+	Timestamp time.Time `json:"timestamp"`
+	SNR       float64   `json:"snr"`
+	RSSI      int       `json:"rssi"`
+	Bytes     []byte    `json:"bytes"`
+}
+
 // RawPacket is an inbound companion-protocol packet observed before the client
 // routes it as a response or asynchronous event.
 type RawPacket struct {
@@ -93,6 +104,7 @@ func (RepeaterLoginSucceeded) isMeshCoreEvent() {}
 func (RepeaterLoginFailed) isMeshCoreEvent()    {}
 func (RepeaterStatusReceived) isMeshCoreEvent() {}
 func (RawEvent) isMeshCoreEvent()               {}
+func (RFPacketReceived) isMeshCoreEvent()       {}
 
 // Telemetry is a placeholder for decoded telemetry payloads (Phase 5).
 type Telemetry struct {
@@ -134,10 +146,42 @@ func translate(msg protocol.Message) Event {
 		}
 		return RepeaterStatusReceived{PublicKeyPrefix: prefix, Stats: stats, Text: m.Text}
 	case protocol.RawMessage:
+		if m.Type == 0x88 && m.Push {
+			ev, err := decodeRFPacketLogPayload(m.Payload, time.Now())
+			if err == nil {
+				return ev
+			}
+		}
 		return RawEvent{Type: m.Type, Payload: m.Payload}
 	default:
 		return nil
 	}
+}
+
+// DecodeRFPacketReceived decodes a full companion PACKET_LOG_DATA frame:
+// byte 0 = 0x88, byte 1 = int8(SNR*4), byte 2 = int8(RSSI), bytes 3.. = raw
+// over-the-air MeshCore packet. This matches MeshCore companion
+// PUSH_CODE_LOG_RX_DATA as implemented by logRxRaw().
+func DecodeRFPacketReceived(frame []byte, timestamp time.Time) (RFPacketReceived, error) {
+	if len(frame) == 0 {
+		return RFPacketReceived{}, fmt.Errorf("rf packet log: truncated frame: missing packet type")
+	}
+	if frame[0] != 0x88 {
+		return RFPacketReceived{}, fmt.Errorf("rf packet log: unexpected packet type 0x%02x", frame[0])
+	}
+	return decodeRFPacketLogPayload(frame[1:], timestamp)
+}
+
+func decodeRFPacketLogPayload(payload []byte, timestamp time.Time) (RFPacketReceived, error) {
+	if len(payload) < 2 {
+		return RFPacketReceived{}, fmt.Errorf("rf packet log: truncated 0x88 frame: need SNR, RSSI and RF bytes, got %d payload byte(s)", len(payload))
+	}
+	return RFPacketReceived{
+		Timestamp: timestamp,
+		SNR:       float64(int8(payload[0])) / 4.0,
+		RSSI:      int(int8(payload[1])),
+		Bytes:     cloneBytes(payload[2:]),
+	}, nil
 }
 
 // messageEvent maps a drained Message to a MessageReceived event.

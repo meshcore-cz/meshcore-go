@@ -106,6 +106,32 @@ func TestTracePlanPathLabel(t *testing.T) {
 	}
 }
 
+func TestTraceReturnTarget(t *testing.T) {
+	got, err := traceReturnTarget("2525,5153,0455")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "2525,5153,0455,5153,2525" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTraceReturnTargetSingleHop(t *testing.T) {
+	got, err := traceReturnTarget("2525")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "2525" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTraceReturnTargetRejectsContactName(t *testing.T) {
+	if _, err := traceReturnTarget("alice"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestTraceDisplayPathLabel(t *testing.T) {
 	got := traceDisplayPathLabel(meshcore.TracePlan{
 		Path:     []byte{0xa9, 0x0d, 0x57, 0xdb, 0x3f, 0x18},

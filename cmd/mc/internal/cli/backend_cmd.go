@@ -347,31 +347,31 @@ func backendRestart(ctx context.Context, e *env) error {
 func backendStatusCmd(ctx context.Context, e *env) error {
 	dst, ok := daemonRunning(ctx, e)
 	if !ok {
-		e.out.Human("Backend: not running\n")
-		return e.out.JSONValue(map[string]any{"running": false, "socket": resolveBackendSocket(e)})
-	}
-	// Per-device detail for the targeted/default session; it may not be
-	// connected even though the daemon (supervisor) is up.
-	sessSt, sessOK := backendStatus(ctx, e)
-	entries := daemonEntriesMap(dst.Devices)
-
-	if !e.out.JSON {
-		if sessOK {
-			data := backendStatusDataFromStatus(sessSt, e.args.has("verbose"))
+		if !e.out.JSON {
+			data := ui.BackendStatusData{Running: false, Socket: resolveBackendSocket(e)}
 			printer := ui.NewPrinter(e.out.Out)
 			printer.Print(ui.RenderBackendStatus(data, printer))
-		} else {
-			printDaemonOnlyStatus(e, dst)
+			return nil
 		}
-		if len(entries) > 1 || (!sessOK && len(entries) > 0) {
-			printBackendSessionsSummary(e, entries)
-		}
+		return e.out.JSONValue(map[string]any{"running": false, "socket": resolveBackendSocket(e)})
+	}
+
+	if !e.out.JSON {
+		data := backendStatusDataFromDaemon(ctx, e, dst, e.args.has("verbose"))
+		printer := ui.NewPrinter(e.out.Out)
+		printer.Print(ui.RenderBackendStatus(data, printer))
 		return nil
 	}
 
 	out := daemonStatusJSON(dst)
-	if sessOK {
-		out["default_session"] = backendStatusJSON(sessSt)
+	sessions := backendSessionDetails(ctx, e, dst, e.args.has("verbose"))
+	out["sessions"] = backendSessionsStatusJSON(sessions)
+	if len(sessions) > 0 {
+		out["clients"] = sumBackendSessionClients(sessions)
+		ok, failed, pending := sumBackendSessionRequests(sessions)
+		out["requests_completed"] = ok
+		out["requests_failed"] = failed
+		out["requests_pending"] = pending
 	}
 	return e.out.JSONValue(out)
 }
@@ -473,6 +473,7 @@ func backendServe(ctx context.Context, e *env) error {
 		daemon.Register(localbackend.SessionProfile{
 			ID:        defaultID,
 			URI:       uri,
+			PublicKey: cfg.Devices[defaultID].PublicKey,
 			Bridges:   primaryBridges(cfg, defaultID),
 			Autostart: true,
 			DialOpts:  opts,
@@ -497,6 +498,7 @@ func backendServe(ctx context.Context, e *env) error {
 		daemon.Register(localbackend.SessionProfile{
 			ID:        name,
 			URI:       devURI,
+			PublicKey: dev.PublicKey,
 			Bridges:   bridgesFromDeviceBackend(dev.Backend),
 			Autostart: dev.Backend.Autostart,
 			DialOpts:  opts,

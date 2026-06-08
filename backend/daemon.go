@@ -20,6 +20,7 @@ import (
 type SessionProfile struct {
 	ID        string
 	URI       string
+	PublicKey string // configured full device public key; "" for new devices
 	Bridges   []BridgeConfig
 	Autostart bool
 	DialOpts  []meshcore.DialOption
@@ -28,16 +29,14 @@ type SessionProfile struct {
 // DaemonOptions configures a backend Daemon.
 type DaemonOptions struct {
 	Socket      string
-	Store       Store
 	LogRequests bool
 }
 
 // Daemon supervises one or more isolated DeviceSessions behind a single Unix
-// socket. It owns the listener, the shared replica store, and request routing;
-// each session owns its own radio connection and state.
+// socket. It owns the listener and request routing; each session owns its own
+// radio connection and its own per-device local-state store.
 type Daemon struct {
 	socket      string
-	store       Store
 	logRequests bool
 
 	listener net.Listener
@@ -58,24 +57,15 @@ type Daemon struct {
 	startLocks map[string]*sync.Mutex
 }
 
-// NewDaemon prepares a daemon. If opts.Store is nil a default SQLite store is
-// opened and owned by the daemon.
+// NewDaemon prepares a daemon. Each device session opens its own local-state
+// store when it connects; the daemon itself holds no store.
 func NewDaemon(opts DaemonOptions) (*Daemon, error) {
 	socket := opts.Socket
 	if socket == "" {
 		socket = SocketPath()
 	}
-	store := opts.Store
-	if store == nil {
-		var err error
-		store, err = OpenSQLiteStore("")
-		if err != nil {
-			return nil, fmt.Errorf("opening backend store: %w", err)
-		}
-	}
 	return &Daemon{
 		socket:      socket,
-		store:       store,
 		logRequests: opts.LogRequests,
 		stopped:     make(chan struct{}),
 		profiles:    make(map[string]SessionProfile),
@@ -165,7 +155,6 @@ func (d *Daemon) Serve() error {
 		ln.Close()
 		os.Remove(d.socket)
 		d.stopAllSessions()
-		d.store.Close()
 		close(d.stopped)
 	}()
 
@@ -245,9 +234,9 @@ func (d *Daemon) startSession(ctx context.Context, id string) (*DeviceSession, e
 	}
 
 	s, err := newSession(ctx, p.URI, SessionOptions{
-		ID:      id,
-		Store:   d.store,
-		Bridges: p.Bridges,
+		ID:        id,
+		PublicKey: p.PublicKey,
+		Bridges:   p.Bridges,
 	}, p.DialOpts...)
 	if err != nil {
 		return nil, err

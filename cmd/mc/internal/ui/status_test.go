@@ -60,6 +60,7 @@ func TestStatsUpdateStale(t *testing.T) {
 
 func TestRenderStatusLayout(t *testing.T) {
 	data := StatusData{
+		ProfileName: "handheld",
 		Device: DeviceInfo{
 			Name:            "MeshCore",
 			PublicKey:       "eff01ef21805abcd",
@@ -96,11 +97,19 @@ func TestRenderStatusLayout(t *testing.T) {
 			}, true, time.Now().Add(-124*time.Millisecond)),
 			Available: true,
 		},
+		LocalState: LocalStateInfo{
+			Initialized:      true,
+			Contacts:         286,
+			Channels:         2,
+			RepeaterSessions: 1,
+			UpdatedAt:        time.Now().Add(-48 * time.Second),
+		},
 		Backend: BackendInfo{
 			Running:   true,
 			Healthy:   true,
 			State:     "ready",
 			PID:       41148,
+			StartedAt: time.Now().Add(-39420 * time.Second),
 			UptimeSec: 39420,
 			RadioIO: RadioIOInfo{
 				LastAt:         time.Now().Add(-4 * time.Second),
@@ -121,21 +130,90 @@ func TestRenderStatusLayout(t *testing.T) {
 	printer := NewPrinter(&buf)
 	out := RenderStatus(data, printer)
 	for _, want := range []string{
-		"Device:        EFF01EF2",
-		"Firmware:      MeshCore (Heltec V3) v1.16.0-07a3ca9",
-		"Protocol:      companion-v3",
-		"Transport:     ble://C4:20:12:34:56:78",
-		"Public key:    eff01ef21805abcd",
-		"Radio:         active · 10h 57m uptime · updated 124ms ago",
-		"  Modem:       869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
-		"  Signal:      -104 dBm RSSI · +7.5 dB SNR · -118 dBm noise",
-		"  Battery:     4.08 V",
-		"  Packets:     12,846 rx · 1,284 tx · 7 errors",
-		"  Airtime:     2h 14m rx · 8m 37s tx",
-		"  Queue:       0 pending",
-		"Backend:       running (pid 41148) · 10h 57m uptime",
-		"  Activity:    idle · last: stats (120ms) · 4s ago",
-		"  Replica:     fresh · 286 contacts · 2 channels · updated 48s ago",
+		"handheld  (active)",
+		"  Public key:    eff01ef21805abcd",
+		"  Name:          EFF01EF2",
+		"  Firmware:      MeshCore (Heltec V3) v1.16.0-07a3ca9",
+		"  Protocol:      companion-v3",
+		"  Transport:     ble://C4:20:12:34:56:78",
+		"  Radio:         active · 10h 57m uptime · updated 124ms ago",
+		"    Modem:       869.525 MHz · BW 250 kHz · SF11 · CR 4/5 · TX 22 dBm",
+		"    Signal:      -104 dBm RSSI · +7.5 dB SNR · -118 dBm noise",
+		"    Battery:     4.08 V",
+		"    Packets:     12,846 rx · 1,284 tx · 7 errors",
+		"    Airtime:     2h 14m rx · 8m 37s tx",
+		"    Queue:       0 pending",
+		"  Local state:   available · updated 48s ago",
+		"    Contacts:    286",
+		"    Channels:    2",
+		"    Sessions:    1 repeater login",
+		"  Backend:       running · 10h 57m uptime",
+		"    Session:     ready · connected 10h 57m ago",
+		"    Activity:    idle · last request 4s ago (stats)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderStatusLocalStateNotInitialized(t *testing.T) {
+	data := StatusData{
+		Device: DeviceInfo{
+			PublicKey: "eff01ef21805abcd",
+			Available: true,
+		},
+	}
+	var buf bytes.Buffer
+	printer := NewPrinter(&buf)
+	out := RenderStatus(data, printer)
+	if !strings.Contains(out, "  Local state:   not initialized") {
+		t.Fatalf("output missing local state not initialized:\n%s", out)
+	}
+}
+
+func TestRenderStatusAllLayout(t *testing.T) {
+	data := StatusAllData{Rows: []StatusAllRow{
+		{
+			Profile:   "handheld",
+			Selected:  true,
+			Session:   "ready",
+			Transport: "ble",
+			Radio: DeviceStatsFromLocal(meshcore.LocalStats{
+				Core: meshcore.LocalStatsCore{BatteryMV: 4190},
+			}, true, time.Now().Add(-4*time.Second)),
+			LocalState: LocalStateInfo{
+				Initialized: true,
+				Contacts:    42,
+				Channels:    3,
+				UpdatedAt:   time.Now().Add(-2 * time.Minute),
+			},
+			ConnectedAt: time.Now().Add(-37 * time.Minute),
+		},
+		{
+			Profile:   "travel-node",
+			Session:   "stopped",
+			Transport: "ble",
+			LocalState: LocalStateInfo{
+				Initialized: true,
+				Contacts:    18,
+				Channels:    2,
+				UpdatedAt:   time.Now().Add(-21 * 24 * time.Hour),
+			},
+		},
+	}}
+	var buf bytes.Buffer
+	printer := NewPrinter(&buf)
+	out := RenderStatusAll(data, printer)
+	for _, want := range []string{
+		"* handheld",
+		"    Session:     ready · connected 37m ago",
+		"    Transport:   ble",
+		"    Radio:       active · battery 4.19 V · updated 4s ago",
+		"    Local state: 42 contacts · 3 channels · updated 2m ago",
+		"  travel-node",
+		"    Session:     not running",
+		"    Local state: 18 contacts · 2 channels · updated 21d ago",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)

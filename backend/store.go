@@ -6,34 +6,36 @@ import (
 	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
-// ContactCacheEntry is a replicated contact plus sync metadata.
-type ContactCacheEntry struct {
+// ContactStateEntry is a stored contact plus the time it was last written. The
+// database is device-local state, not a cache: it may be stale, incomplete, or
+// locally enriched.
+type ContactStateEntry struct {
 	Contact  meshcore.Contact `json:"contact"`
-	Device   string           `json:"device"`
-	CachedAt string           `json:"cached_at"` // last replicated at (JSON field name kept for compatibility)
+	StoredAt string           `json:"stored_at"`
 }
 
-// ChannelCacheEntry is a replicated channel plus sync metadata.
-type ChannelCacheEntry struct {
+// ChannelStateEntry is a stored channel plus the time it was last written.
+type ChannelStateEntry struct {
 	Channel  meshcore.Channel `json:"channel"`
-	Device   string           `json:"device"`
-	CachedAt string           `json:"cached_at"` // last replicated at
+	StoredAt string           `json:"stored_at"`
 }
 
-// Store persists backend-local state such as the contact replica.
+// Store persists one device's local state. Each store is already scoped to a
+// single device (one database file per device public key), so methods take no
+// device argument.
 type Store interface {
 	Close() error
-	UpsertContacts(ctx context.Context, device string, contacts []meshcore.Contact) error
-	ClearContacts(ctx context.Context, device string) error
-	ContactLastMod(ctx context.Context, device string) (uint32, error)
-	SetContactLastMod(ctx context.Context, device string, lastMod uint32) error
-	UpsertContact(ctx context.Context, device string, contact meshcore.Contact) error
-	Contacts(ctx context.Context, device string) ([]ContactCacheEntry, error)
-	Contact(ctx context.Context, device, query string) (ContactCacheEntry, error)
-	UpsertChannels(ctx context.Context, device string, channels []meshcore.Channel) error
-	Channels(ctx context.Context, device string) ([]ChannelCacheEntry, error)
-	Channel(ctx context.Context, device, query string) (ChannelCacheEntry, error)
-	UpsertRepeaterSession(ctx context.Context, device string, session meshcore.RepeaterSession) error
-	RepeaterSession(ctx context.Context, device, repeater string) (meshcore.RepeaterSession, error)
-	ClearRepeaterSession(ctx context.Context, device, repeater string) error
+	UpsertContacts(ctx context.Context, contacts []meshcore.Contact) error
+	ClearContacts(ctx context.Context) error
+	ContactLastMod(ctx context.Context) (uint32, error)
+	SetContactLastMod(ctx context.Context, lastMod uint32) error
+	UpsertContact(ctx context.Context, contact meshcore.Contact) error
+	Contacts(ctx context.Context) ([]ContactStateEntry, error)
+	Contact(ctx context.Context, query string) (ContactStateEntry, error)
+	UpsertChannels(ctx context.Context, channels []meshcore.Channel) error
+	Channels(ctx context.Context) ([]ChannelStateEntry, error)
+	Channel(ctx context.Context, query string) (ChannelStateEntry, error)
+	UpsertRepeaterSession(ctx context.Context, session meshcore.RepeaterSession) error
+	RepeaterSession(ctx context.Context, repeater string) (meshcore.RepeaterSession, error)
+	ClearRepeaterSession(ctx context.Context, repeater string) error
 }

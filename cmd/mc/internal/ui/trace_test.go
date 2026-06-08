@@ -19,7 +19,7 @@ func TestTraceNodePlainLabel(t *testing.T) {
 		node TraceNode
 		want string
 	}{
-		{"hash only", TraceNode{Hash: "2525"}, "[2525]"},
+		{"hash only", TraceNode{Hash: "2525"}, "[2525] unknown"},
 		{"hash and name", TraceNode{Hash: "2525", Name: "mc.kololec.cz"}, "[2525] mc.kololec.cz"},
 		{"ambiguous", TraceNode{Hash: "25", Ambiguous: true, Names: []string{"a", "b"}}, "[25]"},
 	}
@@ -125,6 +125,23 @@ func TestRenderTraceWeakLink(t *testing.T) {
 	out := RenderTrace(data, printer)
 	if !strings.Contains(out, "-2.0 dB  ← weak") {
 		t.Fatalf("missing weak marker:\n%s", out)
+	}
+}
+
+func TestRenderTraceUnknownNode(t *testing.T) {
+	printer, _ := tracePrinter(t)
+	data := TraceData{
+		Target:      TraceNode{Hash: "fa67"},
+		Request:     "explicit path · 2525 → fa67",
+		PrefixBytes: 2,
+		RoundTrip:   time.Second,
+		Legs: []TraceLeg{
+			{Number: 1, From: TraceNode{Hash: "2525", Name: "mc.kololec.cz"}, To: TraceNode{Hash: "fa67"}, SNRDB: -4.0},
+		},
+	}
+	out := RenderTrace(data, printer)
+	if !strings.Contains(out, "[fa67] unknown") {
+		t.Fatalf("missing unknown node label:\n%s", out)
 	}
 }
 
@@ -260,6 +277,10 @@ func TestRenderTraceANSIStyled(t *testing.T) {
 	}
 	if !strings.HasSuffix(styled, " mc.kololec.cz") {
 		t.Fatalf("name should stay unstyled: %q", styled)
+	}
+	unknown := (TraceNode{Hash: "fa67"}).StyledLabel(theme)
+	if !strings.Contains(unknown, "\x1b[2munknown\x1b[0m") {
+		t.Fatalf("unknown should be dim: %q", unknown)
 	}
 	marginal := traceSNRStyled(-2.0, traceSNRColMin, theme)
 	if !strings.Contains(marginal, "\x1b[1;33m") || !strings.Contains(marginal, "← weak") {

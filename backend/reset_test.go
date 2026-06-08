@@ -11,12 +11,25 @@ func TestResetState(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
 
-	mcDir := filepath.Join(dir, dirName)
-	if err := os.MkdirAll(mcDir, 0o700); err != nil {
+	// Per-device state and capture databases.
+	for _, d := range []string{StateDevicesDir(), CapturesDir()} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stateFiles := []string{
+		filepath.Join(StateDevicesDir(), "aaaaaaaaaaaaaaaa.db"),
+		filepath.Join(StateDevicesDir(), "aaaaaaaaaaaaaaaa.db-wal"),
+		filepath.Join(CapturesDir(), "aaaaaaaaaaaaaaaa.db"),
+	}
+	// Log and socket.
+	if err := os.MkdirAll(filepath.Dir(LogPath()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"backend.db", "backend.db-wal", "backend.log", sockName} {
-		if err := os.WriteFile(filepath.Join(mcDir, name), []byte("x"), 0o600); err != nil {
+	allFiles := append([]string{}, stateFiles...)
+	allFiles = append(allFiles, LogPath(), SocketPath())
+	for _, p := range allFiles {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -25,12 +38,12 @@ func TestResetState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(removed) != 4 {
-		t.Fatalf("removed %d paths, want 4: %v", len(removed), removed)
+	if len(removed) != len(allFiles) {
+		t.Fatalf("removed %d paths, want %d: %v", len(removed), len(allFiles), removed)
 	}
-	for _, name := range []string{"backend.db", "backend.db-wal", "backend.log", sockName} {
-		if _, err := os.Stat(filepath.Join(mcDir, name)); !os.IsNotExist(err) {
-			t.Errorf("expected %s to be removed", name)
+	for _, p := range allFiles {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed", p)
 		}
 	}
 }

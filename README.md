@@ -259,9 +259,11 @@ It provides reusable building blocks for:
 
 * a multi-session daemon (`backend.Daemon`) and per-radio sessions (`backend.DeviceSession`);
 * a local IPC client (`backend.Client`) with optional per-device routing;
-* local storage and replicated device state;
+* one persistent local-state database per device (`backend.SQLiteStateStore`), keyed and validated by the device's full public key at `~/.local/state/mc/devices/<public-key-prefix>.db`;
 * per-device autostart and lifecycle control;
 * optional per-device TCP and PTY bridge endpoints.
+
+Device-local state is not a cache: it may be stale, incomplete, or locally enriched, and is never silently reused across a changed device identity.
 
 The backend is useful for CLI workflows and integrations, but it remains separate from the core SDK.
 

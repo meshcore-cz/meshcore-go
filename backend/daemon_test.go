@@ -1,48 +1,9 @@
 package backend
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	meshcore "github.com/meshcore-cz/meshcore-go"
 )
-
-// fakeStore is a no-op Store so daemon tests avoid cgo-sqlite entirely.
-type fakeStore struct{}
-
-func (fakeStore) Close() error { return nil }
-func (fakeStore) UpsertContacts(context.Context, string, []meshcore.Contact) error {
-	return nil
-}
-func (fakeStore) ClearContacts(context.Context, string) error             { return nil }
-func (fakeStore) ContactLastMod(context.Context, string) (uint32, error)  { return 0, nil }
-func (fakeStore) SetContactLastMod(context.Context, string, uint32) error { return nil }
-func (fakeStore) UpsertContact(context.Context, string, meshcore.Contact) error {
-	return nil
-}
-func (fakeStore) Contacts(context.Context, string) ([]ContactCacheEntry, error) {
-	return nil, nil
-}
-func (fakeStore) Contact(context.Context, string, string) (ContactCacheEntry, error) {
-	return ContactCacheEntry{}, nil
-}
-func (fakeStore) UpsertChannels(context.Context, string, []meshcore.Channel) error {
-	return nil
-}
-func (fakeStore) Channels(context.Context, string) ([]ChannelCacheEntry, error) {
-	return nil, nil
-}
-func (fakeStore) Channel(context.Context, string, string) (ChannelCacheEntry, error) {
-	return ChannelCacheEntry{}, nil
-}
-func (fakeStore) UpsertRepeaterSession(context.Context, string, meshcore.RepeaterSession) error {
-	return nil
-}
-func (fakeStore) RepeaterSession(context.Context, string, string) (meshcore.RepeaterSession, error) {
-	return meshcore.RepeaterSession{}, nil
-}
-func (fakeStore) ClearRepeaterSession(context.Context, string, string) error { return nil }
 
 // TestDaemonNoAutostartStaysStopped verifies that registering a device without
 // autostart does not create a running session, and that the daemon-level status
@@ -51,7 +12,7 @@ func (fakeStore) ClearRepeaterSession(context.Context, string, string) error { r
 // This exercises the routing/status logic directly (no Unix listener), so it is
 // safe in sandboxes that block socket I/O in test binaries.
 func TestDaemonNoAutostartStaysStopped(t *testing.T) {
-	d, err := NewDaemon(DaemonOptions{Socket: "/tmp/unused.sock", Store: fakeStore{}})
+	d, err := NewDaemon(DaemonOptions{Socket: "/tmp/unused.sock"})
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}
@@ -93,7 +54,7 @@ func TestDaemonNoAutostartStaysStopped(t *testing.T) {
 // not running reports no change (so the CLI can say "not running" instead of
 // "stopped"), and that unknown devices error.
 func TestDaemonStopSessionReportsChange(t *testing.T) {
-	d, err := NewDaemon(DaemonOptions{Socket: "/tmp/unused.sock", Store: fakeStore{}})
+	d, err := NewDaemon(DaemonOptions{Socket: "/tmp/unused.sock"})
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}
@@ -119,7 +80,7 @@ func TestDaemonStopSessionReportsChange(t *testing.T) {
 // TestDaemonAutostartProfilesSelected verifies that only autostart profiles are
 // chosen for connection at serve time.
 func TestDaemonAutostartProfilesSelected(t *testing.T) {
-	d, err := NewDaemon(DaemonOptions{Socket: "/tmp/unused.sock", Store: fakeStore{}})
+	d, err := NewDaemon(DaemonOptions{Socket: "/tmp/unused.sock"})
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}

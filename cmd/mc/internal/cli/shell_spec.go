@@ -39,6 +39,7 @@ var shellCommands = []CommandSpec{
 		Aliases:     []string{"s"},
 		Description: "Show device status",
 		Flags: []FlagSpec{
+			{Name: "--all", Description: "Show compact status for all saved devices"},
 			{Name: "--live", Description: "Refresh radio stats before showing status"},
 		},
 	},
@@ -93,6 +94,9 @@ var shellCommands = []CommandSpec{
 		Name:         "trace",
 		Description:  "Trace route to a contact or path",
 		CompleteArgs: completeContactsArg,
+		Flags: []FlagSpec{
+			{Name: "--return", Description: "Append the reverse path for return tracing"},
+		},
 	},
 	{
 		Name:        "channel",
@@ -132,6 +136,7 @@ var shellCommands = []CommandSpec{
 		Name:        "watch",
 		Description: "Stream incoming messages and events",
 		Flags: []FlagSpec{
+			{Name: "--rf", Description: "Stream RF packet log frames as JSON"},
 			{Name: "--raw", Description: "Stream raw packets as JSON"},
 		},
 	},
@@ -194,6 +199,16 @@ var shellCommands = []CommandSpec{
 			{Name: "start", Description: "Connect a device session", CompleteArgs: completeDeviceProfilesArg},
 			{Name: "stop", Description: "Disconnect a device session", CompleteArgs: completeDeviceProfilesArg},
 			{Name: "restart", Description: "Reconnect a device session", CompleteArgs: completeDeviceProfilesArg},
+		},
+	},
+	{
+		Name:        "state",
+		Description: "Inspect per-device local state",
+		Children: []CommandSpec{
+			{Name: "list", Description: "List per-device local-state databases"},
+			{Name: "show", Description: "Show one device's local state", CompleteArgs: completeDeviceProfilesArg},
+			{Name: "purge", Description: "Delete one device's local state", CompleteArgs: completeDeviceProfilesArg},
+			{Name: "prune", Description: "Delete state older than a duration", Flags: []FlagSpec{{Name: "--older-than", Description: "Age threshold", TakesValue: true}}},
 		},
 	},
 	{

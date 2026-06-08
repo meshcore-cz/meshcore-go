@@ -20,12 +20,13 @@ import (
 // serialisation, replica view, diagnostics, and bridges. A Daemon supervises
 // one or more sessions behind a single Unix socket.
 type DeviceSession struct {
-	id      string // logical device id (profile slug, or a uri-derived slug)
-	uri     string
-	opts    []meshcore.DialOption
-	bridges []BridgeConfig
-	client  *meshcore.Client
-	store   Store
+	id        string // logical device id (profile slug, or a uri-derived slug)
+	uri       string
+	publicKey string // full device public key (identity)
+	opts      []meshcore.DialOption
+	bridges   []BridgeConfig
+	client    *meshcore.Client
+	store     Store
 
 	mu                  sync.RWMutex
 	state               string
@@ -86,18 +87,21 @@ const (
 
 // SessionOptions configures a DeviceSession instance.
 type SessionOptions struct {
-	ID      string // logical device id; defaults to a uri-derived slug
-	Store   Store  // shared store; the session never closes it
-	Bridges []BridgeConfig
+	ID        string // logical device id; defaults to a uri-derived slug
+	PublicKey string // configured full device public key; "" for new devices
+	Store     Store  // optional injected store (tests); else opened per-device
+	Bridges   []BridgeConfig
 }
 
-// newSession dials uri and prepares an isolated device session. The session is
-// not yet running its background goroutines; call start once the supervising
-// daemon is listening.
+// newSession dials uri, establishes the device's local-state store, and
+// verifies device identity. For a known device (PublicKey set) the local state
+// is opened before connecting and the key is verified after the handshake; for
+// a new device the radio is connected first and its reported key is used to
+// create the store. An identity mismatch fails without reusing old state.
+//
+// The session is not yet running its background goroutines; call start once the
+// supervising daemon is listening.
 func newSession(ctx context.Context, uri string, cfg SessionOptions, opts ...meshcore.DialOption) (*DeviceSession, error) {
-	if cfg.Store == nil {
-		return nil, fmt.Errorf("device session requires a store")
-	}
 	id := cfg.ID
 	if id == "" {
 		id = sessionSlug(uri)
@@ -107,19 +111,83 @@ func newSession(ctx context.Context, uri string, cfg SessionOptions, opts ...mes
 		uri:            uri,
 		opts:           append([]meshcore.DialOption(nil), opts...),
 		bridges:        append([]BridgeConfig(nil), cfg.Bridges...),
-		store:          cfg.Store,
 		state:          stateReady,
 		lastSeen:       time.Now(),
 		stopped:        make(chan struct{}),
 		bridgeStatuses: make(map[string]BridgeStatus),
 	}
+
+	// Injected store (tests): skip identity discovery.
+	if cfg.Store != nil {
+		s.store = cfg.Store
+		s.publicKey = normalizePublicKey(cfg.PublicKey)
+		client, err := s.dialClient(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to %s: %w", uri, err)
+		}
+		s.client = client
+		s.startedAt = time.Now()
+		s.refreshStartupCaches(context.Background(), client)
+		return s, nil
+	}
+
+	knownKey := normalizePublicKey(cfg.PublicKey)
+
+	// Known device: open local state before connecting.
+	var store *SQLiteStateStore
+	if knownKey != "" {
+		st, err := OpenStateStore(knownKey)
+		if err != nil {
+			return nil, fmt.Errorf("opening device state: %w", err)
+		}
+		store = st
+	}
+
 	client, err := s.dialClient(ctx)
 	if err != nil {
+		if store != nil {
+			store.Close()
+		}
 		return nil, fmt.Errorf("connecting to %s: %w", uri, err)
 	}
+
+	info, err := client.DeviceInfo(ctx)
+	if err != nil {
+		client.Close()
+		if store != nil {
+			store.Close()
+		}
+		return nil, fmt.Errorf("reading device info: %w", err)
+	}
+	actualKey := normalizePublicKey(info.PublicKey)
+	if !looksLikePublicKey(actualKey) {
+		client.Close()
+		if store != nil {
+			store.Close()
+		}
+		return nil, fmt.Errorf("device %q did not report a usable public key", id)
+	}
+
+	if knownKey != "" {
+		if actualKey != knownKey {
+			client.Close()
+			store.Close()
+			return nil, fmt.Errorf("%w: %q configured as %s but radio reports %s", ErrIdentityMismatch, id, knownKey, actualKey)
+		}
+	} else {
+		store, err = OpenStateStore(actualKey)
+		if err != nil {
+			client.Close()
+			return nil, fmt.Errorf("opening device state: %w", err)
+		}
+	}
+
+	s.store = store
+	s.publicKey = actualKey
 	s.client = client
 	s.startedAt = time.Now()
-	s.refreshStartupCaches(context.Background(), client)
+	s.storeDeviceInfo(info)
+	s.refreshDeviceStatsCache(context.Background(), client)
 	return s, nil
 }
 
@@ -143,13 +211,15 @@ func (s *DeviceSession) start() {
 }
 
 // stop signals the session's background goroutines to exit and closes the
-// active client. The shared store is owned by the daemon and is not closed
-// here.
+// active client and the device's local-state store.
 func (s *DeviceSession) stop() {
 	s.stopOnce.Do(func() {
 		close(s.stopped)
 		if client := s.clientSnapshot(); client != nil {
 			client.Close()
+		}
+		if s.store != nil {
+			s.store.Close()
 		}
 	})
 }
@@ -161,7 +231,7 @@ func (s *DeviceSession) serve(conn net.Conn, req request, enc *json.Encoder, sta
 	s.trackIPCClient(1)
 	defer s.trackIPCClient(-1)
 
-	streaming := req.Method == "watch" || req.Method == "watch_raw" || req.Method == "discover"
+	streaming := req.Method == "watch" || req.Method == "watch_raw" || req.Method == "watch_rf" || req.Method == "discover"
 	if req.Method == "watch" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
@@ -180,6 +250,16 @@ func (s *DeviceSession) serve(conn net.Conn, req request, enc *json.Encoder, sta
 		}
 		s.trackRequestOK()
 		s.watchRaw(conn, req.ID)
+		return false
+	}
+	if req.Method == "watch_rf" {
+		if !s.healthy() {
+			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			s.trackRequestFailed()
+			return false
+		}
+		s.trackRequestOK()
+		s.watchRF(conn, req.ID)
 		return false
 	}
 	if req.Method == "discover" {
@@ -312,6 +392,28 @@ func (s *DeviceSession) watchRaw(conn net.Conn, id uint64) {
 	defer cancel()
 	for pkt := range raw {
 		if err := enc.Encode(pkt); err != nil {
+			return
+		}
+	}
+}
+
+func (s *DeviceSession) watchRF(conn net.Conn, id uint64) {
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
+		return
+	}
+	client := s.clientSnapshot()
+	if client == nil {
+		return
+	}
+	events, cancel := client.SubscribeEvents(64)
+	defer cancel()
+	for ev := range events {
+		rf, ok := ev.(meshcore.RFPacketReceived)
+		if !ok {
+			continue
+		}
+		if err := enc.Encode(rf); err != nil {
 			return
 		}
 	}
@@ -606,7 +708,7 @@ func (s *DeviceSession) contact(ctx context.Context, client *meshcore.Client, qu
 	if s.store == nil {
 		return meshcore.Contact{}, fmt.Errorf("backend contact replica is unavailable")
 	}
-	entry, err := s.store.Contact(ctx, s.uri, query)
+	entry, err := s.store.Contact(ctx, query)
 	if err != nil {
 		if IsNotFound(err) {
 			return meshcore.Contact{}, fmt.Errorf("no local contact matching %q; run `mc contacts --refresh` to sync from radio", query)
@@ -620,7 +722,7 @@ func (s *DeviceSession) replicaContacts(ctx context.Context) ([]meshcore.Contact
 	if s.store == nil {
 		return nil, fmt.Errorf("backend contact replica is unavailable")
 	}
-	entries, err := s.store.Contacts(ctx, s.uri)
+	entries, err := s.store.Contacts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -679,13 +781,13 @@ func (s *DeviceSession) syncContacts(ctx context.Context, client *meshcore.Clien
 
 	var since uint32
 	if !full {
-		mod, err := s.store.ContactLastMod(ctx, s.uri)
+		mod, err := s.store.ContactLastMod(ctx)
 		if err != nil {
 			s.recordContactSyncError(err)
 			return nil, err
 		}
 		since = mod
-	} else if err := s.store.ClearContacts(ctx, s.uri); err != nil {
+	} else if err := s.store.ClearContacts(ctx); err != nil {
 		s.recordContactSyncError(err)
 		return nil, err
 	}
@@ -701,13 +803,13 @@ func (s *DeviceSession) syncContacts(ctx context.Context, client *meshcore.Clien
 		return nil, err
 	}
 	if len(result.Contacts) > 0 {
-		if err := s.store.UpsertContacts(ctx, s.uri, result.Contacts); err != nil {
+		if err := s.store.UpsertContacts(ctx, result.Contacts); err != nil {
 			s.recordContactSyncError(err)
 			return nil, err
 		}
 	}
 	if result.LastMod != 0 || full {
-		if err := s.store.SetContactLastMod(ctx, s.uri, result.LastMod); err != nil {
+		if err := s.store.SetContactLastMod(ctx, result.LastMod); err != nil {
 			s.recordContactSyncError(err)
 			return nil, err
 		}
@@ -748,7 +850,7 @@ func (s *DeviceSession) syncChannels(ctx context.Context, client *meshcore.Clien
 		s.recordChannelSyncError(err)
 		return nil, err
 	}
-	if err := s.store.UpsertChannels(ctx, s.uri, channels); err != nil {
+	if err := s.store.UpsertChannels(ctx, channels); err != nil {
 		s.recordChannelSyncError(err)
 		return nil, err
 	}
@@ -789,7 +891,7 @@ func (s *DeviceSession) replicaChannels(ctx context.Context) ([]meshcore.Channel
 	if s.store == nil {
 		return nil, fmt.Errorf("backend channel replica is unavailable")
 	}
-	entries, err := s.store.Channels(ctx, s.uri)
+	entries, err := s.store.Channels(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -806,7 +908,7 @@ func (s *DeviceSession) channel(ctx context.Context, query string) (meshcore.Cha
 	if s.store == nil {
 		return meshcore.Channel{}, fmt.Errorf("backend channel replica is unavailable")
 	}
-	entry, err := s.store.Channel(ctx, s.uri, query)
+	entry, err := s.store.Channel(ctx, query)
 	if err != nil {
 		if IsNotFound(err) {
 			return meshcore.Channel{}, fmt.Errorf("no local channel matching %q; run `mc channel list --refresh` to sync from radio", query)
@@ -841,12 +943,12 @@ func (s *DeviceSession) repeaterLogin(ctx context.Context, client *meshcore.Clie
 	session, err := client.RepeaterLoginContact(ctx, ct, password)
 	if err != nil {
 		if s.store != nil {
-			_ = s.store.ClearRepeaterSession(ctx, s.uri, repeater)
+			_ = s.store.ClearRepeaterSession(ctx, repeater)
 		}
 		return meshcore.RepeaterSession{}, err
 	}
 	if s.store != nil {
-		_ = s.store.UpsertRepeaterSession(ctx, s.uri, session)
+		_ = s.store.UpsertRepeaterSession(ctx, session)
 	}
 	return session, nil
 }
@@ -857,7 +959,7 @@ func (s *DeviceSession) replicaContact(ctx context.Context, query string) (meshc
 
 func (s *DeviceSession) ensureRepeaterSession(ctx context.Context, client *meshcore.Client, repeater, password string) error {
 	if s.store != nil {
-		session, err := s.store.RepeaterSession(ctx, s.uri, repeater)
+		session, err := s.store.RepeaterSession(ctx, repeater)
 		if err == nil && session.Active() {
 			return nil
 		}
@@ -865,7 +967,7 @@ func (s *DeviceSession) ensureRepeaterSession(ctx context.Context, client *meshc
 	if sess, ok := loadConfigRepeaterSession(repeater); ok {
 		Logf("repeater session from config repeater=%q expires_at=%s", sess.Repeater, sess.ExpiresAt.Format(time.RFC3339))
 		if s.store != nil {
-			_ = s.store.UpsertRepeaterSession(ctx, s.uri, sess)
+			_ = s.store.UpsertRepeaterSession(ctx, sess)
 		}
 		return nil
 	}
@@ -881,7 +983,7 @@ func (s *DeviceSession) ensureRepeaterSession(ctx context.Context, client *meshc
 	active, err := client.RepeaterHasConnectionContact(ctx, ct)
 	if err == nil && active {
 		if s.store != nil {
-			_ = s.store.UpsertRepeaterSession(ctx, s.uri, meshcore.RepeaterSession{
+			_ = s.store.UpsertRepeaterSession(ctx, meshcore.RepeaterSession{
 				Repeater:   ct.Name,
 				PublicKey:  ct.PublicKey,
 				LoggedInAt: time.Now(),
@@ -1109,7 +1211,7 @@ func (s *DeviceSession) upsertObservedContact(contact meshcore.Contact) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	existing, existingErr := s.store.Contact(ctx, s.uri, contact.PublicKey)
+	existing, existingErr := s.store.Contact(ctx, contact.PublicKey)
 	if contact.Name == "" {
 		if existingErr != nil {
 			return
@@ -1136,15 +1238,15 @@ func (s *DeviceSession) upsertObservedContact(contact meshcore.Contact) {
 			contact.Longitude = existing.Contact.Longitude
 		}
 	}
-	if err := s.store.UpsertContact(ctx, s.uri, contact); err != nil {
+	if err := s.store.UpsertContact(ctx, contact); err != nil {
 		s.recordContactSyncError(err)
 		return
 	}
 	if contact.LastMod != 0 {
-		if current, err := s.store.ContactLastMod(ctx, s.uri); err != nil {
+		if current, err := s.store.ContactLastMod(ctx); err != nil {
 			s.recordContactSyncError(err)
 		} else if contact.LastMod > current {
-			if err := s.store.SetContactLastMod(ctx, s.uri, contact.LastMod); err != nil {
+			if err := s.store.SetContactLastMod(ctx, contact.LastMod); err != nil {
 				s.recordContactSyncError(err)
 			}
 		}

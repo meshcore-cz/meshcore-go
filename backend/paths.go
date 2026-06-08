@@ -10,7 +10,48 @@ const (
 	dirName  = "mc"
 	sockName = "backend.sock"
 	logName  = "backend.log"
+
+	devicesDir  = "devices"
+	capturesDir = "captures"
+
+	// statePrefixLen is how many hex characters of a device public key are used
+	// in the on-disk filename. The full key is stored and validated in the DB
+	// meta table; this is only to keep filenames short and human-scannable.
+	statePrefixLen = 16
 )
+
+// StateDevicesDir returns the directory holding per-device local-state
+// databases (~/.local/state/mc/devices).
+func StateDevicesDir() string {
+	return filepath.Join(stateDir(), dirName, devicesDir)
+}
+
+// CapturesDir returns the directory holding optional observer packet-history
+// databases (~/.local/state/mc/captures).
+func CapturesDir() string {
+	return filepath.Join(stateDir(), dirName, capturesDir)
+}
+
+// StatePrefix returns the filesystem prefix for a device public key: the first
+// statePrefixLen hex characters, lowercased.
+func StatePrefix(publicKey string) string {
+	key := normalizePublicKey(publicKey)
+	if len(key) > statePrefixLen {
+		key = key[:statePrefixLen]
+	}
+	return key
+}
+
+// StateDBPath returns the per-device local-state database path for a public key.
+func StateDBPath(publicKey string) string {
+	return filepath.Join(StateDevicesDir(), StatePrefix(publicKey)+".db")
+}
+
+// CaptureDBPath returns the optional packet-history database path for a public
+// key, kept separate from device local state.
+func CaptureDBPath(publicKey string) string {
+	return filepath.Join(CapturesDir(), StatePrefix(publicKey)+".db")
+}
 
 // SocketPath returns the Unix socket path used by the local backend.
 func SocketPath() string {

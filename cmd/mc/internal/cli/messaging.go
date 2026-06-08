@@ -210,6 +210,13 @@ func cmdTrace(ctx context.Context, e *env) error {
 	if target == "" {
 		return fmt.Errorf("usage: mc trace <target>")
 	}
+	if e.args.has("return") {
+		var err error
+		target, err = traceReturnTarget(target)
+		if err != nil {
+			return err
+		}
+	}
 
 	backend, err := openBackend(ctx, e)
 	if err != nil {
@@ -248,6 +255,28 @@ func cmdTrace(ctx context.Context, e *env) error {
 	}
 	printTrace(e, trace, hopIndex, origin, planPtr)
 	return nil
+}
+
+func traceReturnTarget(target string) (string, error) {
+	if !pathhash.IsHexTraceTarget(target) {
+		return "", fmt.Errorf("--return requires an explicit trace path")
+	}
+	path, hashSize, err := pathhash.ParsePath(target)
+	if err != nil {
+		return "", err
+	}
+	hops := pathhash.Split(path, hashSize)
+	if len(hops) < 2 {
+		return target, nil
+	}
+	parts := make([]string, 0, len(hops)*2-1)
+	for _, hop := range hops {
+		parts = append(parts, pathhash.FormatHop(hop))
+	}
+	for i := len(hops) - 2; i >= 0; i-- {
+		parts = append(parts, pathhash.FormatHop(hops[i]))
+	}
+	return strings.Join(parts, ","), nil
 }
 
 func planTrace(ctx context.Context, backend Backend, target string) (meshcore.TracePlan, error) {
@@ -619,6 +648,9 @@ func cmdWatch(ctx context.Context, e *env) error {
 	if e.args.has("raw") {
 		return cmdWatchRaw(ctx, e)
 	}
+	if e.args.has("rf") {
+		return cmdWatchRF(ctx, e)
+	}
 
 	if !e.args.has("direct") {
 		err := cmdWatchBackend(ctx, e)
@@ -658,6 +690,73 @@ func cmdWatch(ctx context.Context, e *env) error {
 			printEvent(e, ev, names)
 		}
 	}
+}
+
+func cmdWatchRF(ctx context.Context, e *env) error {
+	e.out.JSON = true
+	if !e.args.has("direct") {
+		err := cmdWatchRFBackend(ctx, e)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, errBackendDegraded) || e.exec.RequireIPC {
+			return err
+		}
+	}
+
+	uri, _, err := resolveURI(e)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	opts := append(e.dbg.DialOptions(), meshcore.WithClientOptions(meshcore.WithMessageSync()))
+	client, err := meshcore.Dial(ctx, uri, opts...)
+	if err != nil {
+		return fmt.Errorf("connecting to %s: %w", uri, err)
+	}
+	defer client.Close()
+
+	e.out.Human("Watching RF packets from %s (Ctrl-C to stop)...\n", uri)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev, ok := <-client.Events():
+			if !ok {
+				return nil
+			}
+			if rf, ok := rfPacketFromEvent(ev); ok {
+				printRFPacket(e, rf)
+			}
+		}
+	}
+}
+
+func cmdWatchRFBackend(ctx context.Context, e *env) error {
+	client := backendClientForEnv(e)
+	st, err := client.Status(ctx)
+	if err != nil {
+		return err
+	}
+	if !st.Healthy {
+		return fmt.Errorf("%w: current active device is %s: %s", errBackendDegraded, st.State, st.LastError)
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	packets, err := client.WatchRF(ctx)
+	if err != nil {
+		return err
+	}
+	e.out.Human("Watching RF packets from backend %s (Ctrl-C to stop)...\n", st.URI)
+	for pkt := range packets {
+		printRFPacket(e, pkt)
+	}
+	return nil
 }
 
 func cmdWatchRaw(ctx context.Context, e *env) error {
@@ -824,4 +923,18 @@ func printRawPacket(e *env, pkt meshcore.RawPacket) {
 	if pkt.DecodeError != "" {
 		e.out.Human("  decode error: %s\n", pkt.DecodeError)
 	}
+}
+
+func printRFPacket(e *env, pkt meshcore.RFPacketReceived) {
+	_ = e.out.Line(map[string]any{
+		"timestamp": pkt.Timestamp,
+		"snr":       pkt.SNR,
+		"rssi":      pkt.RSSI,
+		"bytes":     hexLine(pkt.Bytes),
+	})
+}
+
+func rfPacketFromEvent(ev meshcore.Event) (meshcore.RFPacketReceived, bool) {
+	rf, ok := ev.(meshcore.RFPacketReceived)
+	return rf, ok
 }

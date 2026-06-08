@@ -5,213 +5,166 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	meshcore "github.com/meshcore-cz/meshcore-go"
 )
 
-func TestRenderBackendStatusReady(t *testing.T) {
+func TestRenderBackendStatusDaemonOverview(t *testing.T) {
 	now := time.Now()
 	data := BackendStatusData{
-		Running:   true,
-		Healthy:   true,
-		State:     "ready",
-		PID:       74256,
-		UptimeSec: 139,
-		Socket:    "/tmp/mc/backend.sock",
-		URI:       "ble://90d56c84-42ef-36f3-89ae-9e8f42231b00",
-		LastSeen:  now.Add(-18 * time.Second),
-		Contacts: ReplicaInfo{
-			Count:    360,
-			SyncedAt: now.Add(-1 * time.Minute),
-		},
-		Channels: ReplicaInfo{
-			Count:    2,
-			SyncedAt: now.Add(-3 * time.Minute),
-		},
-		Stats: DeviceStatsFromLocal(meshcore.LocalStats{
-			Core: meshcore.LocalStatsCore{
-				BatteryMV:  3900,
-				UptimeSecs: 39420,
-				QueueLen:   0,
+		Running:           true,
+		Healthy:           true,
+		PID:               74256,
+		StartedAt:         now.Add(-2*time.Hour - 19*time.Minute),
+		UptimeSec:         int64((2*time.Hour + 19*time.Minute).Seconds()),
+		Socket:            "/tmp/mc/backend.sock",
+		Clients:           2,
+		RequestsCompleted: 1842,
+		RequestsFailed:    0,
+		Sessions: []BackendSessionInfo{
+			{
+				Name:       "handheld",
+				Active:     true,
+				State:      "ready",
+				Healthy:    true,
+				Transport:  "ble://90d56c84",
+				StartedAt:  now.Add(-37 * time.Minute),
+				Activity:   RadioIOInfo{LastAt: now.Add(-4 * time.Second), LastMethod: "stats"},
+				LocalState: LocalStateInfo{Initialized: true, UpdatedAt: now.Add(-2 * time.Minute)},
 			},
-			Radio: meshcore.LocalStatsRadio{
-				RxAirSecs: 8040,
-				TxAirSecs: 517,
+			{
+				Name:       "travel-node",
+				State:      "stopped",
+				Transport:  "ble://a81192",
+				LocalState: LocalStateInfo{Initialized: true, UpdatedAt: now.Add(-21 * 24 * time.Hour)},
 			},
-			Packets: meshcore.LocalStatsPackets{
-				Received:   12846,
-				Sent:       1284,
-				RecvErrors: 7,
-			},
-		}, true, now.Add(-18*time.Second)),
-		RadioIO: RadioIOInfo{
-			LastAt:         now.Add(-18 * time.Second),
-			LastMethod:     "stats",
-			LastDurationMs: 177,
 		},
 	}
 	var buf bytes.Buffer
 	out := RenderBackendStatus(data, NewPrinter(&buf))
 	for _, want := range []string{
-		"Backend:",
-		"  State:       ready",
-		"  PID:         74256",
-		"  Uptime:      2m 19s",
-		"  Socket:      /tmp/mc/backend.sock",
-		"Radio:",
-		"  State:       connected",
-		"  Transport:   BLE",
-		"  Endpoint:    ble://90d56c84-42ef-36f3-89ae-9e8f42231b00",
-		"  Last seen:   18s ago",
-		"Replica:",
-		"  Contacts:    360 · synced 1m ago",
-		"  Channels:    2 · synced 3m ago",
-		"Device stats:",
-		"  Uptime:      10h 57m",
-		"  Battery:     3.90 V",
-		"  Packets:     12,846 rx · 1,284 tx · 7 errors",
-		"  Airtime:     2h 14m rx · 8m 37s tx",
-		"  Queue:       0 radio packets pending",
-		"Diagnostics:",
-		"  Activity:    idle",
-		"  Last op:     stats · 177ms · 18s ago",
-		"  Stats poll:  healthy · updated 18s ago",
-		"  Queue:       0 backend requests pending",
-		"  Reconnects:  0",
-		"  Clients:     0 connected",
-		"  Last error:  none",
+		"Backend:       running",
+		"PID:           74256",
+		"Uptime:        2h 19m",
+		"Socket:        /tmp/mc/backend.sock",
+		"Started:",
+		"Sessions:      2 total · 1 ready · 1 stopped",
+		"IPC clients:   2 connected",
+		"Requests:      1,842 handled · 0 failed",
+		"Sessions\n",
+		"  handheld  (active)",
+		"    State:       ready · connected 37m ago",
+		"    Transport:   ble://90d56c84",
+		"    Activity:    idle · last request 4s ago (stats)",
+		"    Local state: updated 2m ago",
+		"  travel-node",
+		"    State:       stopped",
+		"    Transport:   ble://a81192",
+		"    Local state: updated 21d ago",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
 	}
+	for _, absent := range []string{"Radio:", "Replica:", "Device stats:"} {
+		if strings.Contains(out, absent) {
+			t.Fatalf("backend status should not include %q:\n%s", absent, out)
+		}
+	}
 }
 
-func TestRenderBackendStatusSyncing(t *testing.T) {
+func TestRenderBackendStatusProblemSession(t *testing.T) {
 	now := time.Now()
-	data := BackendStatusData{
-		Running:   true,
-		Healthy:   true,
-		State:     "ready",
-		PID:       74256,
-		URI:       "ble://device",
-		LastSeen:  now.Add(-4 * time.Second),
-		Contacts: ReplicaInfo{
-			Syncing:      true,
-			SyncReceived: 183,
-			SyncTotal:    449,
-		},
-		Channels: ReplicaInfo{
-			Count:    2,
-			SyncedAt: now.Add(-9 * time.Minute),
-		},
-		Stats: DeviceStatsFromLocal(meshcore.LocalStats{}, true, now.Add(-45*time.Second)),
-		RadioIO: RadioIOInfo{
-			Active:     true,
-			Method:     "contacts",
-			DurationMs: 14000,
-			LastAt:     now.Add(-32 * time.Second),
-			LastMethod: "stats",
-			LastDurationMs: 162,
-		},
-		QueuePending: 1,
-	}
-	var buf bytes.Buffer
-	out := RenderBackendStatus(data, NewPrinter(&buf))
-	for _, want := range []string{
-		"  Contacts:    syncing · 183/449 received",
-		"  Activity:    syncing contacts · 14.0s",
-		"  Stats poll:  delayed · radio busy",
-		"  Queue:       1 backend requests pending",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("output missing %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestRenderBackendStatusDegraded(t *testing.T) {
-	now := time.Now()
-	data := BackendStatusData{
-		Running:   true,
-		Healthy:   false,
-		State:     "degraded",
-		PID:       74256,
-		URI:       "ble://device",
-		LastSeen:  now.Add(-6 * time.Minute),
-		LastError: "BLE connection lost",
-		Contacts: ReplicaInfo{
-			Count:    360,
-			SyncedAt: now.Add(-2 * time.Hour),
-		},
-		Channels: ReplicaInfo{
-			Count:    2,
-			SyncedAt: now.Add(-2 * time.Hour),
-		},
-		RadioIO: RadioIOInfo{
-			LastAt:     now.Add(-6 * time.Minute),
-			LastMethod: "stats",
-		},
-		QueuePending: 2,
-	}
-	var buf bytes.Buffer
-	out := RenderBackendStatus(data, NewPrinter(&buf))
-	for _, want := range []string{
-		"  State:       degraded",
-		"  State:       unavailable",
-		"  Contacts:    360 · cached · synced 2h ago",
-		"  Activity:    reconnecting",
-		"  Last op:     stats · failed · 6m ago",
-		"  Stats poll:  failed",
-		"  Last error:  BLE connection lost",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("output missing %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestRenderBackendStatusStaleStatsPoll(t *testing.T) {
-	now := time.Now()
-	data := BackendStatusData{
-		Running:  true,
-		Healthy:  true,
-		State:    "ready",
-		URI:      "ble://device",
-		LastSeen: now.Add(-2 * time.Minute),
-		Stats:    DeviceStatsFromLocal(meshcore.LocalStats{}, true, now.Add(-2*time.Minute)),
-	}
-	var buf bytes.Buffer
-	out := RenderBackendStatus(data, NewPrinter(&buf))
-	for _, want := range []string{
-		"  Stats poll:  stale · updated 2m ago",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("output missing %q:\n%s", want, out)
-		}
-	}
-	if strings.Contains(out, "Stats poll:  healthy") {
-		t.Fatalf("stale stats should not show healthy:\n%s", out)
-	}
-}
-
-func TestRenderBackendStatusBridges(t *testing.T) {
 	data := BackendStatusData{
 		Running: true,
 		Healthy: true,
-		State:   "ready",
-		URI:     "ble://device",
-		Bridges: []BridgeInfo{
-			{Type: "tcp", Listen: "127.0.0.1:4403", Active: true},
-			{Type: "pty", Path: "/dev/ttys012", Active: true},
+		Socket:  "/tmp/mc/backend.sock",
+		Sessions: []BackendSessionInfo{
+			{
+				Name:       "handheld",
+				Active:     true,
+				State:      "degraded",
+				Transport:  "ble://90d56c84",
+				LastActive: now.Add(-4 * time.Minute),
+				LastError:  "device unavailable",
+				LocalState: LocalStateInfo{Initialized: true, UpdatedAt: now.Add(-4 * time.Minute)},
+			},
+			{Name: "travel-node", State: "stopped"},
 		},
 	}
 	var buf bytes.Buffer
 	out := RenderBackendStatus(data, NewPrinter(&buf))
 	for _, want := range []string{
-		"Bridges:",
-		"  PTY:         listening · /dev/ttys012",
-		"  TCP:         listening · 127.0.0.1:4403",
+		"Sessions:      2 total · 1 retrying · 1 stopped",
+		"  handheld  (active)",
+		"    State:       retrying · last active 4m ago",
+		"    Activity:    last active 4m ago",
+		"    Error:       device unavailable",
+		"    Local state: updated 4m ago",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderBackendStatusNotRunning(t *testing.T) {
+	data := BackendStatusData{Socket: "/tmp/mc/backend.sock"}
+	var buf bytes.Buffer
+	out := RenderBackendStatus(data, NewPrinter(&buf))
+	for _, want := range []string{
+		"Backend:       not running",
+		"Socket:        /tmp/mc/backend.sock",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Sessions:") {
+		t.Fatalf("not-running backend status should not print sessions:\n%s", out)
+	}
+}
+
+func TestRenderBackendStatusVerbose(t *testing.T) {
+	now := time.Now()
+	data := BackendStatusData{
+		Running:           true,
+		Healthy:           true,
+		PID:               74256,
+		Socket:            "/tmp/mc/backend.sock",
+		ConfigPath:        "/tmp/mc/config.yaml",
+		LogPath:           "/tmp/mc/backend.log",
+		Clients:           2,
+		RequestsCompleted: 1842,
+		RequestsFailed:    0,
+		QueuePending:      4,
+		Verbose:           true,
+		Sessions: []BackendSessionInfo{
+			{
+				Name:              "handheld",
+				Active:            true,
+				State:             "ready",
+				Transport:         "ble://90d56c84",
+				StartedAt:         now.Add(-37 * time.Minute),
+				RequestsCompleted: 412,
+				RequestsFailed:    0,
+				Activity:          RadioIOInfo{LastAt: now.Add(-4 * time.Second), LastMethod: "stats"},
+				LocalState:        LocalStateInfo{Initialized: true, Contacts: 42, Channels: 3, UpdatedAt: now.Add(-2 * time.Minute)},
+				LocalStatePath:    "/tmp/mc/devices/eff01ef21805.db",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	out := RenderBackendStatus(data, NewPrinter(&buf))
+	for _, want := range []string{
+		"Config:        /tmp/mc/config.yaml",
+		"Log:           /tmp/mc/backend.log",
+		"IPC\n",
+		"  Clients:     2 connected",
+		"  Requests:    1,842 handled · 4 active · 0 failed",
+		"    Requests:    412 handled · 0 failed",
+		"    Local state: /tmp/mc/devices/eff01ef21805.db",
+		"    Updated:     2m ago",
+		"    Contacts:    42",
+		"    Channels:    3",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)

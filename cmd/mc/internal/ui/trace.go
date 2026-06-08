@@ -28,8 +28,11 @@ type TraceNode struct {
 
 // PlainLabel returns the unstyled hash-first node label for width calculations.
 func (n TraceNode) PlainLabel() string {
-	if n.Ambiguous || n.Name == "" {
+	if n.Ambiguous {
 		return "[" + n.Hash + "]"
+	}
+	if n.Name == "" {
+		return "[" + n.Hash + "] unknown"
 	}
 	return "[" + n.Hash + "] " + n.Name
 }
@@ -37,8 +40,11 @@ func (n TraceNode) PlainLabel() string {
 // StyledLabel renders a hash-first node label with restrained terminal styling.
 func (n TraceNode) StyledLabel(theme Theme) string {
 	hash := theme.Dim("[" + n.Hash + "]")
-	if n.Ambiguous || n.Name == "" {
+	if n.Ambiguous {
 		return hash
+	}
+	if n.Name == "" {
+		return hash + " " + theme.Dim("unknown")
 	}
 	return hash + " " + n.Name
 }

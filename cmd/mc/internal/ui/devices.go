@@ -67,11 +67,11 @@ func renderWideDeviceTable(b *strings.Builder, rows []DeviceListRow, theme Theme
 }
 
 func defaultDeviceHeaders() []string {
-	return []string{"", "PROFILE", "DEVICE", "TRANSPORT", "BACKEND", "RADIO", "REPLICA", "ACTIVITY"}
+	return []string{"", "PROFILE", "DEVICE", "TRANSPORT", "SESSION", "RADIO", "LOCAL", "ACTIVITY"}
 }
 
 func wideDeviceHeaders() []string {
-	return []string{"", "PROFILE", "DEVICE", "TRANSPORT", "BACKEND", "RADIO", "REPLICA", "ENDPOINT", "ACTIVITY"}
+	return []string{"", "PROFILE", "DEVICE", "TRANSPORT", "SESSION", "RADIO", "LOCAL", "ENDPOINT", "ACTIVITY"}
 }
 
 const (
@@ -185,13 +185,13 @@ func deviceRadioHealth(state string) Health {
 
 func deviceReplicaHealth(state string) Health {
 	switch state {
-	case "fresh":
+	case "fresh", "available":
 		return HealthOK
 	case "syncing":
 		return HealthWarning
 	case "stale":
 		return HealthWarning
-	case "cached":
+	case "unknown":
 		return HealthUnknown
 	default:
 		return HealthUnknown
@@ -327,10 +327,10 @@ func DeviceListRadioState(active bool, running bool, healthy bool, state string)
 // DeviceListReplicaState derives the replica column for one profile.
 func DeviceListReplicaState(active bool, running bool, healthy bool, state string, contacts, channels ReplicaInfo) string {
 	if !active {
-		return "cached"
+		return "unknown"
 	}
 	if !running {
-		return "cached"
+		return "unknown"
 	}
 	if contacts.Syncing || channels.Syncing {
 		return "syncing"
@@ -342,7 +342,7 @@ func DeviceListReplicaState(active bool, running bool, healthy bool, state strin
 		return "stale"
 	}
 	if contacts.SyncedAt.IsZero() && channels.SyncedAt.IsZero() {
-		return "cached"
+		return "unknown"
 	}
 	return "fresh"
 }

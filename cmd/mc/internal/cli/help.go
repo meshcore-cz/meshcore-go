@@ -39,9 +39,9 @@ Flags:
 
 	"status": `Usage: mc status [flags]
 
-Show the connected device's identity, firmware, transport, backend replica
-freshness and capabilities.
+Show radio status, persistent local state, and backend session state.
 
+  --all            Show compact status for all saved devices
   --live           Refresh radio stats before showing status (may block on radio I/O)
 ` + globalFlags,
 
@@ -141,8 +141,10 @@ Stream incoming messages and events until interrupted (Ctrl-C). With --json,
 each event is emitted as a newline-delimited JSON object.
 
   mc watch --raw                 stream every inbound packet as JSON lines
+  mc watch --rf                  stream RF packet log frames as JSON lines
 
 Flags:
+  --rf            Stream typed RF packet log data (0x88) as JSON lines
   --raw           Stream all inbound companion packets as JSON lines
 ` + globalFlags,
 
@@ -173,10 +175,14 @@ The target is either a hash path or a contact name:
   mc trace 25,a1            multi-hop path, 1 byte per leg
   mc trace a1b2,c3d4        multi-hop path, 2 bytes per leg
   mc trace 252525ce         explicit 4-byte trace hash
+  mc trace 2525,5153,0455 --return
+                            trace out and back: 2525,5153,0455,5153,2525
   mc trace alice            use the stored contact route when available
 
 Hex targets are always interpreted as explicit paths.
 Use a contact name to trace using a stored contact route.
+
+  --return        Append the reverse path (explicit hex paths only)
 ` + globalFlags,
 
 	"channel": `Usage: mc channel <list|show|send> [args] [flags]
@@ -282,6 +288,26 @@ backend starts.
 
 Flags:
   --json           Machine-readable JSON output
+`,
+
+	"state": `Usage: mc state <list|show|purge|prune> [device]
+
+Inspect and manage per-device local state. Each connected device keeps its own
+SQLite database of contacts, channels, and repeater sessions at
+~/.local/state/mc/devices/<public-key-prefix>.db. This is device-local state,
+not a cache: it may be stale, incomplete, or locally enriched.
+
+  mc state list                       list every device's local-state database
+  mc state show handheld              show one device's state (name, key, or prefix)
+  mc state purge handheld             delete one device's local-state database
+  mc state prune --older-than 30d     delete state not updated within a duration
+
+A device may be named by saved profile, full public key, or key prefix.
+Durations accept d (days), w (weeks), and Go units (h, m, s).
+
+Flags:
+  --older-than <dur>   Age threshold for prune (e.g. 30d, 2w, 48h)
+  --json               Machine-readable JSON output
 `,
 
 	"config": `Usage: mc config <path|show>

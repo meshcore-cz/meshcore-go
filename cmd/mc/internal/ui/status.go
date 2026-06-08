@@ -70,10 +70,21 @@ type BackendInfo struct {
 	RadioIO   RadioIOInfo
 }
 
+// LocalStateInfo describes the persistent SQLite state for one device.
+type LocalStateInfo struct {
+	Initialized      bool
+	Contacts         int
+	Channels         int
+	RepeaterSessions int
+	UpdatedAt        time.Time
+}
+
 // StatusData is the input model for status rendering.
 type StatusData struct {
-	Device  DeviceInfo
-	Backend BackendInfo
+	ProfileName string
+	Device      DeviceInfo
+	LocalState  LocalStateInfo
+	Backend     BackendInfo
 }
 
 // RenderStatus renders mc status for human output.
@@ -81,33 +92,44 @@ func RenderStatus(data StatusData, printer Printer) string {
 	theme := NewTheme(printer.Out)
 	var b strings.Builder
 
+	if data.ProfileName != "" {
+		state := "inactive"
+		if data.Device.Available {
+			state = "active"
+		}
+		b.WriteString(fmt.Sprintf("%s  (%s)\n\n", data.ProfileName, state))
+	}
+
 	if data.Device.Available {
-		b.WriteString(statusLine("Device", deviceLabel(data.Device)))
-		b.WriteString(statusLine("Firmware", firmwareLabel(data.Device)))
-		b.WriteString(statusLine("Protocol", orDash(data.Device.Protocol)))
-		b.WriteString(statusLine("Transport", transportLabel(data.Device)))
-		b.WriteString(statusLine("Public key", orDash(strings.ToLower(strings.TrimSpace(data.Device.PublicKey)))))
+		b.WriteString(statusBlockLine("Public key", orDash(strings.ToLower(strings.TrimSpace(data.Device.PublicKey)))))
+		b.WriteString(statusBlockLine("Name", deviceLabel(data.Device)))
+		b.WriteString(statusBlockLine("Firmware", firmwareLabel(data.Device)))
+		b.WriteString(statusBlockLine("Protocol", orDash(data.Device.Protocol)))
+		b.WriteString(statusBlockLine("Transport", transportLabel(data.Device)))
 		b.WriteString("\n")
 		writeRadioSection(&b, data.Device, data.Backend, theme)
 	} else {
-		b.WriteString(statusLine("Device", "unavailable"))
+		b.WriteString(statusBlockLine("Device", "unavailable"))
 		if data.Backend.URI != "" {
-			b.WriteString(statusLine("Transport", data.Backend.URI))
+			b.WriteString(statusBlockLine("Transport", data.Backend.URI))
 		}
 	}
 	b.WriteString("\n")
 
+	writeLocalStateSection(&b, data.LocalState, theme)
+	b.WriteString("\n")
+
 	if data.Backend.Running {
-		b.WriteString(statusLine("Backend", backendLabel(data.Backend, theme)))
-		b.WriteString(statusSubLine("Activity", ActivityLabel(data.Backend.RadioIO, theme)))
-		b.WriteString(statusSubLine("Replica", replicaLabel(data.Backend, theme)))
+		b.WriteString(statusBlockLine("Backend", backendLabel(data.Backend, theme)))
+		b.WriteString(statusBlockSubLine("Session", backendSessionLabel(data.Backend, theme)))
+		b.WriteString(statusBlockSubLine("Activity", backendActivitySummary(data.Backend.RadioIO, theme)))
 		b.WriteString("\n")
 	} else if data.Device.Available {
-		b.WriteString(statusLine("Backend", "not running"))
+		b.WriteString(statusBlockLine("Backend", "not running"))
 	}
 
 	if data.Backend.LastError != "" {
-		b.WriteString(statusLine("Last error", data.Backend.LastError))
+		b.WriteString(statusBlockLine("Last error", data.Backend.LastError))
 	}
 
 	return b.String()
@@ -136,6 +158,14 @@ func statusSubLine(label, value string) string {
 	return fmt.Sprintf("%s%-*s %s\n", statusIndent, statusLabelWidth-len(statusIndent), label+":", value)
 }
 
+func statusBlockLine(label, value string) string {
+	return statusIndent + statusLine(label, value)
+}
+
+func statusBlockSubLine(label, value string) string {
+	return statusIndent + statusSubLine(label, value)
+}
+
 func writeRadioSection(b *strings.Builder, dev DeviceInfo, backend BackendInfo, theme Theme) {
 	if !hasRadioSection(dev) {
 		return
@@ -152,12 +182,12 @@ func writeRadioSection(b *strings.Builder, dev DeviceInfo, backend BackendInfo, 
 	} else {
 		header += " · not synced"
 	}
-	b.WriteString(statusLine("Radio", header))
+	b.WriteString(statusBlockLine("Radio", header))
 	if modem := modemLabel(dev.Radio); modem != "" {
-		b.WriteString(statusSubLine("Modem", modem))
+		b.WriteString(statusBlockSubLine("Modem", modem))
 	}
 	for _, line := range deviceStatsLines(dev.Stats) {
-		b.WriteString(line)
+		b.WriteString(statusIndent + line)
 	}
 }
 
@@ -279,9 +309,6 @@ func backendLabel(be BackendInfo, theme Theme) string {
 	}
 	word := theme.StatusWord(backendHealth(be), display)
 	label := word
-	if be.PID > 0 {
-		label += fmt.Sprintf(" (pid %d)", be.PID)
-	}
 	if be.UptimeSec > 0 {
 		label += fmt.Sprintf(" · %s uptime", FormatDurationSecs(uint32(be.UptimeSec)))
 	}
@@ -390,6 +417,32 @@ func replicaSyncProgress(contacts ReplicaInfo) string {
 	return "replicating"
 }
 
+func writeLocalStateSection(b *strings.Builder, local LocalStateInfo, theme Theme) {
+	if !local.Initialized {
+		b.WriteString(statusBlockLine("Local state", "not initialized"))
+		return
+	}
+	label := theme.StatusWord(HealthOK, "available")
+	if !local.UpdatedAt.IsZero() {
+		label += " · " + theme.Dim("updated "+RelativeTime(local.UpdatedAt))
+	}
+	b.WriteString(statusBlockLine("Local state", label))
+	b.WriteString(statusBlockSubLine("Contacts", fmt.Sprintf("%d", local.Contacts)))
+	b.WriteString(statusBlockSubLine("Channels", fmt.Sprintf("%d", local.Channels)))
+	b.WriteString(statusBlockSubLine("Sessions", localSessionsLabel(local.RepeaterSessions)))
+}
+
+func localSessionsLabel(n int) string {
+	switch n {
+	case 0:
+		return "none"
+	case 1:
+		return "1 repeater login"
+	default:
+		return fmt.Sprintf("%d repeater logins", n)
+	}
+}
+
 func ActivityLabel(io RadioIOInfo, theme Theme) string {
 	if io.Active {
 		word := theme.StatusWord(HealthWarning, radioMethodLabel(io.Method))
@@ -416,12 +469,45 @@ func ActivityLabel(io RadioIOInfo, theme Theme) string {
 	return strings.Join(parts, " · ")
 }
 
+func backendSessionLabel(be BackendInfo, theme Theme) string {
+	state := strings.TrimSpace(be.State)
+	if state == "" {
+		state = "unknown"
+	}
+	label := theme.StatusWord(backendHealth(be), state)
+	if !be.StartedAt.IsZero() {
+		label += " · " + theme.Dim("connected "+RelativeTime(be.StartedAt))
+	}
+	return label
+}
+
+func backendActivitySummary(io RadioIOInfo, theme Theme) string {
+	if io.Active {
+		word := theme.StatusWord(HealthWarning, radioMethodLabel(io.Method))
+		if io.DurationMs > 0 {
+			return word + " · " + theme.Dim(formatRunningDuration(time.Duration(io.DurationMs)*time.Millisecond))
+		}
+		return word
+	}
+	label := theme.StatusWord(HealthOK, "idle")
+	if !io.LastAt.IsZero() {
+		last := "last request " + RelativeTime(io.LastAt)
+		if io.LastMethod != "" {
+			last += " (" + radioMethodLabel(io.LastMethod) + ")"
+		}
+		label += " · " + theme.Dim(last)
+	}
+	return label
+}
+
 func radioMethodLabel(method string) string {
 	switch method {
 	case "replicate":
 		return "replicate"
 	case "watch_raw":
 		return "watch raw"
+	case "watch_rf":
+		return "watch rf"
 	case "send_text":
 		return "send"
 	case "repeater_status":

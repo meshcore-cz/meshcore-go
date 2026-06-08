@@ -9,6 +9,7 @@ import (
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
+	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 )
 
 func clockDelta(deviceTime time.Time) string {
@@ -41,13 +42,17 @@ func cmdVersion(e *env) error {
 }
 
 func cmdStatus(ctx context.Context, e *env) error {
+	if e.args.has("all") {
+		return cmdStatusAll(ctx, e)
+	}
 	st, backendRunning := backendStatus(ctx, e)
 	if backendRunning && !e.args.has("direct") {
 		if !st.Healthy {
 			if e.out.JSON {
 				return e.out.JSONValue(map[string]any{
-					"device":  map[string]any{"available": false},
-					"backend": backendStatusForOutput(st, true),
+					"device":      map[string]any{"available": false},
+					"local_state": localStateForOutput(localStateForPublicKey(st.Device.PublicKey)),
+					"backend":     backendStatusForOutput(st, true),
 				})
 			}
 			return printStyledUnavailableStatus(e, st)
@@ -93,16 +98,10 @@ func statusStats(ctx context.Context, e *env, st localbackend.Status) (meshcore.
 
 func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) error {
 	type statusJSON struct {
-		Name            string   `json:"name"`
-		Firmware        string   `json:"firmware"`
-		FirmwareVersion string   `json:"firmware_version"`
-		Protocol        string   `json:"protocol"`
-		Transport       string   `json:"transport"`
-		PublicKey       string   `json:"public_key"`
-		Capabilities    []string `json:"capabilities"`
-		Radio           any      `json:"radio,omitempty"`
-		Stats           any      `json:"stats,omitempty"`
-		Backend         any      `json:"backend"`
+		Device     any `json:"device"`
+		Radio      any `json:"radio,omitempty"`
+		LocalState any `json:"local_state"`
+		Backend    any `json:"backend"`
 	}
 	transport := dev.Transport
 	if transport == "" {
@@ -111,18 +110,10 @@ func printMCStatus(e *env, st localbackend.Status, dev localbackend.DeviceStatus
 	backendRunning := st.Running && st.Healthy
 	if e.out.JSON {
 		out := statusJSON{
-			Name:            dev.Name,
-			Firmware:        dev.Firmware,
-			FirmwareVersion: dev.FirmwareVersion,
-			Protocol:        dev.Protocol,
-			Transport:       transport,
-			PublicKey:       dev.PublicKey,
-			Capabilities:    dev.Capabilities,
-			Radio:           radioStatusForOutput(dev),
-			Backend:         backendStatusForOutput(st, backendRunning),
-		}
-		if statsOK {
-			out.Stats = stats
+			Device:     deviceStatusForOutput(dev, transport),
+			Radio:      radioStatusForOutput(dev, stats, statsOK, statsAt),
+			LocalState: localStateForOutput(localStateForPublicKey(dev.PublicKey)),
+			Backend:    backendStatusForOutput(st, backendRunning),
 		}
 		return e.out.JSONValue(out)
 	}
@@ -149,17 +140,64 @@ func deviceStatusFromInfo(info meshcore.DeviceInfo, transport string, backendRun
 	}
 }
 
-func radioStatusForOutput(dev localbackend.DeviceStatus) any {
-	if dev.RadioFreqKHz == 0 && dev.RadioBWKHz == 0 && dev.RadioSF == 0 && dev.RadioCR == 0 && dev.TxPowerDBm == 0 {
+func deviceStatusForOutput(dev localbackend.DeviceStatus, transport string) map[string]any {
+	return map[string]any{
+		"public_key":       dev.PublicKey,
+		"name":             dev.Name,
+		"firmware":         dev.Firmware,
+		"firmware_version": dev.FirmwareVersion,
+		"protocol":         dev.Protocol,
+		"transport":        transport,
+		"capabilities":     dev.Capabilities,
+	}
+}
+
+func radioStatusForOutput(dev localbackend.DeviceStatus, stats meshcore.LocalStats, statsOK bool, statsAt time.Time) any {
+	hasModem := dev.RadioFreqKHz != 0 || dev.RadioBWKHz != 0 || dev.RadioSF != 0 || dev.RadioCR != 0 || dev.TxPowerDBm != 0
+	if !hasModem && !statsOK {
 		return nil
 	}
-	return map[string]any{
-		"frequency_khz": dev.RadioFreqKHz,
-		"bandwidth_khz": dev.RadioBWKHz,
-		"spreading":     dev.RadioSF,
-		"coding_rate":   dev.RadioCR,
-		"tx_power_dbm":  dev.TxPowerDBm,
+	out := map[string]any{}
+	if hasModem {
+		out["modem"] = map[string]any{
+			"frequency_khz": dev.RadioFreqKHz,
+			"bandwidth_hz":  dev.RadioBWKHz,
+			"spreading":     dev.RadioSF,
+			"coding_rate":   dev.RadioCR,
+			"tx_power_dbm":  dev.TxPowerDBm,
+		}
 	}
+	if !statsOK {
+		return out
+	}
+	if !statsAt.IsZero() {
+		out["updated_at"] = statsAt
+	}
+	out["core"] = map[string]any{
+		"battery_mv":  stats.Core.BatteryMV,
+		"uptime_secs": stats.Core.UptimeSecs,
+		"queue_len":   stats.Core.QueueLen,
+		"error_flags": stats.Core.ErrorFlags,
+	}
+	out["signal"] = map[string]any{
+		"rssi_dbm":        stats.Radio.LastRSSI,
+		"snr_db":          stats.Radio.LastSNR,
+		"noise_floor_dbm": stats.Radio.NoiseFloor,
+	}
+	out["packets"] = map[string]any{
+		"received":  stats.Packets.Received,
+		"sent":      stats.Packets.Sent,
+		"rx_errors": stats.Packets.RecvErrors,
+		"flood_rx":  stats.Packets.FloodRx,
+		"direct_rx": stats.Packets.DirectRx,
+		"flood_tx":  stats.Packets.FloodTx,
+		"direct_tx": stats.Packets.DirectTx,
+	}
+	out["airtime"] = map[string]any{
+		"rx_secs": stats.Radio.RxAirSecs,
+		"tx_secs": stats.Radio.TxAirSecs,
+	}
+	return out
 }
 
 func cmdDoctor(ctx context.Context, e *env) error {
@@ -238,7 +276,70 @@ func backendStatusForOutput(st localbackend.Status, running bool) map[string]any
 	if !running {
 		return map[string]any{"running": false}
 	}
-	return backendStatusJSON(st)
+	session := map[string]any{"state": st.State}
+	if !st.StartedAt.IsZero() {
+		session["connected_at"] = st.StartedAt
+	}
+	activity := map[string]any{
+		"active": st.Radio.Active,
+	}
+	if st.Radio.Method != "" {
+		activity["method"] = st.Radio.Method
+	}
+	if st.Radio.DurationMs > 0 {
+		activity["duration_ms"] = st.Radio.DurationMs
+	}
+	if !st.Radio.LastAt.IsZero() {
+		last := map[string]any{"at": st.Radio.LastAt}
+		if st.Radio.LastMethod != "" {
+			last["method"] = st.Radio.LastMethod
+		}
+		if st.Radio.LastDurationMs > 0 {
+			last["duration_ms"] = st.Radio.LastDurationMs
+		}
+		activity["last_request"] = last
+	}
+	out := map[string]any{
+		"running":    st.Running,
+		"healthy":    st.Healthy,
+		"state":      st.State,
+		"pid":        st.PID,
+		"uptime_sec": st.UptimeSec,
+		"socket":     st.Socket,
+		"session":    session,
+		"activity":   activity,
+		"requests": map[string]any{
+			"completed": st.RequestsCompleted,
+			"failed":    st.RequestsFailed,
+			"pending":   st.QueuePending,
+		},
+		"clients": st.Clients,
+		"version": st.Version,
+	}
+	if !st.StartedAt.IsZero() {
+		out["started_at"] = st.StartedAt
+	}
+	if st.LastError != "" {
+		out["last_error"] = st.LastError
+		out["last_error_at"] = st.LastErrorAt
+	}
+	return out
+}
+
+func localStateForOutput(local ui.LocalStateInfo) map[string]any {
+	out := map[string]any{
+		"initialized": local.Initialized,
+	}
+	if !local.Initialized {
+		return out
+	}
+	out["contacts"] = local.Contacts
+	out["channels"] = local.Channels
+	out["repeater_sessions"] = local.RepeaterSessions
+	if !local.UpdatedAt.IsZero() {
+		out["updated_at"] = local.UpdatedAt
+	}
+	return out
 }
 
 func orDash(s string) string {

@@ -38,6 +38,7 @@ type Bridge struct {
 // Device is a saved profile. A logical device may carry multiple endpoints.
 type Device struct {
 	Name               string        `yaml:"name,omitempty"`
+	PublicKey          string        `yaml:"public_key,omitempty"`
 	PublicKeyPrefix    string        `yaml:"public_key_prefix,omitempty"`
 	PreferredTransport string        `yaml:"preferred_transport,omitempty"`
 	Transports         []Endpoint    `yaml:"transports,omitempty"`

@@ -592,6 +592,58 @@ func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error
 	return out, nil
 }
 
+// WatchRF streams decoded RF packet log events until ctx is cancelled or the
+// backend closes the stream.
+func (c *Client) WatchRF(ctx context.Context) (<-chan meshcore.RFPacketReceived, error) {
+	d := net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "unix", c.socket)
+	if err != nil {
+		return nil, err
+	}
+
+	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "watch_rf"}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	dec := json.NewDecoder(bufio.NewReader(conn))
+	var resp response
+	if err := dec.Decode(&resp); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if !resp.OK {
+		conn.Close()
+		if resp.Error == "" {
+			resp.Error = "unknown backend error"
+		}
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+
+	out := make(chan meshcore.RFPacketReceived)
+	go func() {
+		defer conn.Close()
+		defer close(out)
+		go func() {
+			<-ctx.Done()
+			_ = conn.Close()
+		}()
+		for {
+			var pkt meshcore.RFPacketReceived
+			if err := dec.Decode(&pkt); err != nil {
+				return
+			}
+			select {
+			case out <- pkt:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
 func (c *Client) call(ctx context.Context, method string, params, out any) error {
 	d := net.Dialer{Timeout: dialTimeout}
 
