@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"sort"
-	"time"
 
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
@@ -57,9 +56,9 @@ func deviceListData(cfg *config.Config, st localbackend.Status, entries map[stri
 				contacts = replicaInfoFromStatus(st.Contacts)
 				channels = replicaInfoFromChannel(st.Channels)
 				radio = radioIOFromStatus(st.Radio)
-			} else if active && entry.Replica == "fresh" {
-				contacts = ui.ReplicaInfo{SyncedAt: time.Now()}
-				channels = ui.ReplicaInfo{SyncedAt: time.Now()}
+			} else if active {
+				contacts = replicaInfoFromStatus(entry.Contacts)
+				channels = replicaInfoFromChannel(entry.Channels)
 			}
 		} else {
 			// Legacy single-session daemon: only the connected device is known.
@@ -154,6 +153,7 @@ func deviceListJSON(cfg *config.Config, st localbackend.Status, entries map[stri
 	data := deviceListData(cfg, st, entries, backendRunning)
 	out := make([]map[string]any, len(data.Devices))
 	for i, row := range data.Devices {
+		entry, hasEntry := entries[row.Profile]
 		out[i] = map[string]any{
 			"profile":   row.Profile,
 			"selected":  row.Selected,
@@ -164,6 +164,12 @@ func deviceListJSON(cfg *config.Config, st localbackend.Status, entries map[stri
 			"transport": row.Transport,
 			"activity":  row.Activity,
 			"endpoint":  row.Endpoint,
+		}
+		if hasEntry {
+			out[i]["local_state"] = map[string]any{
+				"contacts": contactStatusJSON(entry.Contacts),
+				"channels": channelStatusJSON(entry.Channels),
+			}
 		}
 	}
 	return out

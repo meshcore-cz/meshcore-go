@@ -63,7 +63,7 @@ func cmdContacts(ctx context.Context, e *env) error {
 		if query.filtered() {
 			e.out.Human("No contacts matching filters.\n")
 		} else if e.args.has("cached") {
-			e.out.Human("No contacts in local replica.\n")
+			e.out.Human("No contacts in device-local state.\n")
 		} else {
 			e.out.Human("No contacts.\n")
 		}

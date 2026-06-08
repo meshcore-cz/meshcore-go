@@ -16,14 +16,16 @@ type request struct {
 
 // deviceListEntry summarises one configured device for `mc device list`.
 type deviceListEntry struct {
-	ID        string `json:"id"`
-	Default   bool   `json:"default"`
-	Session   string `json:"session"` // ready|degraded|bridge|stopped
-	Connected bool   `json:"connected"`
-	Replica   string `json:"replica,omitempty"` // fresh|stale
-	Transport string `json:"transport,omitempty"`
-	URI       string `json:"uri,omitempty"`
-	LastError string `json:"last_error,omitempty"`
+	ID        string        `json:"id"`
+	Default   bool          `json:"default"`
+	Session   string        `json:"session"` // ready|degraded|bridge|stopped
+	Connected bool          `json:"connected"`
+	Replica   string        `json:"replica,omitempty"` // fresh|stale
+	Contacts  contactStatus `json:"contacts,omitempty"`
+	Channels  channelStatus `json:"channels,omitempty"`
+	Transport string        `json:"transport,omitempty"`
+	URI       string        `json:"uri,omitempty"`
+	LastError string        `json:"last_error,omitempty"`
 }
 
 type deviceListResult struct {

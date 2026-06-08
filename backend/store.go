@@ -85,11 +85,10 @@ type ChannelStateEntry struct {
 	StoredAt string `json:"stored_at"`
 }
 
-// Store persists one device's local state. Each store is already scoped to a
-// single device (one database file per device public key), so methods take no
-// device argument.
-type Store interface {
-	Close() error
+// ContactStore persists one device's contact state. Each store is already scoped
+// to a single device (one database file per device public key), so methods take
+// no device argument.
+type ContactStore interface {
 	UpsertContacts(ctx context.Context, contacts []meshcore.Contact) error
 	ClearContacts(ctx context.Context) error
 	ContactLastMod(ctx context.Context) (uint32, error)
@@ -97,12 +96,25 @@ type Store interface {
 	UpsertContact(ctx context.Context, contact meshcore.Contact) error
 	Contacts(ctx context.Context) ([]ContactStateEntry, error)
 	Contact(ctx context.Context, query string) (ContactStateEntry, error)
+}
+
+// ChannelStore persists one device's channel state.
+type ChannelStore interface {
 	UpsertChannels(ctx context.Context, channels []meshcore.Channel) error
 	Channels(ctx context.Context) ([]ChannelStateEntry, error)
 	Channel(ctx context.Context, query string) (ChannelStateEntry, error)
+}
+
+// RepeaterSessionStore persists authenticated repeater sessions for contacts
+// known to this local device.
+type RepeaterSessionStore interface {
 	UpsertRepeaterSession(ctx context.Context, session meshcore.RepeaterSession) error
 	RepeaterSession(ctx context.Context, repeater string) (meshcore.RepeaterSession, error)
 	ClearRepeaterSession(ctx context.Context, repeater string) error
+}
+
+// MessageStore persists direct and channel messages plus delivery state.
+type MessageStore interface {
 	InsertMessage(ctx context.Context, rec *MessageRecord) error
 	SetMessageStatus(ctx context.Context, id int64, status, ackCode string) error
 	// RecordReceivedMessage inserts an incoming message, or if an identical one
@@ -118,3 +130,18 @@ type Store interface {
 	Messages(ctx context.Context, filter MessageFilter) ([]MessageRecord, error)
 	MarkMessagesRead(ctx context.Context, ids []int64) error
 }
+
+// DeviceStateStore is the full device-local state boundary used by a session.
+// It is not a cache or generic repository layer; it is the durable state owned
+// by one local device identity.
+type DeviceStateStore interface {
+	ContactStore
+	ChannelStore
+	MessageStore
+	RepeaterSessionStore
+	Close() error
+}
+
+// Store is kept as the short historical name for the full device-local state
+// surface while callers migrate to DeviceStateStore where that is clearer.
+type Store = DeviceStateStore

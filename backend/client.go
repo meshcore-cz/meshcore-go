@@ -99,14 +99,16 @@ type RadioStatus struct {
 
 // DeviceListEntry is the public fleet-status summary of one configured device.
 type DeviceListEntry struct {
-	ID        string `json:"id"`
-	Default   bool   `json:"default"`
-	Session   string `json:"session"`
-	Connected bool   `json:"connected"`
-	Replica   string `json:"replica,omitempty"`
-	Transport string `json:"transport,omitempty"`
-	URI       string `json:"uri,omitempty"`
-	LastError string `json:"last_error,omitempty"`
+	ID        string        `json:"id"`
+	Default   bool          `json:"default"`
+	Session   string        `json:"session"`
+	Connected bool          `json:"connected"`
+	Replica   string        `json:"replica,omitempty"`
+	Contacts  ContactStatus `json:"contacts,omitempty"`
+	Channels  ChannelStatus `json:"channels,omitempty"`
+	Transport string        `json:"transport,omitempty"`
+	URI       string        `json:"uri,omitempty"`
+	LastError string        `json:"last_error,omitempty"`
 }
 
 // Client talks to a running local backend daemon. An optional device selector
@@ -168,7 +170,7 @@ func (c *Client) BackendStatus(ctx context.Context) (DaemonStatus, error) {
 		Devices:   make([]DeviceListEntry, len(out.Devices)),
 	}
 	for i, e := range out.Devices {
-		st.Devices[i] = DeviceListEntry(e)
+		st.Devices[i] = deviceListEntryFromProtocol(e)
 	}
 	return st, nil
 }
@@ -181,9 +183,36 @@ func (c *Client) DeviceList(ctx context.Context) ([]DeviceListEntry, error) {
 	}
 	entries := make([]DeviceListEntry, len(out.Devices))
 	for i, e := range out.Devices {
-		entries[i] = DeviceListEntry(e)
+		entries[i] = deviceListEntryFromProtocol(e)
 	}
 	return entries, nil
+}
+
+func deviceListEntryFromProtocol(e deviceListEntry) DeviceListEntry {
+	return DeviceListEntry{
+		ID:        e.ID,
+		Default:   e.Default,
+		Session:   e.Session,
+		Connected: e.Connected,
+		Replica:   e.Replica,
+		Contacts: ContactStatus{
+			Syncing:      e.Contacts.Syncing,
+			SyncReceived: e.Contacts.SyncReceived,
+			SyncTotal:    e.Contacts.SyncTotal,
+			Count:        e.Contacts.Count,
+			SyncedAt:     e.Contacts.SyncedAt,
+			Error:        e.Contacts.Error,
+		},
+		Channels: ChannelStatus{
+			Syncing:  e.Channels.Syncing,
+			Count:    e.Channels.Count,
+			SyncedAt: e.Channels.SyncedAt,
+			Error:    e.Channels.Error,
+		},
+		Transport: e.Transport,
+		URI:       e.URI,
+		LastError: e.LastError,
+	}
 }
 
 // DeviceActionResult reports the outcome of a session lifecycle action.
@@ -410,58 +439,8 @@ func (c *Client) Advertise(ctx context.Context, flood bool) error {
 // backend closes the stream (after the discovery window elapses) or ctx is
 // cancelled.
 func (c *Client) Discover(ctx context.Context, filter byte, prefixOnly bool, timeout time.Duration) (<-chan meshcore.DiscoveredNode, error) {
-	d := net.Dialer{Timeout: dialTimeout}
-	conn, err := d.DialContext(ctx, "unix", c.socket)
-	if err != nil {
-		return nil, err
-	}
-
 	params := discoverParams{Filter: filter, PrefixOnly: prefixOnly, TimeoutMs: int(timeout.Milliseconds())}
-	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "discover"}
-	if req.Params, err = json.Marshal(params); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	dec := json.NewDecoder(bufio.NewReader(conn))
-	var resp response
-	if err := dec.Decode(&resp); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if !resp.OK {
-		conn.Close()
-		if resp.Error == "" {
-			resp.Error = "unknown backend error"
-		}
-		return nil, fmt.Errorf("%s", resp.Error)
-	}
-
-	out := make(chan meshcore.DiscoveredNode)
-	go func() {
-		defer conn.Close()
-		defer close(out)
-		go func() {
-			<-ctx.Done()
-			_ = conn.Close()
-		}()
-		for {
-			var n meshcore.DiscoveredNode
-			if err := dec.Decode(&n); err != nil {
-				return
-			}
-			select {
-			case out <- n:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return out, nil
+	return stream[meshcore.DiscoveredNode](ctx, c, "discover", params)
 }
 
 func (c *Client) RawSend(ctx context.Context, payload []byte) (RawResult, error) {
@@ -503,65 +482,37 @@ func (c *Client) RepeaterExec(ctx context.Context, repeater, command string) (me
 // Watch streams backend events until ctx is cancelled or the backend closes the
 // stream.
 func (c *Client) Watch(ctx context.Context) (<-chan Event, error) {
-	d := net.Dialer{Timeout: dialTimeout}
-	conn, err := d.DialContext(ctx, "unix", c.socket)
-	if err != nil {
-		return nil, err
-	}
-
-	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "watch"}
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	dec := json.NewDecoder(bufio.NewReader(conn))
-	var resp response
-	if err := dec.Decode(&resp); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if !resp.OK {
-		conn.Close()
-		if resp.Error == "" {
-			resp.Error = "unknown backend error"
-		}
-		return nil, fmt.Errorf("%s", resp.Error)
-	}
-
-	out := make(chan Event)
-	go func() {
-		defer conn.Close()
-		defer close(out)
-		go func() {
-			<-ctx.Done()
-			_ = conn.Close()
-		}()
-		for {
-			var ev Event
-			if err := dec.Decode(&ev); err != nil {
-				return
-			}
-			select {
-			case out <- ev:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return out, nil
+	return stream[Event](ctx, c, "watch", nil)
 }
 
 // WatchRaw streams inbound raw packets until ctx is cancelled or the backend
 // closes the stream.
 func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error) {
+	return stream[meshcore.RawPacket](ctx, c, "watch_raw", nil)
+}
+
+// WatchRF streams decoded RF packet log events until ctx is cancelled or the
+// backend closes the stream.
+func (c *Client) WatchRF(ctx context.Context) (<-chan meshcore.RFPacketReceived, error) {
+	return stream[meshcore.RFPacketReceived](ctx, c, "watch_rf", nil)
+}
+
+func stream[T any](ctx context.Context, c *Client, method string, params any) (<-chan T, error) {
 	d := net.Dialer{Timeout: dialTimeout}
 	conn, err := d.DialContext(ctx, "unix", c.socket)
 	if err != nil {
 		return nil, err
 	}
 
-	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "watch_raw"}
+	req := request{ID: c.nextID.Add(1), Device: c.device, Method: method}
+	if params != nil {
+		req.Params, err = json.Marshal(params)
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		conn.Close()
 		return nil, err
@@ -573,6 +524,10 @@ func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error
 		conn.Close()
 		return nil, err
 	}
+	if resp.ID != req.ID {
+		conn.Close()
+		return nil, fmt.Errorf("backend: mismatched response id %d", resp.ID)
+	}
 	if !resp.OK {
 		conn.Close()
 		if resp.Error == "" {
@@ -581,21 +536,20 @@ func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error
 		return nil, fmt.Errorf("%s", resp.Error)
 	}
 
-	out := make(chan meshcore.RawPacket)
+	out := make(chan T)
 	go func() {
 		defer conn.Close()
 		defer close(out)
-		go func() {
-			<-ctx.Done()
-			_ = conn.Close()
-		}()
+		done := make(chan struct{})
+		defer close(done)
+		go closeConnOnCancel(ctx, conn, done)
 		for {
-			var pkt meshcore.RawPacket
-			if err := dec.Decode(&pkt); err != nil {
+			var item T
+			if err := dec.Decode(&item); err != nil {
 				return
 			}
 			select {
-			case out <- pkt:
+			case out <- item:
 			case <-ctx.Done():
 				return
 			}
@@ -604,56 +558,12 @@ func (c *Client) WatchRaw(ctx context.Context) (<-chan meshcore.RawPacket, error
 	return out, nil
 }
 
-// WatchRF streams decoded RF packet log events until ctx is cancelled or the
-// backend closes the stream.
-func (c *Client) WatchRF(ctx context.Context) (<-chan meshcore.RFPacketReceived, error) {
-	d := net.Dialer{Timeout: dialTimeout}
-	conn, err := d.DialContext(ctx, "unix", c.socket)
-	if err != nil {
-		return nil, err
+func closeConnOnCancel(ctx context.Context, conn net.Conn, done <-chan struct{}) {
+	select {
+	case <-ctx.Done():
+		_ = conn.Close()
+	case <-done:
 	}
-
-	req := request{ID: c.nextID.Add(1), Device: c.device, Method: "watch_rf"}
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	dec := json.NewDecoder(bufio.NewReader(conn))
-	var resp response
-	if err := dec.Decode(&resp); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if !resp.OK {
-		conn.Close()
-		if resp.Error == "" {
-			resp.Error = "unknown backend error"
-		}
-		return nil, fmt.Errorf("%s", resp.Error)
-	}
-
-	out := make(chan meshcore.RFPacketReceived)
-	go func() {
-		defer conn.Close()
-		defer close(out)
-		go func() {
-			<-ctx.Done()
-			_ = conn.Close()
-		}()
-		for {
-			var pkt meshcore.RFPacketReceived
-			if err := dec.Decode(&pkt); err != nil {
-				return
-			}
-			select {
-			case out <- pkt:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return out, nil
 }
 
 func (c *Client) call(ctx context.Context, method string, params, out any) error {

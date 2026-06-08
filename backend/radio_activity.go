@@ -1,61 +1,123 @@
 package backend
 
-import "time"
+import (
+	"context"
+	"sync"
+	"time"
+)
 
-func (s *DeviceSession) lockRadio(method string) {
-	s.trackRadioWaiter(1)
-	s.radioMu.Lock()
-	s.trackRadioWaiter(-1)
-	s.mu.Lock()
-	s.radioActive = true
-	s.radioMethod = method
-	s.radioSince = time.Now()
-	s.mu.Unlock()
+// RadioExecutor serialises live radio I/O and records the currently active or
+// most recent operation for status/diagnostics.
+type RadioExecutor struct {
+	mu          sync.Mutex
+	activityMu  sync.RWMutex
+	trackWaiter func(int)
+
+	active         bool
+	method         string
+	since          time.Time
+	lastAt         time.Time
+	lastMethod     string
+	lastDurationMs int64
 }
 
-func (s *DeviceSession) unlockRadio() {
-	s.mu.Lock()
-	now := time.Now()
-	if s.radioActive && !s.radioSince.IsZero() {
-		s.radioLastMethod = s.radioMethod
-		s.radioLastDurationMs = now.Sub(s.radioSince).Milliseconds()
+func NewRadioExecutor(trackWaiter func(int)) *RadioExecutor {
+	return &RadioExecutor{trackWaiter: trackWaiter}
+}
+
+func (r *RadioExecutor) Lock(method string) {
+	if r.trackWaiter != nil {
+		r.trackWaiter(1)
 	}
-	s.radioActive = false
-	s.radioMethod = ""
-	s.radioSince = time.Time{}
-	s.radioLastAt = now
-	s.mu.Unlock()
-	s.radioMu.Unlock()
+	r.mu.Lock()
+	if r.trackWaiter != nil {
+		r.trackWaiter(-1)
+	}
+	r.start(method)
 }
 
-func (s *DeviceSession) tryLockRadio(method string) bool {
-	if !s.radioMu.TryLock() {
+func (r *RadioExecutor) TryLock(method string) bool {
+	if !r.mu.TryLock() {
 		return false
 	}
-	s.mu.Lock()
-	s.radioActive = true
-	s.radioMethod = method
-	s.radioSince = time.Now()
-	s.mu.Unlock()
+	r.start(method)
 	return true
 }
 
-func (s *DeviceSession) radioStatusLocked() radioStatus {
-	if !s.radioActive {
+func (r *RadioExecutor) Unlock() {
+	r.finish()
+	r.mu.Unlock()
+}
+
+func (r *RadioExecutor) Do(ctx context.Context, method string, fn func(context.Context) error) error {
+	r.Lock(method)
+	defer r.Unlock()
+	return fn(ctx)
+}
+
+func (r *RadioExecutor) Status() radioStatus {
+	r.activityMu.RLock()
+	defer r.activityMu.RUnlock()
+	if !r.active {
 		return radioStatus{
 			Idle:           true,
-			LastAt:         s.radioLastAt,
-			LastMethod:     s.radioLastMethod,
-			LastDurationMs: s.radioLastDurationMs,
+			LastAt:         r.lastAt,
+			LastMethod:     r.lastMethod,
+			LastDurationMs: r.lastDurationMs,
 		}
 	}
 	st := radioStatus{
 		Active: true,
-		Method: s.radioMethod,
-		Since:  s.radioSince,
+		Method: r.method,
+		Since:  r.since,
 	}
-	if !s.radioSince.IsZero() {
-		st.DurationMs = time.Since(s.radioSince).Milliseconds()
+	if !r.since.IsZero() {
+		st.DurationMs = time.Since(r.since).Milliseconds()
 	}
 	return st
+}
+
+func (r *RadioExecutor) start(method string) {
+	r.activityMu.Lock()
+	r.active = true
+	r.method = method
+	r.since = time.Now()
+	r.activityMu.Unlock()
+}
+
+func (r *RadioExecutor) finish() {
+	r.activityMu.Lock()
+	now := time.Now()
+	if r.active && !r.since.IsZero() {
+		r.lastMethod = r.method
+		r.lastDurationMs = now.Sub(r.since).Milliseconds()
+	}
+	r.active = false
+	r.method = ""
+	r.since = time.Time{}
+	r.lastAt = now
+	r.activityMu.Unlock()
+}
+
+func (s *DeviceSession) radioExecutor() *RadioExecutor {
+	if s.radio == nil {
+		s.radio = NewRadioExecutor(s.trackRadioWaiter)
+	}
+	return s.radio
+}
+
+func (s *DeviceSession) lockRadio(method string) {
+	s.radioExecutor().Lock(method)
+}
+
+func (s *DeviceSession) unlockRadio() {
+	s.radioExecutor().Unlock()
+}
+
+func (s *DeviceSession) tryLockRadio(method string) bool {
+	return s.radioExecutor().TryLock(method)
+}
+
+func (s *DeviceSession) radioStatusLocked() radioStatus {
+	return s.radioExecutor().Status()
 }

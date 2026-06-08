@@ -28,37 +28,31 @@ type DeviceSession struct {
 	client    *meshcore.Client
 	store     Store
 
-	mu                  sync.RWMutex
-	state               string
-	lastSeen            time.Time
-	lastError           string
-	bridgeStatuses      map[string]BridgeStatus
-	contactSyncing      bool
-	contactSyncRecv     int
-	contactSyncTotal    int
-	contactCount        int
-	contactSyncedAt     time.Time
-	contactError        string
-	contactSyncMu       sync.Mutex
-	refreshMu           sync.Mutex
-	refreshCancel       context.CancelFunc
-	channelSyncing      bool
-	channelCount        int
-	channelSyncedAt     time.Time
-	channelError        string
-	channelSyncMu       sync.Mutex
-	radioMu             sync.Mutex // serialises live radio I/O
-	radioActive         bool
-	radioMethod         string
-	radioSince          time.Time
-	radioLastAt         time.Time
-	radioLastMethod     string
-	radioLastDurationMs int64
-	deviceInfo          meshcore.DeviceInfo
-	deviceInfoOK        bool
-	deviceStats         meshcore.LocalStats
-	deviceStatsOK       bool
-	deviceStatsAt       time.Time
+	mu               sync.RWMutex
+	state            string
+	lastSeen         time.Time
+	lastError        string
+	bridgeStatuses   map[string]BridgeStatus
+	contactSyncing   bool
+	contactSyncRecv  int
+	contactSyncTotal int
+	contactCount     int
+	contactSyncedAt  time.Time
+	contactError     string
+	contactSyncMu    sync.Mutex
+	refreshMu        sync.Mutex
+	refreshCancel    context.CancelFunc
+	channelSyncing   bool
+	channelCount     int
+	channelSyncedAt  time.Time
+	channelError     string
+	channelSyncMu    sync.Mutex
+	radio            *RadioExecutor
+	deviceInfo       meshcore.DeviceInfo
+	deviceInfoOK     bool
+	deviceStats      meshcore.LocalStats
+	deviceStatsOK    bool
+	deviceStatsAt    time.Time
 
 	startedAt   time.Time
 	lastErrorAt time.Time
@@ -118,6 +112,7 @@ func newSession(ctx context.Context, uri string, cfg SessionOptions, opts ...mes
 		drainReq:       make(chan struct{}, 1),
 		bridgeStatuses: make(map[string]BridgeStatus),
 	}
+	s.radio = NewRadioExecutor(s.trackRadioWaiter)
 
 	// Injected store (tests): skip identity discovery.
 	if cfg.Store != nil {
@@ -282,10 +277,13 @@ func (s *DeviceSession) serve(conn net.Conn, req request, enc *json.Encoder, sta
 	var err error
 	if s.methodUsesRadio(req.Method, req.Params) {
 		s.interruptContactRefresh()
-		s.lockRadio(req.Method)
-		defer s.unlockRadio()
+		err = s.radioExecutor().Do(connContext(), req.Method, func(ctx context.Context) error {
+			result, err = s.dispatch(ctx, req.Method, req.Params)
+			return err
+		})
+	} else {
+		result, err = s.dispatch(connContext(), req.Method, req.Params)
 	}
-	result, err = s.dispatch(connContext(), req.Method, req.Params)
 	resp := response{ID: req.ID, OK: err == nil}
 	if err != nil {
 		resp.Error = err.Error()
@@ -322,7 +320,7 @@ func (s *DeviceSession) listEntry(isDefault bool) deviceListEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	replica := "stale"
-	if !s.contactSyncedAt.IsZero() {
+	if !s.contactSyncedAt.IsZero() && !s.channelSyncedAt.IsZero() {
 		replica = "fresh"
 	}
 	return deviceListEntry{
@@ -331,6 +329,20 @@ func (s *DeviceSession) listEntry(isDefault bool) deviceListEntry {
 		Session:   s.state,
 		Connected: s.state == stateReady || s.state == stateBridge,
 		Replica:   replica,
+		Contacts: contactStatus{
+			Syncing:      s.contactSyncing,
+			SyncReceived: s.contactSyncRecv,
+			SyncTotal:    s.contactSyncTotal,
+			Count:        s.contactCount,
+			SyncedAt:     s.contactSyncedAt,
+			Error:        s.contactError,
+		},
+		Channels: channelStatus{
+			Syncing:  s.channelSyncing,
+			Count:    s.channelCount,
+			SyncedAt: s.channelSyncedAt,
+			Error:    s.channelError,
+		},
 		Transport: transportScheme(s.uri),
 		URI:       s.uri,
 		LastError: s.lastError,
@@ -361,6 +373,44 @@ func sessionSlug(uri string) string {
 }
 
 func (s *DeviceSession) watch(conn net.Conn, id uint64) {
+	serveSessionStream(conn, id, s,
+		func(client *meshcore.Client) (<-chan meshcore.Event, func()) {
+			return client.SubscribeEvents(64)
+		},
+		func(ev meshcore.Event) (any, bool) {
+			return backendEvent(ev)
+		},
+	)
+}
+
+func (s *DeviceSession) watchRaw(conn net.Conn, id uint64) {
+	serveSessionStream(conn, id, s,
+		func(client *meshcore.Client) (<-chan meshcore.RawPacket, func()) {
+			return client.SubscribeRawPackets(256)
+		},
+		passStreamItem[meshcore.RawPacket],
+	)
+}
+
+func (s *DeviceSession) watchRF(conn net.Conn, id uint64) {
+	serveSessionStream(conn, id, s,
+		func(client *meshcore.Client) (<-chan meshcore.Event, func()) {
+			return client.SubscribeEvents(64)
+		},
+		func(ev meshcore.Event) (any, bool) {
+			rf, ok := ev.(meshcore.RFPacketReceived)
+			return rf, ok
+		},
+	)
+}
+
+func serveSessionStream[T any](
+	conn net.Conn,
+	id uint64,
+	s *DeviceSession,
+	subscribe func(*meshcore.Client) (<-chan T, func()),
+	encodeItem func(T) (any, bool),
+) {
 	enc := json.NewEncoder(conn)
 	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
 		return
@@ -369,10 +419,10 @@ func (s *DeviceSession) watch(conn net.Conn, id uint64) {
 	if client == nil {
 		return
 	}
-	events, cancel := client.SubscribeEvents(64)
+	items, cancel := subscribe(client)
 	defer cancel()
-	for ev := range events {
-		out, ok := backendEvent(ev)
+	for item := range items {
+		out, ok := encodeItem(item)
 		if !ok {
 			continue
 		}
@@ -382,44 +432,8 @@ func (s *DeviceSession) watch(conn net.Conn, id uint64) {
 	}
 }
 
-func (s *DeviceSession) watchRaw(conn net.Conn, id uint64) {
-	enc := json.NewEncoder(conn)
-	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
-		return
-	}
-	client := s.clientSnapshot()
-	if client == nil {
-		return
-	}
-	raw, cancel := client.SubscribeRawPackets(256)
-	defer cancel()
-	for pkt := range raw {
-		if err := enc.Encode(pkt); err != nil {
-			return
-		}
-	}
-}
-
-func (s *DeviceSession) watchRF(conn net.Conn, id uint64) {
-	enc := json.NewEncoder(conn)
-	if err := enc.Encode(response{ID: id, OK: true}); err != nil {
-		return
-	}
-	client := s.clientSnapshot()
-	if client == nil {
-		return
-	}
-	events, cancel := client.SubscribeEvents(64)
-	defer cancel()
-	for ev := range events {
-		rf, ok := ev.(meshcore.RFPacketReceived)
-		if !ok {
-			continue
-		}
-		if err := enc.Encode(rf); err != nil {
-			return
-		}
-	}
+func passStreamItem[T any](item T) (any, bool) {
+	return item, true
 }
 
 func (s *DeviceSession) discover(conn net.Conn, id uint64, params json.RawMessage) {
@@ -810,27 +824,27 @@ func (s *DeviceSession) replicaContacts(ctx context.Context) ([]meshcore.Contact
 
 func (s *DeviceSession) scheduleInitialContactSync() {
 	go func() {
-		s.lockRadio("replicate")
-		defer s.unlockRadio()
-
-		ctx, cancel := context.WithTimeout(context.Background(), initialContactSyncTimeout)
-		defer cancel()
-		client := s.clientSnapshot()
-		if client == nil || !s.healthy() {
-			return
-		}
-		contacts, err := s.syncContacts(ctx, client, false)
-		if err != nil {
-			Logf("contact sync failed: %v", err)
-		} else {
-			Logf("contacts replicated: %d", len(contacts))
-		}
-		channels, err := s.syncChannels(ctx, client)
-		if err != nil {
-			Logf("channel sync failed: %v", err)
-			return
-		}
-		Logf("channels replicated: %d", len(channels))
+		_ = s.radioExecutor().Do(context.Background(), "replicate", func(context.Context) error {
+			ctx, cancel := context.WithTimeout(context.Background(), initialContactSyncTimeout)
+			defer cancel()
+			client := s.clientSnapshot()
+			if client == nil || !s.healthy() {
+				return nil
+			}
+			contacts, err := s.syncContacts(ctx, client, false)
+			if err != nil {
+				Logf("contact sync failed: %v", err)
+			} else {
+				Logf("contacts replicated: %d", len(contacts))
+			}
+			channels, err := s.syncChannels(ctx, client)
+			if err != nil {
+				Logf("channel sync failed: %v", err)
+				return nil
+			}
+			Logf("channels replicated: %d", len(channels))
+			return nil
+		})
 	}()
 }
 
@@ -1162,7 +1176,7 @@ func (s *DeviceSession) status() statusResult {
 			SyncedAt: s.channelSyncedAt,
 			Error:    s.channelError,
 		},
-		Radio: s.radioStatusLocked(),
+		Radio: s.radioExecutor().Status(),
 	}
 	if !s.startedAt.IsZero() {
 		out.UptimeSec = int64(time.Since(s.startedAt).Seconds())

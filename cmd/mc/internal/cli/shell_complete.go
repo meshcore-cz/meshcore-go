@@ -207,10 +207,10 @@ func makeShellCompleter(session *shellSession) func([]rune, int) readline.Comple
 		endsWithSpace := strings.HasSuffix(input, " ") || strings.HasSuffix(input, "\t")
 
 		if len(words) == 0 || (len(words) == 1 && !endsWithSpace) {
-			return completeCommandSpecs(shellCommands)
+			return completeCommandSpecs(commandRegistry)
 		}
 
-		spec, ok := findCommandSpec(shellCommands, words[0])
+		spec, ok := findCommandSpec(commandRegistry, words[0])
 		if !ok {
 			return readline.Completions{}
 		}

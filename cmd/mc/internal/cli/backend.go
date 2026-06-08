@@ -49,7 +49,7 @@ var errBackendDegraded = errors.New("backend degraded")
 type directBackend struct {
 	uri    string
 	client *meshcore.Client
-	svc    *service.Service
+	*service.Service
 }
 
 func resolveBackendSocket(e *env) string {
@@ -122,7 +122,7 @@ func openIPCBackend(ctx context.Context, e *env) (*ipcBackend, error) {
 		}
 		return nil, fmt.Errorf("%w: %s", errBackendDegraded, msg)
 	}
-	return &ipcBackend{client: client, status: status}, nil
+	return &ipcBackend{Client: client, status: status}, nil
 }
 
 func openIPCBackendAllowDegraded(ctx context.Context, e *env) (*ipcBackend, error) {
@@ -131,7 +131,7 @@ func openIPCBackendAllowDegraded(ctx context.Context, e *env) (*ipcBackend, erro
 	if err != nil {
 		return nil, err
 	}
-	return &ipcBackend{client: client, status: status}, nil
+	return &ipcBackend{Client: client, status: status}, nil
 }
 
 func openDirectBackend(ctx context.Context, e *env) (*directBackend, error) {
@@ -144,9 +144,9 @@ func openDirectBackend(ctx context.Context, e *env) (*directBackend, error) {
 
 func newDirectBackend(uri string, client *meshcore.Client) *directBackend {
 	return &directBackend{
-		uri:    uri,
-		client: client,
-		svc:    service.New(client),
+		uri:     uri,
+		client:  client,
+		Service: service.New(client),
 	}
 }
 
@@ -154,66 +154,22 @@ func (b *directBackend) URI() string { return b.uri }
 
 func (b *directBackend) Transport() string { return b.client.Transport() }
 
-func (b *directBackend) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
-	return b.svc.DeviceInfo(ctx)
-}
-
-func (b *directBackend) Stats(ctx context.Context) (meshcore.LocalStats, error) {
-	return b.svc.Stats(ctx)
-}
-
-func (b *directBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
-	return b.svc.Contacts(ctx)
-}
-
 func (b *directBackend) ContactsWithOptions(ctx context.Context, cached, refresh, wait, full bool) ([]meshcore.Contact, error) {
 	if cached {
-		return nil, fmt.Errorf("local contact replica requires the backend")
+		return nil, fmt.Errorf("contact local state requires the backend")
 	}
 	if refresh {
 		return nil, fmt.Errorf("contact refresh requires the backend")
 	}
-	return b.svc.Contacts(ctx)
+	return b.Contacts(ctx)
 }
 
 func (b *directBackend) StartContactRefresh(ctx context.Context, full bool) (localbackend.ContactRefreshResult, error) {
 	return localbackend.ContactRefreshResult{}, fmt.Errorf("contact refresh requires the backend")
 }
 
-func (b *directBackend) Contact(ctx context.Context, name string) (meshcore.Contact, error) {
-	return b.svc.Contact(ctx, name)
-}
-
-func (b *directBackend) Inbox(ctx context.Context) ([]meshcore.Message, error) {
-	return b.svc.Inbox(ctx)
-}
-
-func (b *directBackend) SendText(ctx context.Context, recipient, text string) (meshcore.Receipt, error) {
-	return b.svc.SendText(ctx, recipient, text)
-}
-
-func (b *directBackend) WaitForAcknowledgement(ctx context.Context, receipt meshcore.Receipt) (meshcore.Ack, error) {
-	return b.svc.WaitForAcknowledgement(ctx, receipt)
-}
-
-func (b *directBackend) Trace(ctx context.Context, target string) (meshcore.Trace, error) {
-	return b.svc.Trace(ctx, target)
-}
-
-func (b *directBackend) Channels(ctx context.Context) ([]meshcore.Channel, error) {
-	return b.svc.Channels(ctx)
-}
-
 func (b *directBackend) ChannelsWithOptions(ctx context.Context, refresh bool) ([]meshcore.Channel, error) {
-	return b.svc.Channels(ctx)
-}
-
-func (b *directBackend) Channel(ctx context.Context, name string) (meshcore.Channel, error) {
-	return b.svc.Channel(ctx, name)
-}
-
-func (b *directBackend) SendChannelText(ctx context.Context, channel, text string) (meshcore.Receipt, error) {
-	return b.svc.SendChannelText(ctx, channel, text)
+	return b.Channels(ctx)
 }
 
 func (b *directBackend) ChannelAdd(ctx context.Context, name string, secret []byte) (meshcore.Channel, error) {
@@ -224,14 +180,6 @@ func (b *directBackend) ChannelRemove(ctx context.Context, channel string) (mesh
 	return b.client.RemoveChannel(ctx, channel)
 }
 
-func (b *directBackend) Advertise(ctx context.Context, flood bool) error {
-	return b.svc.Advertise(ctx, flood)
-}
-
-func (b *directBackend) DiscoverNodes(ctx context.Context, opts meshcore.NodeDiscoverOptions, onNode func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error) {
-	return b.svc.DiscoverNodes(ctx, opts, onNode)
-}
-
 func (b *directBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {
 	msg, err := b.client.RawSend(ctx, payload)
 	if err != nil {
@@ -240,28 +188,8 @@ func (b *directBackend) RawSend(ctx context.Context, payload []byte) (localbacke
 	return localbackend.RawResultFromMessage(msg), nil
 }
 
-func (b *directBackend) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
-	return b.svc.RepeaterHasConnection(ctx, repeater)
-}
-
-func (b *directBackend) RepeaterLogin(ctx context.Context, repeater, password string) (meshcore.RepeaterSession, error) {
-	return b.svc.RepeaterLogin(ctx, repeater, password)
-}
-
-func (b *directBackend) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
-	return b.svc.RepeaterStatus(ctx, repeater)
-}
-
-func (b *directBackend) RepeaterNeighbours(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
-	return b.svc.RepeaterNeighbours(ctx, repeater)
-}
-
-func (b *directBackend) RepeaterExec(ctx context.Context, repeater, command string) (meshcore.RepeaterResponse, error) {
-	return b.svc.RepeaterExec(ctx, repeater, command)
-}
-
 func (b *directBackend) Events() <-chan meshcore.Event {
-	return b.svc.Events()
+	return b.Service.Events()
 }
 
 func (b *directBackend) Close() error {
@@ -269,7 +197,7 @@ func (b *directBackend) Close() error {
 }
 
 type ipcBackend struct {
-	client *localbackend.Client
+	*localbackend.Client
 	status localbackend.Status
 }
 
@@ -277,76 +205,8 @@ func (b *ipcBackend) URI() string { return b.status.URI }
 
 func (b *ipcBackend) Transport() string { return b.status.Transport }
 
-func (b *ipcBackend) DeviceInfo(ctx context.Context) (meshcore.DeviceInfo, error) {
-	return b.client.DeviceInfo(ctx)
-}
-
-func (b *ipcBackend) Stats(ctx context.Context) (meshcore.LocalStats, error) {
-	return b.client.Stats(ctx)
-}
-
-func (b *ipcBackend) Contacts(ctx context.Context) ([]meshcore.Contact, error) {
-	return b.client.Contacts(ctx)
-}
-
-func (b *ipcBackend) ContactsWithOptions(ctx context.Context, cached, refresh, wait, full bool) ([]meshcore.Contact, error) {
-	return b.client.ContactsWithOptions(ctx, cached, refresh, wait, full)
-}
-
-func (b *ipcBackend) StartContactRefresh(ctx context.Context, full bool) (localbackend.ContactRefreshResult, error) {
-	return b.client.StartContactRefresh(ctx, full)
-}
-
-func (b *ipcBackend) Contact(ctx context.Context, name string) (meshcore.Contact, error) {
-	return b.client.Contact(ctx, name)
-}
-
-func (b *ipcBackend) Inbox(ctx context.Context) ([]meshcore.Message, error) {
-	return b.client.Inbox(ctx)
-}
-
-func (b *ipcBackend) SendText(ctx context.Context, recipient, text string) (meshcore.Receipt, error) {
-	return b.client.SendText(ctx, recipient, text)
-}
-
-func (b *ipcBackend) WaitForAcknowledgement(ctx context.Context, receipt meshcore.Receipt) (meshcore.Ack, error) {
-	return b.client.WaitForAcknowledgement(ctx, receipt)
-}
-
-func (b *ipcBackend) Trace(ctx context.Context, target string) (meshcore.Trace, error) {
-	return b.client.Trace(ctx, target)
-}
-
-func (b *ipcBackend) Channels(ctx context.Context) ([]meshcore.Channel, error) {
-	return b.client.Channels(ctx)
-}
-
-func (b *ipcBackend) ChannelsWithOptions(ctx context.Context, refresh bool) ([]meshcore.Channel, error) {
-	return b.client.ChannelsWithOptions(ctx, refresh)
-}
-
-func (b *ipcBackend) Channel(ctx context.Context, name string) (meshcore.Channel, error) {
-	return b.client.Channel(ctx, name)
-}
-
-func (b *ipcBackend) SendChannelText(ctx context.Context, channel, text string) (meshcore.Receipt, error) {
-	return b.client.SendChannelText(ctx, channel, text)
-}
-
-func (b *ipcBackend) ChannelAdd(ctx context.Context, name string, secret []byte) (meshcore.Channel, error) {
-	return b.client.ChannelAdd(ctx, name, secret)
-}
-
-func (b *ipcBackend) ChannelRemove(ctx context.Context, channel string) (meshcore.Channel, error) {
-	return b.client.ChannelRemove(ctx, channel)
-}
-
-func (b *ipcBackend) Advertise(ctx context.Context, flood bool) error {
-	return b.client.Advertise(ctx, flood)
-}
-
 func (b *ipcBackend) DiscoverNodes(ctx context.Context, opts meshcore.NodeDiscoverOptions, onNode func(meshcore.DiscoveredNode)) ([]meshcore.DiscoveredNode, error) {
-	nodes, err := b.client.Discover(ctx, opts.Filter, opts.PrefixOnly, opts.Timeout)
+	nodes, err := b.Discover(ctx, opts.Filter, opts.PrefixOnly, opts.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -358,30 +218,6 @@ func (b *ipcBackend) DiscoverNodes(ctx context.Context, opts meshcore.NodeDiscov
 		}
 	}
 	return out, nil
-}
-
-func (b *ipcBackend) RawSend(ctx context.Context, payload []byte) (localbackend.RawResult, error) {
-	return b.client.RawSend(ctx, payload)
-}
-
-func (b *ipcBackend) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
-	return b.client.RepeaterHasConnection(ctx, repeater)
-}
-
-func (b *ipcBackend) RepeaterLogin(ctx context.Context, repeater, password string) (meshcore.RepeaterSession, error) {
-	return b.client.RepeaterLogin(ctx, repeater, password)
-}
-
-func (b *ipcBackend) RepeaterStatus(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
-	return b.client.RepeaterStatus(ctx, repeater)
-}
-
-func (b *ipcBackend) RepeaterNeighbours(ctx context.Context, repeater string) (meshcore.RepeaterResponse, error) {
-	return b.client.RepeaterNeighbours(ctx, repeater)
-}
-
-func (b *ipcBackend) RepeaterExec(ctx context.Context, repeater, command string) (meshcore.RepeaterResponse, error) {
-	return b.client.RepeaterExec(ctx, repeater, command)
 }
 
 func (b *ipcBackend) Events() <-chan meshcore.Event {

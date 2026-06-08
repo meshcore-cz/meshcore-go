@@ -269,7 +269,7 @@ func TestCompletionWords(t *testing.T) {
 }
 
 func TestFindCommandSpecAlias(t *testing.T) {
-	spec, ok := findCommandSpec(shellCommands, "s")
+	spec, ok := findCommandSpec(commandRegistry, "s")
 	if !ok || spec.Name != "status" {
 		t.Fatalf("findCommandSpec(s) = %#v, %v", spec, ok)
 	}

@@ -32,7 +32,7 @@ func contactListMetaFromBackend(backend Backend, count int) (ui.ContactListMeta,
 	}
 	if !ib.status.Healthy {
 		meta.Cached = true
-		return meta, "showing cached contacts; backend is offline."
+		return meta, "showing contacts from device-local state; backend is offline."
 	}
 	return meta, ""
 }

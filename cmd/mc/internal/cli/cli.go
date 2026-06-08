@@ -18,25 +18,11 @@ var (
 	Commit  = "unknown"
 )
 
-// commandAliases maps short command names to their canonical form.
-var commandAliases = map[string]string{
-	"add":  "connect",
-	"b":    "backend",
-	"c":    "contacts",
-	"h":    "help",
-	"log":  "backend",
-	"rep":  "repeater",
-	"s":    "status",
-	"conf": "config",
-	"d":       "device",
-	"ls":      "device",
-	"list":    "device",
-	"devices": "device",
-}
-
 // commandAliasSubcommand supplies a default subcommand for alias-only commands.
 var commandAliasSubcommand = map[string]string{
+	"?":    "",
 	"d":    "list",
+	"h":    "",
 	"log":  "log",
 	"ls":   "list",
 	"list": "list",
@@ -61,8 +47,8 @@ type ExecuteOptions struct {
 
 // resolveAlias returns the canonical command name for cmd, or cmd unchanged.
 func resolveAlias(cmd string) string {
-	if canonical, ok := commandAliases[cmd]; ok {
-		return canonical
+	if spec, ok := findCommandSpec(commandRegistry, cmd); ok {
+		return spec.Name
 	}
 	return cmd
 }
@@ -114,59 +100,17 @@ func Execute(ctx context.Context, args []string, opts ExecuteOptions) error {
 }
 
 func dispatch(ctx context.Context, cmd string, e *env) error {
-	switch cmd {
-	case "version":
-		return cmdVersion(e)
-	case "connect":
-		return cmdConnect(ctx, e)
-	case "status":
-		return cmdStatus(ctx, e)
-	case "stats":
-		return cmdStats(ctx, e)
-	case "doctor":
-		return cmdDoctor(ctx, e)
-	case "backend":
-		return cmdBackend(ctx, e)
-	case "contacts":
-		return cmdContacts(ctx, e)
-	case "contact":
-		return cmdContact(ctx, e)
-	case "inbox":
-		return cmdInbox(ctx, e)
-	case "send":
-		return cmdSend(ctx, e)
-	case "watch":
-		return cmdWatch(ctx, e)
-	case "shell":
+	if cmd == "shell" {
 		if e.exec.InShell {
 			return fmt.Errorf("already running inside mc shell")
 		}
 		return cmdShell(ctx, e)
-	case "trace":
-		return cmdTrace(ctx, e)
-	case "channel":
-		return cmdChannel(ctx, e)
-	case "advert":
-		return cmdAdvert(ctx, e)
-	case "discover":
-		return cmdDiscover(ctx, e)
-	case "repeater":
-		return cmdRepeater(ctx, e)
-	case "use":
-		return cmdUse(e)
-	case "device":
-		return cmdDevice(ctx, e)
-	case "session":
-		return cmdSession(ctx, e)
-	case "state":
-		return cmdState(e)
-	case "config":
-		return cmdConfig(e)
-	case "raw":
-		return cmdRaw(ctx, e)
-	default:
+	}
+	spec, ok := findCommandSpec(commandRegistry, cmd)
+	if !ok || spec.Run == nil {
 		return fmt.Errorf("unknown command %q", cmd)
 	}
+	return spec.Run(ctx, e)
 }
 
 // Run parses arguments and dispatches to a subcommand. It returns a process

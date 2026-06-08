@@ -426,7 +426,7 @@ func padDisplayWidth(text string, width int) string {
 func formatContactListFooter(meta ContactListMeta) string {
 	parts := []string{fmt.Sprintf("%d contacts", meta.Count)}
 	if meta.Cached {
-		parts = append(parts, "cached")
+		parts = append(parts, "local state")
 	}
 	if meta.Syncing && meta.SyncTotal > 0 {
 		parts = append(parts, fmt.Sprintf("syncing %d/%d", meta.SyncReceived, meta.SyncTotal))
@@ -436,7 +436,7 @@ func formatContactListFooter(meta ContactListMeta) string {
 	}
 	if meta.Error != "" {
 		if !meta.Cached {
-			parts = append(parts, "cached")
+			parts = append(parts, "local state")
 		}
 		parts = append(parts, "sync error: "+meta.Error)
 	}

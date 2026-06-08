@@ -420,7 +420,7 @@ func printBackendSessionsSummary(e *env, entries map[string]localbackend.DeviceL
 		parts += fmt.Sprintf(", %d stopped", stopped)
 	}
 	e.out.Human("  Sessions:    %s\n", parts)
-	e.out.Human("  Replicas:    %d fresh\n", fresh)
+	e.out.Human("  Local state: %d fully synced\n", fresh)
 	e.out.Human("  Run `mc device list` for per-device detail.\n")
 }
 
@@ -431,6 +431,7 @@ func sessionsSummaryJSON(entries map[string]localbackend.DeviceListEntry) map[st
 		"ready":          ready,
 		"degraded":       degraded,
 		"stopped":        stopped,
+		"local_state_ok": fresh,
 		"fresh_replicas": fresh,
 	}
 }
@@ -693,11 +694,15 @@ func daemonStatusJSON(st localbackend.DaemonStatus) map[string]any {
 
 func deviceListEntryJSON(d localbackend.DeviceListEntry) map[string]any {
 	return map[string]any{
-		"id":         d.ID,
-		"default":    d.Default,
-		"session":    d.Session,
-		"connected":  d.Connected,
-		"replica":    d.Replica,
+		"id":        d.ID,
+		"default":   d.Default,
+		"session":   d.Session,
+		"connected": d.Connected,
+		"replica":   d.Replica,
+		"local_state": map[string]any{
+			"contacts": contactStatusJSON(d.Contacts),
+			"channels": channelStatusJSON(d.Channels),
+		},
 		"transport":  d.Transport,
 		"uri":        d.URI,
 		"last_error": d.LastError,

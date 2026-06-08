@@ -189,7 +189,7 @@ func deviceReplicaHealth(state string) Health {
 		return HealthOK
 	case "syncing":
 		return HealthWarning
-	case "stale":
+	case "partial", "stale":
 		return HealthWarning
 	case "unknown":
 		return HealthUnknown
@@ -343,6 +343,9 @@ func DeviceListReplicaState(active bool, running bool, healthy bool, state strin
 	}
 	if contacts.SyncedAt.IsZero() && channels.SyncedAt.IsZero() {
 		return "unknown"
+	}
+	if contacts.SyncedAt.IsZero() || channels.SyncedAt.IsZero() {
+		return "partial"
 	}
 	return "fresh"
 }

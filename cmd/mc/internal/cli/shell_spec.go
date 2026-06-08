@@ -18,7 +18,10 @@ type CommandSpec struct {
 	Flags        []FlagSpec
 	Children     []CommandSpec
 	CompleteArgs CompletionFunc
+	Run          CommandFunc
 }
+
+type CommandFunc func(context.Context, *env) error
 
 type FlagSpec struct {
 	Name        string
@@ -33,7 +36,7 @@ type CompletionItem struct {
 	Description string
 }
 
-var shellCommands = []CommandSpec{
+var commandRegistry = []CommandSpec{
 	{
 		Name:        "status",
 		Aliases:     []string{"s"},
@@ -42,14 +45,17 @@ var shellCommands = []CommandSpec{
 			{Name: "--all", Description: "Show compact status for all saved devices"},
 			{Name: "--live", Description: "Refresh radio stats before showing status"},
 		},
+		Run: cmdStatus,
 	},
 	{
 		Name:        "stats",
 		Description: "Show local radio statistics",
+		Run:         cmdStats,
 	},
 	{
 		Name:        "doctor",
 		Description: "Run connection diagnostics",
+		Run:         cmdDoctor,
 	},
 	{
 		Name:        "contacts",
@@ -57,15 +63,16 @@ var shellCommands = []CommandSpec{
 		Description: "List contacts",
 		Flags: []FlagSpec{
 			{Name: "--wide", Description: "Show paths and coordinates"},
-			{Name: "--refresh", Description: "Refresh contact replica"},
+			{Name: "--refresh", Description: "Refresh contact local state"},
 			{Name: "--wait", Description: "Wait for refresh to finish"},
 			{Name: "--full", Description: "Full contact sync"},
-			{Name: "--cached", Description: "Read local replica only"},
+			{Name: "--cached", Description: "Read device-local state only"},
 			{Name: "--type", Description: "Filter by contact type", TakesValue: true},
 			{Name: "--route", Description: "Filter by route kind", TakesValue: true},
 			{Name: "--within", Description: "Filter by distance", TakesValue: true},
 			{Name: "--sort", Description: "Sort field", TakesValue: true},
 		},
+		Run: cmdContacts,
 	},
 	{
 		Name:        "contact",
@@ -77,10 +84,12 @@ var shellCommands = []CommandSpec{
 				CompleteArgs: completeContactsArg,
 			},
 		},
+		Run: cmdContact,
 	},
 	{
 		Name:        "inbox",
 		Description: "Drain buffered incoming messages",
+		Run:         cmdInbox,
 	},
 	{
 		Name:         "send",
@@ -90,6 +99,7 @@ var shellCommands = []CommandSpec{
 			{Name: "--wait", Description: "Wait for acknowledgement"},
 			{Name: "--channel", Description: "Send to a channel", TakesValue: true},
 		},
+		Run: cmdSend,
 	},
 	{
 		Name:         "trace",
@@ -98,6 +108,7 @@ var shellCommands = []CommandSpec{
 		Flags: []FlagSpec{
 			{Name: "--return", Description: "Append the reverse path for return tracing"},
 		},
+		Run: cmdTrace,
 	},
 	{
 		Name:        "channel",
@@ -107,7 +118,7 @@ var shellCommands = []CommandSpec{
 				Name:        "list",
 				Description: "List channels",
 				Flags: []FlagSpec{
-					{Name: "--refresh", Description: "Refresh channel replica"},
+					{Name: "--refresh", Description: "Refresh channel local state"},
 				},
 			},
 			{
@@ -123,6 +134,7 @@ var shellCommands = []CommandSpec{
 			{Name: "add", Description: "Add a channel (key or #hash)"},
 			{Name: "remove", Description: "Remove a channel", CompleteArgs: completeChannelsArg},
 		},
+		Run: cmdChannel,
 	},
 	{
 		Name:        "advert",
@@ -130,10 +142,12 @@ var shellCommands = []CommandSpec{
 		Flags: []FlagSpec{
 			{Name: "--flood", Description: "Flood advert mesh-wide"},
 		},
+		Run: cmdAdvert,
 	},
 	{
 		Name:        "discover",
 		Description: "Scan for nearby nodes",
+		Run:         cmdDiscover,
 	},
 	{
 		Name:        "watch",
@@ -142,6 +156,7 @@ var shellCommands = []CommandSpec{
 			{Name: "--rf", Description: "Stream RF packet log frames as JSON"},
 			{Name: "--raw", Description: "Stream raw packets as JSON"},
 		},
+		Run: cmdWatch,
 	},
 	{
 		Name:        "backend",
@@ -151,8 +166,8 @@ var shellCommands = []CommandSpec{
 			{Name: "status", Description: "Show backend diagnostics", Flags: []FlagSpec{{Name: "--verbose", Description: "Verbose backend status"}}},
 			{Name: "start", Description: "Start backend"},
 			{Name: "stop", Description: "Stop backend"},
-			{Name: "restart", Description: "Restart backend", Flags: []FlagSpec{{Name: "--reset", Description: "Reset replica state"}}},
-			{Name: "reset", Description: "Stop backend and delete replica state"},
+			{Name: "restart", Description: "Restart backend", Flags: []FlagSpec{{Name: "--reset", Description: "Reset local state"}}},
+			{Name: "reset", Description: "Stop backend and delete local state"},
 			{Name: "serve", Description: "Run backend in foreground"},
 			{Name: "log", Description: "Show backend logs", Flags: []FlagSpec{
 				{Name: "--follow", Description: "Follow log output"},
@@ -161,6 +176,7 @@ var shellCommands = []CommandSpec{
 				{Name: "-n", Description: "Number of lines", TakesValue: true},
 			}},
 		},
+		Run: cmdBackend,
 	},
 	{
 		Name:         "repeater",
@@ -178,11 +194,15 @@ var shellCommands = []CommandSpec{
 			{Name: "neighbors", Description: "List repeater neighbours", CompleteArgs: completeRepeatersArg},
 			{Name: "exec", Description: "Run repeater command", CompleteArgs: completeRepeatersArg},
 		},
+		Run: cmdRepeater,
 	},
 	{
 		Name:         "use",
 		Description:  "Set the default device profile",
 		CompleteArgs: completeDeviceProfilesArg,
+		Run: func(_ context.Context, e *env) error {
+			return cmdUse(e)
+		},
 	},
 	{
 		Name:        "device",
@@ -193,6 +213,7 @@ var shellCommands = []CommandSpec{
 			{Name: "show", Description: "Show a profile", CompleteArgs: completeDeviceProfilesArg},
 			{Name: "remove", Description: "Remove a profile", CompleteArgs: completeDeviceProfilesArg},
 		},
+		Run: cmdDevice,
 	},
 	{
 		Name:        "session",
@@ -203,6 +224,7 @@ var shellCommands = []CommandSpec{
 			{Name: "stop", Description: "Disconnect a device session", CompleteArgs: completeDeviceProfilesArg},
 			{Name: "restart", Description: "Reconnect a device session", CompleteArgs: completeDeviceProfilesArg},
 		},
+		Run: cmdSession,
 	},
 	{
 		Name:        "state",
@@ -213,6 +235,9 @@ var shellCommands = []CommandSpec{
 			{Name: "purge", Description: "Delete one device's local state", CompleteArgs: completeDeviceProfilesArg},
 			{Name: "prune", Description: "Delete state older than a duration", Flags: []FlagSpec{{Name: "--older-than", Description: "Age threshold", TakesValue: true}}},
 		},
+		Run: func(_ context.Context, e *env) error {
+			return cmdState(e)
+		},
 	},
 	{
 		Name:        "config",
@@ -221,6 +246,9 @@ var shellCommands = []CommandSpec{
 		Children: []CommandSpec{
 			{Name: "path", Description: "Print config file path"},
 			{Name: "show", Description: "Print current configuration"},
+		},
+		Run: func(_ context.Context, e *env) error {
+			return cmdConfig(e)
 		},
 	},
 	{
@@ -233,14 +261,19 @@ var shellCommands = []CommandSpec{
 			{Name: "--as", Description: "Profile name", TakesValue: true},
 			{Name: "--no-save", Description: "Connect without saving"},
 		},
+		Run: cmdConnect,
 	},
 	{
 		Name:        "raw",
 		Description: "Send raw bytes to the radio",
+		Run:         cmdRaw,
 	},
 	{
 		Name:        "version",
 		Description: "Show version information",
+		Run: func(_ context.Context, e *env) error {
+			return cmdVersion(e)
+		},
 	},
 	{
 		Name:        "help",
@@ -255,7 +288,7 @@ func completeHelpItems(args []string, endsWithSpace bool) []CompletionItem {
 	}
 	prefix := completionPrefix(args, endsWithSpace)
 	var items []CompletionItem
-	for _, spec := range shellCommands {
+	for _, spec := range commandRegistry {
 		if spec.Name == "help" {
 			continue
 		}
@@ -268,9 +301,8 @@ func completeHelpItems(args []string, endsWithSpace bool) []CompletionItem {
 }
 
 func findCommandSpec(specs []CommandSpec, name string) (CommandSpec, bool) {
-	canonical := resolveAlias(name)
 	for _, spec := range specs {
-		if spec.Name == name || spec.Name == canonical {
+		if spec.Name == name {
 			return spec, true
 		}
 		for _, alias := range spec.Aliases {

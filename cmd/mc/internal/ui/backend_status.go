@@ -288,7 +288,7 @@ func writeBackendRadioSection(b *strings.Builder, data BackendStatusData, theme 
 }
 
 func writeBackendReplicaSection(b *strings.Builder, data BackendStatusData, theme Theme) {
-	b.WriteString("Replica:\n")
+	b.WriteString("Local state:\n")
 	b.WriteString(sectionLine("Contacts", backendReplicaContactsLabel(data, theme)))
 	b.WriteString(sectionLine("Channels", backendReplicaChannelsLabel(data, theme)))
 }
@@ -424,11 +424,11 @@ func backendReplicaContactsLabel(data BackendStatusData, theme Theme) string {
 		return theme.StatusWord(HealthError, c.Error)
 	}
 	if c.SyncedAt.IsZero() && c.Count == 0 {
-		return "not replicated"
+		return "not synced"
 	}
 	parts := []string{fmt.Sprintf("%d", c.Count)}
 	if backendReplicaCached(data) {
-		parts = append(parts, theme.StatusWord(HealthWarning, "cached"))
+		parts = append(parts, theme.StatusWord(HealthWarning, "stale"))
 	}
 	if !c.SyncedAt.IsZero() {
 		parts = append(parts, theme.Dim("synced "+RelativeTime(c.SyncedAt)))
@@ -445,11 +445,11 @@ func backendReplicaChannelsLabel(data BackendStatusData, theme Theme) string {
 		return theme.StatusWord(HealthError, c.Error)
 	}
 	if c.SyncedAt.IsZero() && c.Count == 0 {
-		return "not replicated"
+		return "not synced"
 	}
 	parts := []string{fmt.Sprintf("%d", c.Count)}
 	if backendReplicaCached(data) {
-		parts = append(parts, theme.StatusWord(HealthWarning, "cached"))
+		parts = append(parts, theme.StatusWord(HealthWarning, "stale"))
 	}
 	if !c.SyncedAt.IsZero() {
 		parts = append(parts, theme.Dim("synced "+RelativeTime(c.SyncedAt)))

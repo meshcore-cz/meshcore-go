@@ -65,7 +65,7 @@ automatically; when it is not running, commands dial the radio directly.
 
   mc backend start             start the backend for the selected profile
   mc backend restart           restart using the current backend endpoint
-  mc backend restart --reset   restart and delete local replica state first
+  mc backend restart --reset   restart and delete local state first
   mc backend restart --uri ... restart onto an explicit endpoint
   mc backend start --uri ...   start the backend for an explicit endpoint
   mc backend status            show backend daemon, radio and diagnostics
@@ -73,7 +73,7 @@ automatically; when it is not running, commands dial the radio directly.
   mc backend log               show recent backend log output
   mc backend log --follow      stream new log lines
   mc backend stop              stop the running backend
-  mc backend reset             stop the backend and delete local replica state
+  mc backend reset             stop the backend and delete local state
 
 Log flags:
   -n, --lines <count>          number of lines to show (default: 100)
@@ -97,10 +97,10 @@ TCP MeshCore bridge.
 
 	"contacts": `Usage: mc contacts [flags]
 
-List contacts from the backend's local replica.
+List contacts from the backend's device-local state.
 
 Flags:
-  --cached         Same as the default: read the local replica
+  --cached         Same as the default: read device-local state
   --refresh        Start a background radio sync (returns immediately)
   --wait           With --refresh, block until synchronization finishes
   --full           With --refresh, rebuild the full contact list (ignore cursor)

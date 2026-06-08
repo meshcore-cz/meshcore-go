@@ -138,12 +138,12 @@ func TestFormatContactListFooter(t *testing.T) {
 				Cached:   true,
 				SyncedAt: time.Now().Add(-10*time.Hour - 56*time.Minute),
 			},
-			want: "449 contacts · cached · last advert",
+			want: "449 contacts · local state · last advert",
 		},
 		{
 			name: "sync error",
 			meta: ContactListMeta{Count: 449, Cached: true, Error: "timeout"},
-			want: "449 contacts · cached · sync error: timeout",
+			want: "449 contacts · local state · sync error: timeout",
 		},
 	}
 	for _, tc := range tests {
