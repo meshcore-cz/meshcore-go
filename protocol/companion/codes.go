@@ -45,6 +45,7 @@ const (
 	// and may need adjustment once verified on-device.
 	cmdSendControlData byte = 55
 	cmdGetStats        byte = 56
+	cmdSendMeshPacket  byte = 65
 )
 
 // Local stats sub-types for CMD_GET_STATS / RESP_CODE_STATS.

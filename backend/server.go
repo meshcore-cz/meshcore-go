@@ -689,6 +689,15 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 			return nil, err
 		}
 		return RawResultFromMessage(msg), nil
+	case "send_mesh_packet":
+		var p sendMeshPacketParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if err := client.SendMeshPacket(ctx, p.Priority, p.Packet); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"sent": true}, nil
 	case "repeater_has_connection":
 		var p queryParams
 		if err := json.Unmarshal(params, &p); err != nil {

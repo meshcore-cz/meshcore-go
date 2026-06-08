@@ -464,6 +464,12 @@ func (c *Client) RawSend(ctx context.Context, payload []byte) (RawResult, error)
 	return out, err
 }
 
+// SendMeshPacket sends a pre-built wire-format MeshCore packet via the backend
+// daemon using CMD_SEND_RAW_PACKET. Use the meshpkt package to build packets.
+func (c *Client) SendMeshPacket(ctx context.Context, priority byte, pkt []byte) error {
+	return c.call(ctx, "send_mesh_packet", sendMeshPacketParams{Priority: priority, Packet: pkt}, nil)
+}
+
 func (c *Client) RepeaterHasConnection(ctx context.Context, repeater string) (bool, error) {
 	var out repeaterHasConnectionResult
 	err := c.call(ctx, "repeater_has_connection", queryParams{Query: repeater}, &out)

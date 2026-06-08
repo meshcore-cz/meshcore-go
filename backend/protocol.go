@@ -217,6 +217,11 @@ type rawParams struct {
 	Payload []byte `json:"payload"`
 }
 
+type sendMeshPacketParams struct {
+	Priority byte   `json:"priority"`
+	Packet   []byte `json:"packet"`
+}
+
 // RawResult is a JSON-friendly representation of a raw companion response.
 type RawResult struct {
 	Type    string `json:"type"`

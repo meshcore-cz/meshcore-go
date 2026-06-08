@@ -40,6 +40,15 @@ func DeriveChannelSecret(name string) []byte {
 	return out
 }
 
+// ChannelHash returns the 1-byte routing hash the firmware uses to match
+// incoming packets to a channel slot without decrypting every payload:
+// SHA256(secret[:16])[0]. Pass the output of DeriveChannelSecret or the
+// Secret field from a Channel returned by Channels().
+func ChannelHash(secret []byte) byte {
+	sum := sha256.Sum256(secret[:ChannelSecretLen])
+	return sum[0]
+}
+
 // Channel describes a channel slot on the device.
 type Channel struct {
 	Index int

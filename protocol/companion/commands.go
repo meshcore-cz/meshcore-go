@@ -142,6 +142,19 @@ type SendNodeDiscoverReq struct {
 	Tag        uint32
 }
 
+// SendMeshPacket sends a pre-built MeshCore packet over the radio. The caller
+// must supply a complete wire-format packet (as Packet::writeTo() produces):
+// header byte, optional transport codes, path_len byte, path bytes, payload.
+// Priority is the send-priority hint (0 = default). The device replies with OK
+// on success, or Err(ErrIllegalArg) if parsing fails, or Err(ErrTableFull) if
+// the packet pool is exhausted.
+//
+// Added in firmware PR #2543; requires firmware with CMD_SEND_RAW_PACKET=65.
+type SendMeshPacket struct {
+	Priority byte
+	Packet   []byte // complete wire-format packet bytes
+}
+
 // encode serialises a command to its wire payload (without transport framing).
 func encode(cmd protocol.Command) ([]byte, error) {
 	switch c := cmd.(type) {
@@ -294,6 +307,17 @@ func encode(cmd protocol.Command) ([]byte, error) {
 		buf := make([]byte, 0, 7)
 		buf = append(buf, cmdSendControlData, ctrl, c.Filter)
 		buf = binary.LittleEndian.AppendUint32(buf, c.Tag)
+		return buf, nil
+
+	case SendMeshPacket:
+		if len(c.Packet) == 0 {
+			return nil, fmt.Errorf("companion: mesh packet is empty")
+		}
+		// [cmd][priority][mesh_packet_bytes…]
+		buf := make([]byte, 2+len(c.Packet))
+		buf[0] = cmdSendMeshPacket
+		buf[1] = c.Priority
+		copy(buf[2:], c.Packet)
 		return buf, nil
 
 	default:

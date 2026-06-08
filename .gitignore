@@ -6,3 +6,7 @@ coverage.out
 *.swp
 .DS_Store
 /mc
+
+# Example binaries
+/send-channel-msg
+/examples/send-channel-msg/send-channel-msg

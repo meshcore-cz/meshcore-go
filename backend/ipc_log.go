@@ -31,6 +31,11 @@ func formatIPCParams(method string, params json.RawMessage) string {
 		if json.Unmarshal(params, &p) == nil {
 			return "payload_len=" + strconv.Itoa(len(p.Payload))
 		}
+	case "send_mesh_packet":
+		var p sendMeshPacketParams
+		if json.Unmarshal(params, &p) == nil {
+			return "priority=" + strconv.Itoa(int(p.Priority)) + " packet_len=" + strconv.Itoa(len(p.Packet))
+		}
 	case "repeater_exec":
 		var p repeaterExecParams
 		if json.Unmarshal(params, &p) == nil {
