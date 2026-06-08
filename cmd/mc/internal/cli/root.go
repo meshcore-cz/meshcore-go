@@ -39,6 +39,7 @@ func NewRoot(app *App) *cobra.Command {
 	}
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
+	root.SetHelpTemplate(helpTemplate)
 	addGlobalFlags(root)
 
 	root.AddCommand(
@@ -68,6 +69,27 @@ func NewRoot(app *App) *cobra.Command {
 	)
 	return root
 }
+
+const helpTemplate = `{{with .Short}}{{.}}
+
+{{end}}Usage:
+  {{.UseLine}}{{if .HasAvailableSubCommands}}
+
+Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if and .Long (ne .Long .Short)}}
+
+Description:
+{{.Long}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}
+`
 
 func addGlobalFlags(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
@@ -162,7 +184,16 @@ func newConnectCommand(app *App) *cobra.Command {
 		Use:     "connect [uri]",
 		Aliases: []string{"add"},
 		Short:   "Discover or connect to a radio",
-		RunE:    runWithEnv(app, nil, cmdConnect),
+		Long: strings.TrimSpace(`
+Discover or connect to a companion radio, verify it with a handshake, and
+(unless --no-save) save a profile and make it the default. In interactive mode,
+mc then offers to start the local backend for that endpoint.`),
+		Example: strings.TrimSpace(`
+mc connect
+mc connect --usb
+mc connect serial:///dev/ttyACM0
+mc connect ble://C4:20:... --as handheld`),
+		RunE: runWithEnv(app, nil, cmdConnect),
 	}
 	cmd.Flags().Bool("usb", false, "scan USB serial only")
 	cmd.Flags().Bool("ble", false, "scan BLE only")
@@ -176,7 +207,12 @@ func newStatusCommand(app *App) *cobra.Command {
 		Use:     "status",
 		Aliases: []string{"s"},
 		Short:   "Show device status",
-		RunE:    runWithEnv(app, nil, cmdStatus),
+		Long:    "Show radio status, persistent local state, and backend session state.",
+		Example: strings.TrimSpace(`
+mc status
+mc status --live
+mc status --all`),
+		RunE: runWithEnv(app, nil, cmdStatus),
 	}
 	cmd.Flags().Bool("all", false, "show compact status for all saved devices")
 	cmd.Flags().Bool("live", false, "refresh radio stats before showing status")
@@ -184,11 +220,23 @@ func newStatusCommand(app *App) *cobra.Command {
 }
 
 func newStatsCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "stats", Short: "Show local radio statistics", RunE: runWithEnv(app, nil, cmdStats)}
+	return &cobra.Command{
+		Use:     "stats",
+		Short:   "Show local radio statistics",
+		Long:    "Show local core, radio and packet statistics from the active companion radio.",
+		Example: "mc stats\nmc stats --live",
+		RunE:    runWithEnv(app, nil, cmdStats),
+	}
 }
 
 func newDoctorCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "doctor", Short: "Run connection diagnostics", RunE: runWithEnv(app, nil, cmdDoctor)}
+	return &cobra.Command{
+		Use:     "doctor",
+		Short:   "Run connection diagnostics",
+		Long:    "Run connection diagnostics: configuration, endpoint reachability, handshake, firmware and clock difference.",
+		Example: "mc doctor\nmc doctor --direct",
+		RunE:    runWithEnv(app, nil, cmdDoctor),
+	}
 }
 
 func newContactsCommand(app *App) *cobra.Command {
@@ -196,7 +244,17 @@ func newContactsCommand(app *App) *cobra.Command {
 		Use:     "contacts",
 		Aliases: []string{"c"},
 		Short:   "List contacts",
-		RunE:    runWithEnv(app, nil, cmdContacts),
+		Long: strings.TrimSpace(`
+List contacts from the backend's device-local state.
+
+Use --refresh to start a radio sync. With --wait, mc blocks until synchronization
+finishes; otherwise the sync runs in the background.`),
+		Example: strings.TrimSpace(`
+mc contacts
+mc contacts --refresh --wait
+mc contacts --type repeater --sort age
+mc contacts --within 10km --wide`),
+		RunE: runWithEnv(app, nil, cmdContacts),
 	}
 	cmd.Flags().Bool("wide", false, "show paths and coordinates")
 	cmd.Flags().Bool("refresh", false, "refresh contact local state")
@@ -211,31 +269,65 @@ func newContactsCommand(app *App) *cobra.Command {
 }
 
 func newContactCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "contact", Short: "Show a contact", RunE: runWithEnv(app, nil, cmdContact)}
-	cmd.AddCommand(&cobra.Command{Use: "show <name>", Short: "Show contact details", Args: cobra.ExactArgs(1), ValidArgsFunction: completeContactsCobra, RunE: runWithEnv(app, []string{"show"}, cmdContact)})
+	cmd := &cobra.Command{
+		Use:     "contact",
+		Short:   "Show a contact",
+		Long:    "Show details for a single contact, matched by name (case-insensitive) or by a public-key hex prefix.",
+		Example: "mc contact show alice\nmc contact show eff01ef2",
+		RunE:    runWithEnv(app, nil, cmdContact),
+	}
+	cmd.AddCommand(&cobra.Command{Use: "show <name>", Short: "Show contact details", Example: "mc contact show alice", Args: cobra.ExactArgs(1), ValidArgsFunction: completeContactsCobra, RunE: runWithEnv(app, []string{"show"}, cmdContact)})
 	return cmd
 }
 
 func newInboxCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "inbox", Short: "Drain buffered incoming messages", RunE: runWithEnv(app, nil, cmdInbox)}
+	return &cobra.Command{
+		Use:   "inbox",
+		Short: "Drain buffered incoming messages",
+		Long: strings.TrimSpace(`
+Print unread incoming messages and mark them read. When the backend is running,
+it drains the radio inbox itself, persists every message to device-local state,
+and broadcasts it to mc watch; mc inbox then reads the stored unread messages.
+Without a backend, mc inbox drains the radio directly.`),
+		Example: "mc inbox\nmc inbox --json",
+		RunE:    runWithEnv(app, nil, cmdInbox),
+	}
 }
 
 func newSendCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "send <recipient> <text>", Short: "Send a direct or channel message", ValidArgsFunction: completeContactsCobra, RunE: runWithEnv(app, nil, cmdSend)}
+	cmd := &cobra.Command{
+		Use:   "send <recipient> <text>",
+		Short: "Send a direct or channel message",
+		Long: strings.TrimSpace(`
+Send a direct text message to a contact (by name or key prefix), or a message to
+a channel with --channel.`),
+		Example: strings.TrimSpace(`
+mc send alice "hello"
+mc send alice "hello" --wait
+mc send --channel rem-ha "ahoj!"`),
+		ValidArgsFunction: completeContactsCobra,
+		RunE:              runWithEnv(app, nil, cmdSend),
+	}
 	cmd.Flags().Bool("wait", false, "wait for acknowledgement")
 	cmd.Flags().String("channel", "", "send to a channel")
 	return cmd
 }
 
 func newWatchCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "watch", Short: "Stream incoming messages and events", RunE: runWithEnv(app, nil, cmdWatch)}
+	cmd := &cobra.Command{
+		Use:     "watch",
+		Short:   "Stream incoming messages and events",
+		Long:    "Stream incoming messages and events until interrupted (Ctrl-C). With --json, each event is emitted as a newline-delimited JSON object.",
+		Example: "mc watch\nmc watch --raw --json\nmc watch --rf --json",
+		RunE:    runWithEnv(app, nil, cmdWatch),
+	}
 	cmd.Flags().Bool("rf", false, "stream RF packet log frames as JSON")
 	cmd.Flags().Bool("raw", false, "stream raw packets as JSON")
 	return cmd
 }
 
 func newShellCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "shell", Short: "Open an interactive persistent session", RunE: runWithEnv(app, nil, func(ctx context.Context, e *env) error {
+	return &cobra.Command{Use: "shell", Short: "Open an interactive persistent session", Long: "Open an interactive foreground session that keeps one radio connection alive.", Example: "mc shell\nmc shell --device handheld", RunE: runWithEnv(app, nil, func(ctx context.Context, e *env) error {
 		if e.exec.InShell {
 			return fmt.Errorf("already running inside mc shell")
 		}
@@ -244,13 +336,49 @@ func newShellCommand(app *App) *cobra.Command {
 }
 
 func newTraceCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "trace <target>", Short: "Trace route to a contact or path", ValidArgsFunction: completeContactsCobra, RunE: runWithEnv(app, nil, cmdTrace)}
+	cmd := &cobra.Command{
+		Use:   "trace <target>",
+		Short: "Trace route to a contact or path",
+		Long: strings.TrimSpace(`
+Trace the network route to a node and report per-leg signal quality.
+
+The target is either a hash path or a contact name. Hex targets are always
+interpreted as explicit paths. Use a contact name to trace using a stored contact
+route.`),
+		Example: strings.TrimSpace(`
+mc trace alice
+mc trace 25
+mc trace 25,a1
+mc trace 2525,5153,0455 --return`),
+		ValidArgsFunction: completeContactsCobra,
+		RunE:              runWithEnv(app, nil, cmdTrace),
+	}
 	cmd.Flags().Bool("return", false, "append reverse path for return tracing")
 	return cmd
 }
 
 func newChannelCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "channel", Short: "List or use channels", RunE: runWithEnv(app, nil, cmdChannel)}
+	cmd := &cobra.Command{
+		Use:   "channel",
+		Short: "List or use channels",
+		Long: strings.TrimSpace(`
+Work with channel slots.
+
+add/remove write to the device first, then re-sync local state from the device.
+A #name channel derives its key from the name; otherwise a 16-byte key (hex or
+base64) is required.
+
+Channels are served from the backend's local device state. Use --refresh to
+force a radio sync.`),
+		Example: strings.TrimSpace(`
+mc channel list
+mc channel show Public
+mc channel send Public "hello"
+mc channel add rem-ha <key>
+mc channel add #test
+mc channel remove rem-ha`),
+		RunE: runWithEnv(app, nil, cmdChannel),
+	}
 	cmd.Flags().Bool("refresh", false, "refresh channel local state")
 	list := &cobra.Command{Use: "list", Short: "List channels", RunE: runWithEnv(app, []string{"list"}, cmdChannel)}
 	list.Flags().Bool("refresh", false, "refresh channel local state")
@@ -265,13 +393,33 @@ func newChannelCommand(app *App) *cobra.Command {
 }
 
 func newAdvertCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "advert", Short: "Broadcast this device's advert", RunE: runWithEnv(app, nil, cmdAdvert)}
+	cmd := &cobra.Command{
+		Use:     "advert",
+		Short:   "Broadcast this device's advert",
+		Long:    "Broadcast the device's own advertisement so other nodes learn about it.",
+		Example: "mc advert\nmc advert --flood",
+		RunE:    runWithEnv(app, nil, cmdAdvert),
+	}
 	cmd.Flags().Bool("flood", false, "flood advert mesh-wide")
 	return cmd
 }
 
 func newDiscoverCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "discover", Short: "Scan for nearby nodes", RunE: runWithEnv(app, nil, cmdDiscover)}
+	cmd := &cobra.Command{
+		Use:   "discover",
+		Short: "Scan for nearby nodes",
+		Long: strings.TrimSpace(`
+Broadcast a node-discovery request and print nodes as they reply. Each reply
+reports the round-trip signal: up is how the remote node heard the request, down
+is how this device heard the reply. With no type flag, only repeaters are
+scanned.`),
+		Example: strings.TrimSpace(`
+mc discover
+mc discover --all
+mc discover --room --sensor
+mc discover --timeout 10`),
+		RunE: runWithEnv(app, nil, cmdDiscover),
+	}
 	cmd.Flags().Bool("all", false, "discover every node type")
 	cmd.Flags().Bool("repeater", false, "discover repeaters")
 	cmd.Flags().Bool("companion", false, "discover companion nodes")
@@ -284,7 +432,36 @@ func newDiscoverCommand(app *App) *cobra.Command {
 }
 
 func newBackendCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "backend", Aliases: []string{"b"}, Short: "Manage the local backend", RunE: runWithEnv(app, nil, cmdBackend)}
+	cmd := &cobra.Command{
+		Use:     "backend",
+		Aliases: []string{"b"},
+		Short:   "Manage the local backend",
+		Long: strings.TrimSpace(`
+Manage the local backend process. When it is running, ordinary commands use it
+automatically; when it is not running, commands dial the radio directly.
+
+Bridge listeners are configured in config.yaml:
+
+backend:
+  log_requests: true
+  bridges:
+    - enabled: true
+      type: tcp
+      listen: 127.0.0.1:4403
+    - enabled: true
+      type: pty
+
+Note: on macOS, Chrome/Web Serial does not list PTY bridges. The pty bridge is
+for native serial clients; use tcp only with clients that explicitly support a
+TCP MeshCore bridge.`),
+		Example: strings.TrimSpace(`
+mc backend start
+mc backend status --verbose
+mc backend log --follow
+mc backend restart --reset
+mc backend stop`),
+		RunE: runWithEnv(app, nil, cmdBackend),
+	}
 	cmd.Flags().Bool("verbose", false, "verbose backend status")
 	status := &cobra.Command{Use: "status", Short: "Show backend diagnostics", RunE: runWithEnv(app, []string{"status"}, cmdBackend)}
 	status.Flags().Bool("verbose", false, "verbose backend status")
@@ -306,7 +483,23 @@ func newBackendCommand(app *App) *cobra.Command {
 }
 
 func newRepeaterCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "repeater", Aliases: []string{"rep"}, Short: "Manage saved repeaters", RunE: runWithEnv(app, nil, cmdRepeater)}
+	cmd := &cobra.Command{
+		Use:     "repeater",
+		Aliases: []string{"rep"},
+		Short:   "Manage saved repeaters",
+		Long: strings.TrimSpace(`
+Manage remote repeaters through the active companion radio. Saved repeaters are
+stored in the mc config. If no password is supplied to add, mc prompts for one
+in interactive human mode.`),
+		Example: strings.TrimSpace(`
+mc repeater list
+mc repeater add mc.kololec.cz
+mc repeater del mc.kololec.cz
+mc repeater status mc.kololec.cz
+mc repeater neighbours mc.kololec.cz
+mc repeater exec mc.kololec.cz "clock"`),
+		RunE: runWithEnv(app, nil, cmdRepeater),
+	}
 	cmd.AddCommand(
 		&cobra.Command{Use: "list", Short: "List saved repeaters", RunE: runWithEnv(app, []string{"list"}, cmdRepeater)},
 		&cobra.Command{Use: "add <name> [password]", Short: "Save/login to a repeater", Args: cobra.RangeArgs(1, 2), ValidArgsFunction: completeRepeatersCobra, RunE: runWithEnv(app, []string{"add"}, cmdRepeater)},
@@ -319,11 +512,25 @@ func newRepeaterCommand(app *App) *cobra.Command {
 }
 
 func newUseCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "use <profile>", Short: "Set the default device profile", Args: cobra.ExactArgs(1), ValidArgsFunction: completeDeviceProfilesCobra, RunE: runWithEnvNoContext(app, nil, cmdUse)}
+	return &cobra.Command{Use: "use <profile>", Short: "Set the default device profile", Example: "mc use handheld", Args: cobra.ExactArgs(1), ValidArgsFunction: completeDeviceProfilesCobra, RunE: runWithEnvNoContext(app, nil, cmdUse)}
 }
 
 func newDeviceCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "device", Aliases: []string{"d", "devices"}, Short: "Manage saved device profiles", RunE: runWithEnv(app, nil, cmdDevice)}
+	cmd := &cobra.Command{
+		Use:     "device",
+		Aliases: []string{"d", "devices"},
+		Short:   "Manage saved device profiles",
+		Long: strings.TrimSpace(`
+Manage saved device profiles. To connect or disconnect a device's live radio
+session, use mc session.`),
+		Example: strings.TrimSpace(`
+mc device list
+mc device list --wide
+mc device show
+mc device show handheld
+mc device remove handheld`),
+		RunE: runWithEnv(app, nil, cmdDevice),
+	}
 	cmd.Flags().Bool("wide", false, "wide output")
 	list := &cobra.Command{Use: "list", Short: "List saved profiles", RunE: runWithEnv(app, []string{"list"}, cmdDevice)}
 	list.Flags().Bool("wide", false, "wide output")
@@ -336,7 +543,25 @@ func newDeviceCommand(app *App) *cobra.Command {
 }
 
 func newSessionCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "session", Short: "Manage device sessions", RunE: runWithEnv(app, nil, cmdSession)}
+	cmd := &cobra.Command{
+		Use:   "session",
+		Short: "Manage device sessions",
+		Long: strings.TrimSpace(`
+Manage device sessions: the live radio connections held by the running backend.
+A session connects one saved profile's radio; profiles are managed with mc
+device. These require a running backend (mc backend start).
+
+With no name, the current default device is used. Each session is isolated: the
+radio connection, queue, and local state sync for other devices are unaffected.
+Set backend.autostart: true on a profile to connect it automatically when the
+backend starts.`),
+		Example: strings.TrimSpace(`
+mc session list
+mc session start handheld
+mc session stop handheld
+mc session restart handheld`),
+		RunE: runWithEnv(app, nil, cmdSession),
+	}
 	cmd.AddCommand(
 		&cobra.Command{Use: "list", Short: "Show device session states", RunE: runWithEnv(app, []string{"list"}, cmdSession)},
 		&cobra.Command{Use: "start [name]", Short: "Connect a device session", Args: cobra.MaximumNArgs(1), ValidArgsFunction: completeDeviceProfilesCobra, RunE: runWithEnv(app, []string{"start"}, cmdSession)},
@@ -347,7 +572,24 @@ func newSessionCommand(app *App) *cobra.Command {
 }
 
 func newStateCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "state", Short: "Inspect per-device local state", RunE: runWithEnvNoContext(app, nil, cmdState)}
+	cmd := &cobra.Command{
+		Use:   "state",
+		Short: "Inspect per-device local state",
+		Long: strings.TrimSpace(`
+Inspect and manage per-device local state. Each connected device keeps its own
+SQLite database of contacts, channels, and repeater sessions at
+~/.local/state/mc/devices/<public-key-prefix>.db. This is device-local state,
+not a cache: it may be stale, incomplete, or locally enriched.
+
+A device may be named by saved profile, full public key, or key prefix.
+Durations accept d (days), w (weeks), and Go units (h, m, s).`),
+		Example: strings.TrimSpace(`
+mc state list
+mc state show handheld
+mc state purge handheld
+mc state prune --older-than 30d`),
+		RunE: runWithEnvNoContext(app, nil, cmdState),
+	}
 	cmd.AddCommand(
 		&cobra.Command{Use: "list", Short: "List per-device local-state databases", RunE: runWithEnvNoContext(app, []string{"list"}, cmdState)},
 		&cobra.Command{Use: "show <device>", Short: "Show one device's local state", Args: cobra.ExactArgs(1), ValidArgsFunction: completeDeviceProfilesCobra, RunE: runWithEnvNoContext(app, []string{"show"}, cmdState)},
@@ -360,7 +602,14 @@ func newStateCommand(app *App) *cobra.Command {
 }
 
 func newConfigCommand(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "config", Aliases: []string{"conf"}, Short: "Show configuration", RunE: runWithEnvNoContext(app, nil, cmdConfig)}
+	cmd := &cobra.Command{
+		Use:     "config",
+		Aliases: []string{"conf"},
+		Short:   "Show configuration",
+		Long:    "Inspect the CLI configuration.",
+		Example: "mc config path\nmc config show",
+		RunE:    runWithEnvNoContext(app, nil, cmdConfig),
+	}
 	cmd.AddCommand(
 		&cobra.Command{Use: "path", Short: "Print config file path", RunE: runWithEnvNoContext(app, []string{"path"}, cmdConfig)},
 		&cobra.Command{Use: "show", Short: "Print current configuration", RunE: runWithEnvNoContext(app, []string{"show"}, cmdConfig)},
@@ -369,11 +618,44 @@ func newConfigCommand(app *App) *cobra.Command {
 }
 
 func newRawCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "raw <hex>", Short: "Send raw bytes to the radio", Args: cobra.ArbitraryArgs, RunE: runWithEnv(app, nil, cmdRaw)}
+	return &cobra.Command{
+		Use:   "raw <hex>",
+		Short: "Send raw bytes directly to the device and print the decoded response",
+		Long: strings.TrimSpace(`
+Send raw bytes directly to the device and print the decoded response.
+Useful for protocol exploration and verifying undocumented commands.
+
+The payload is the bare companion-protocol bytes (command byte + body).
+Transport framing is added automatically; do not include it.
+Bytes can be given as separate tokens or concatenated.
+
+Common command bytes (host -> device):
+  0x01  AppStart          0x0a  SyncNextMessage
+  0x02  SendTxtMsg        0x0b  SetRadioParams
+  0x03  SendChannelTxt    0x0c  SetTxPower
+  0x04  GetContacts       0x0d  ResetPath
+  0x05  GetDeviceTime     0x13  Reboot
+  0x06  SetDeviceTime     0x14  GetBatteryVoltage
+  0x07  SendSelfAdvert    0x16  DeviceQuery
+  0x09  AddUpdateContact  0x1f  GetChannel
+  0x0f  RemoveContact     0x24  SendTracePath
+  0x38  GetStats
+
+Output shows the decoded response type and fields for known opcodes, or a hex
+dump for unrecognised ones. With --debug, logs the resolved endpoint, outbound
+frame, and decoded response.`),
+		Example: strings.TrimSpace(`
+mc raw 16 03
+mc raw 14
+mc raw 0xab 0xcd
+mc raw abcdef`),
+		Args: cobra.ArbitraryArgs,
+		RunE: runWithEnv(app, nil, cmdRaw),
+	}
 }
 
 func newVersionCommand(app *App) *cobra.Command {
-	return &cobra.Command{Use: "version", Short: "Show version information", RunE: runWithEnvNoContext(app, nil, cmdVersion)}
+	return &cobra.Command{Use: "version", Short: "Show version information", Long: "Print version information.", Example: "mc version\nmc version --json", RunE: runWithEnvNoContext(app, nil, cmdVersion)}
 }
 
 func completeContactsCobra(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
