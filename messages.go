@@ -36,6 +36,10 @@ type Message struct {
 	TxtType   byte
 	Timestamp time.Time
 	SNR       float64
+	// PathLen is the number of hops the message traveled (0 = heard directly).
+	// The companion protocol reports only the hop count for messages, not the
+	// full route.
+	PathLen byte
 }
 
 // SendText sends a direct text message to a contact (by name or key prefix).
@@ -127,6 +131,7 @@ func (c *Client) syncNext(ctx context.Context) (Message, bool, error) {
 			TxtType:   m.TxtType,
 			Timestamp: m.Timestamp,
 			SNR:       m.SNR,
+			PathLen:   m.PathLen,
 		}, true, nil
 	case companion.ChannelMessage:
 		return Message{
@@ -136,6 +141,7 @@ func (c *Client) syncNext(ctx context.Context) (Message, bool, error) {
 			TxtType:   m.TxtType,
 			Timestamp: m.Timestamp,
 			SNR:       m.SNR,
+			PathLen:   m.PathLen,
 		}, true, nil
 	default:
 		return Message{}, false, protocol.ErrUnexpectedResponse
@@ -197,4 +203,21 @@ func receiptFrom(msg protocol.Message, to string) (Receipt, error) {
 		Timeout:  sent.SuggestedTimeout,
 		QueuedAt: time.Now(),
 	}, nil
+}
+
+// channelReceiptFrom builds a Receipt from a channel-send response. Channel
+// messages are broadcast and not individually acknowledged, so the device
+// replies with a plain OK (no ack code); some firmware variants instead echo a
+// SENT frame, which is also accepted.
+func channelReceiptFrom(msg protocol.Message, to string) (Receipt, error) {
+	switch m := msg.(type) {
+	case companion.OK:
+		return Receipt{To: to, QueuedAt: time.Now()}, nil
+	case companion.Sent:
+		return Receipt{To: to, AckCode: m.ExpectedAck, Timeout: m.SuggestedTimeout, QueuedAt: time.Now()}, nil
+	case companion.Err:
+		return Receipt{}, fmt.Errorf("meshcore: device rejected channel message (error code %d)", m.Code)
+	default:
+		return Receipt{}, protocol.ErrUnexpectedResponse
+	}
 }

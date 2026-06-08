@@ -174,10 +174,14 @@ func resolveName(names map[string]string, from string) string {
 
 // cmdSend implements `mc send <recipient> <text> [--wait]`.
 func cmdSend(ctx context.Context, e *env) error {
+	if channel := e.args.flag("channel"); channel != "" {
+		return sendChannel(ctx, e, channel)
+	}
+
 	recipient := e.restArg(0)
 	text := e.restArg(1)
 	if recipient == "" || text == "" {
-		return fmt.Errorf("usage: mc send <recipient> <text> [--wait]")
+		return fmt.Errorf("usage: mc send <recipient> <text> [--wait]  |  mc send --channel <name> <text>")
 	}
 
 	backend, err := openBackend(ctx, e)
@@ -202,6 +206,28 @@ func cmdSend(ctx context.Context, e *env) error {
 	}
 	e.out.Human("Acknowledged after %s.\n", ack.RTT.Round(1e6))
 	return e.out.JSONValue(map[string]any{"id": receipt.ID(), "to": receipt.To, "rtt_ms": ack.RTT.Milliseconds()})
+}
+
+// sendChannel handles `mc send --channel <name> <text>`. Channel messages are
+// broadcast and not individually acknowledged, so --wait does not apply.
+func sendChannel(ctx context.Context, e *env, channel string) error {
+	text := e.restArg(0)
+	if text == "" {
+		return fmt.Errorf("usage: mc send --channel <name|index> <text>")
+	}
+
+	backend, err := openBackend(ctx, e)
+	if err != nil {
+		return err
+	}
+	defer backend.Close()
+
+	receipt, err := backend.SendChannelText(ctx, channel, text)
+	if err != nil {
+		return err
+	}
+	e.out.Human("Sent to %s.\n", receipt.To)
+	return e.out.JSONValue(map[string]any{"to": receipt.To, "id": receipt.ID()})
 }
 
 // cmdTrace implements `mc trace <target>`.

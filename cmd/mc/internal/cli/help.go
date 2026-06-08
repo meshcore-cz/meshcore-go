@@ -127,14 +127,18 @@ messages. Without a backend, mc inbox drains the radio directly.
 ` + globalFlags,
 
 	"send": `Usage: mc send <recipient> <text> [flags]
+       mc send --channel <name|index> <text>
 
-Send a direct text message to a contact (by name or key prefix).
+Send a direct text message to a contact (by name or key prefix), or a message to
+a channel with --channel.
 
   mc send alice "hello"
   mc send alice "hello" --wait     wait for delivery acknowledgement
+  mc send --channel rem-ha "ahoj!" send to a channel (same as mc channel send)
 
 Flags:
-  --wait           Block until the message is acknowledged
+  --wait             Block until the message is acknowledged (direct only)
+  --channel <name>   Send to a channel by name or slot index
 ` + globalFlags,
 
 	"watch": `Usage: mc watch [flags]

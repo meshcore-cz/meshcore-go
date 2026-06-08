@@ -67,7 +67,6 @@ func (s *DeviceSession) persistIncoming(ctx context.Context, m meshcore.Message)
 		Direction: MessageIn,
 		Kind:      MessageDirect,
 		Peer:      m.From,
-		Channel:   m.Channel,
 		Text:      m.Text,
 		TxtType:   m.TxtType,
 		Timestamp: m.Timestamp,
@@ -75,11 +74,23 @@ func (s *DeviceSession) persistIncoming(ctx context.Context, m meshcore.Message)
 		Status:    StatusReceived,
 	}
 	if m.Channel != "" {
+		// Resolve the device slot index to the channel's universal key + name.
 		rec.Kind = MessageChannel
+		rec.Channel = m.Channel
+		rec.Peer = ""
+		if entry, err := s.store.Channel(ctx, m.Channel); err == nil {
+			rec.Peer = entry.Key
+			rec.PeerName = entry.Channel.Name
+		}
 	} else if entry, err := s.store.Contact(ctx, m.From); err == nil {
+		// Resolve the 6-byte sender prefix to the contact's full public key.
+		if entry.Contact.PublicKey != "" {
+			rec.Peer = entry.Contact.PublicKey
+		}
 		rec.PeerName = entry.Contact.Name
 	}
-	if err := s.store.InsertMessage(ctx, &rec); err != nil {
+	hearing := Reception{At: time.Now().UTC(), SNR: m.SNR, PathLen: int(m.PathLen)}
+	if _, err := s.store.RecordReceivedMessage(ctx, &rec, hearing); err != nil {
 		Logf("persist incoming message failed: %v", err)
 	}
 }
@@ -116,14 +127,31 @@ func (s *DeviceSession) setMessageStatus(id int64, status, ackCode string) {
 	}
 }
 
-func (s *DeviceSession) setMessageStatusByAck(ackCode, status string) {
+// recordAck appends an acknowledgement (one mesh path's confirmation) to the
+// outgoing message(s) with ackCode and marks them delivered. Called for every
+// SendConfirmed, so repeated acks accumulate.
+func (s *DeviceSession) recordAck(ackCode string, rtt time.Duration) {
 	if s.store == nil || ackCode == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := s.store.SetMessageStatusByAck(ctx, ackCode, status); err != nil {
-		Logf("update message status by ack failed: %v", err)
+	ack := Reception{At: time.Now().UTC(), RTTMs: rtt.Milliseconds()}
+	if err := s.store.AppendAck(ctx, ackCode, ack); err != nil {
+		Logf("record ack failed: %v", err)
+	}
+}
+
+// markUnconfirmed marks a still-pending outgoing message as unconfirmed (the
+// ack window elapsed without a confirmation).
+func (s *DeviceSession) markUnconfirmed(ackCode string) {
+	if s.store == nil || ackCode == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.store.MarkUnconfirmed(ctx, ackCode); err != nil {
+		Logf("mark unconfirmed failed: %v", err)
 	}
 }
 
@@ -145,6 +173,10 @@ func (s *DeviceSession) storedInbox(ctx context.Context) ([]meshcore.Message, er
 		if rec.PeerName != "" {
 			from = rec.PeerName
 		}
+		pathLen := 0
+		if len(rec.Receptions) > 0 {
+			pathLen = rec.Receptions[0].PathLen
+		}
 		out = append(out, meshcore.Message{
 			From:      from,
 			Channel:   rec.Channel,
@@ -152,6 +184,7 @@ func (s *DeviceSession) storedInbox(ctx context.Context) ([]meshcore.Message, er
 			TxtType:   rec.TxtType,
 			Timestamp: rec.Timestamp,
 			SNR:       rec.SNR,
+			PathLen:   byte(pathLen),
 		})
 		ids = append(ids, rec.ID)
 	}

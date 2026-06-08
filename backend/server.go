@@ -565,10 +565,13 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 		ack, err := client.WaitForAcknowledgement(ctx, receipt)
 		if err != nil {
 			// No ack within the window: delivery is unconfirmed (not failed).
-			s.setMessageStatusByAck(receipt.ID(), StatusUnconfirmed)
+			// (If an ack does arrive later, the async MessageAcknowledged path
+			// still records it and marks the message delivered.)
+			s.markUnconfirmed(receipt.ID())
 			return nil, err
 		}
-		s.setMessageStatusByAck(receipt.ID(), StatusDelivered)
+		// Delivery is recorded by the async MessageAcknowledged handler; just
+		// return the ack to the caller here.
 		return ack, nil
 	case "trace":
 		var p queryParams
@@ -588,11 +591,18 @@ func (s *DeviceSession) dispatch(ctx context.Context, method string, params json
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		id := s.persistOutgoing(ctx, MessageRecord{
+		rec := MessageRecord{
 			Kind:    MessageChannel,
 			Channel: p.Channel,
 			Text:    p.Text,
-		})
+		}
+		// Resolve the target to its universal channel key + name + slot index.
+		if entry, err := s.store.Channel(ctx, p.Channel); err == nil {
+			rec.Peer = entry.Key
+			rec.PeerName = entry.Channel.Name
+			rec.Channel = fmt.Sprintf("%d", entry.Channel.Index)
+		}
+		id := s.persistOutgoing(ctx, rec)
 		receipt, err := client.SendChannelText(ctx, p.Channel, p.Text)
 		if err != nil {
 			s.setMessageStatus(id, StatusFailed, "")
@@ -1245,12 +1255,12 @@ func (s *DeviceSession) observeEvent(ev meshcore.Event) {
 		s.requestDrain()
 	case meshcore.MessageAcknowledged:
 		// Deliveries are confirmed asynchronously via SendConfirmed, regardless
-		// of whether a client is waiting (--wait). Record the ack so the stored
-		// outgoing message reflects delivery and its timestamp.
+		// of whether a client is waiting (--wait). Each confirmation (a message
+		// may be acked over several mesh paths) is appended to the record.
 		if s.store == nil || m.Code == "" {
 			return
 		}
-		go s.setMessageStatusByAck(m.Code, StatusDelivered)
+		go s.recordAck(m.Code, m.RTT)
 	case meshcore.AdvertisementReceived:
 		if s.store == nil || m.Contact.PublicKey == "" {
 			return

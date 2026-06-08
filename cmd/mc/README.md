@@ -188,6 +188,13 @@ Wait for a delivery acknowledgement:
 mc send alice "hello" --wait
 ```
 
+Send to a channel with `--channel` (by name or slot index; equivalent to
+`mc channel send`):
+
+```sh
+mc send --channel rem-ha "ahoj!"
+```
+
 ### Inbox
 
 Show unread incoming messages:
@@ -769,7 +776,7 @@ mc raw 14 --debug
 | `mc contacts`                                            | List contacts                                     |
 | `mc contact show <name>`                                 | Show one contact                                  |
 | `mc inbox`                                               | Drain buffered incoming messages                  |
-| `mc send <recipient> <text>`                             | Send a direct message                             |
+| `mc send <recipient> <text>`                             | Send a direct message (or `--channel <name> <text>`) |
 | `mc watch`                                               | Stream incoming events                            |
 | `mc shell`                                               | Open an interactive persistent session            |
 | `mc trace <target>`                                      | Trace the route to a node                         |

@@ -84,10 +84,11 @@ var shellCommands = []CommandSpec{
 	},
 	{
 		Name:         "send",
-		Description:  "Send a direct message",
+		Description:  "Send a direct or channel message",
 		CompleteArgs: completeContactsArg,
 		Flags: []FlagSpec{
 			{Name: "--wait", Description: "Wait for acknowledgement"},
+			{Name: "--channel", Description: "Send to a channel", TakesValue: true},
 		},
 	},
 	{

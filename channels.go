@@ -16,6 +16,10 @@ const maxChannels = 8
 type Channel struct {
 	Index int
 	Name  string
+	// Secret is the 16-byte pre-shared key for the channel; it defines the
+	// channel's shared identity across devices. Excluded from JSON so the PSK is
+	// not exposed over IPC or in command output.
+	Secret []byte `json:"-"`
 }
 
 // Channels returns the configured (named) channel slots.
@@ -74,7 +78,7 @@ func (c *Client) channelAt(ctx context.Context, index byte) (Channel, bool, erro
 	if !ok {
 		return Channel{}, false, nil
 	}
-	return Channel{Index: int(info.Index), Name: info.Name}, true, nil
+	return Channel{Index: int(info.Index), Name: info.Name, Secret: info.Secret}, true, nil
 }
 
 // SendChannelText sends a text message to a channel (by name or index).
@@ -96,5 +100,5 @@ func (c *Client) SendChannelText(ctx context.Context, channel, text string) (Rec
 	if err != nil {
 		return Receipt{}, err
 	}
-	return receiptFrom(msg, "#"+ch.Name)
+	return channelReceiptFrom(msg, "#"+ch.Name)
 }

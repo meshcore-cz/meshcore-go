@@ -9,6 +9,7 @@ import (
 var valueFlags = map[string]bool{
 	"uri":     true,
 	"device":  true,
+	"channel": true,
 	"as":      true,
 	"baud":    true,
 	"lines":   true,

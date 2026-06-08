@@ -16,19 +16,28 @@ func TestStateStoreMessages(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 
-	// Incoming direct message.
+	// Incoming direct message, heard twice over different paths.
+	msgTime := time.Now()
 	in := MessageRecord{
 		Direction: MessageIn, Kind: MessageDirect, Peer: "abc123", Text: "hi",
-		Timestamp: time.Now(), SNR: 7.5, Status: StatusReceived,
+		Timestamp: msgTime, Status: StatusReceived,
 	}
-	if err := store.InsertMessage(ctx, &in); err != nil {
+	created, err := store.RecordReceivedMessage(ctx, &in, Reception{SNR: 7.5, PathLen: 0})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if in.ID == 0 {
-		t.Fatal("InsertMessage did not set ID")
+	if !created {
+		t.Fatal("first hearing should create a new record")
+	}
+	// Same message heard again over a 2-hop path appends a reception, no new row.
+	dup := MessageRecord{Direction: MessageIn, Kind: MessageDirect, Peer: "abc123", Text: "hi", Timestamp: msgTime}
+	if created, err := store.RecordReceivedMessage(ctx, &dup, Reception{SNR: 4.0, PathLen: 2}); err != nil {
+		t.Fatal(err)
+	} else if created {
+		t.Fatal("second hearing should not create a new record")
 	}
 
-	// Outgoing message: queued -> sent (with ack) -> delivered.
+	// Outgoing message: queued -> sent (with ack) -> acked twice (two paths).
 	out := MessageRecord{
 		Direction: MessageOut, Kind: MessageDirect, Peer: "abc123", Text: "yo",
 		Timestamp: time.Now(), Status: StatusQueued, Read: true,
@@ -39,11 +48,14 @@ func TestStateStoreMessages(t *testing.T) {
 	if err := store.SetMessageStatus(ctx, out.ID, StatusSent, "deadbeef"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetMessageStatusByAck(ctx, "deadbeef", StatusDelivered); err != nil {
+	if err := store.AppendAck(ctx, "deadbeef", Reception{At: time.Now().UTC(), RTTMs: 1200}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendAck(ctx, "deadbeef", Reception{At: time.Now().UTC(), RTTMs: 1500}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Unread incoming filter returns only the incoming message.
+	// Unread incoming filter returns one record with two receptions.
 	unread, err := store.Messages(ctx, MessageFilter{Direction: MessageIn, UnreadOnly: true})
 	if err != nil {
 		t.Fatal(err)
@@ -51,8 +63,15 @@ func TestStateStoreMessages(t *testing.T) {
 	if len(unread) != 1 || unread[0].Text != "hi" || unread[0].SNR != 7.5 {
 		t.Fatalf("unread incoming = %+v, want one 'hi' with snr 7.5", unread)
 	}
+	if len(unread[0].Receptions) != 2 {
+		t.Fatalf("incoming receptions = %d, want 2", len(unread[0].Receptions))
+	}
+	if unread[0].Receptions[0].PathLen != 0 || unread[0].Receptions[1].PathLen != 2 {
+		t.Fatalf("reception path lengths = %d,%d, want 0,2",
+			unread[0].Receptions[0].PathLen, unread[0].Receptions[1].PathLen)
+	}
 
-	// Outgoing message reflects the delivered status.
+	// Outgoing reflects delivered status with both acks recorded.
 	outgoing, err := store.Messages(ctx, MessageFilter{Direction: MessageOut})
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +81,9 @@ func TestStateStoreMessages(t *testing.T) {
 	}
 	if outgoing[0].AcknowledgedAt.IsZero() {
 		t.Fatal("delivered message has no acknowledged_at timestamp")
+	}
+	if len(outgoing[0].Receptions) != 2 {
+		t.Fatalf("outgoing acks = %d, want 2", len(outgoing[0].Receptions))
 	}
 
 	// Mark read, then the unread filter is empty.

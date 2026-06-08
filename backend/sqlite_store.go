@@ -3,6 +3,8 @@ package backend
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -88,6 +90,9 @@ CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 CREATE TABLE IF NOT EXISTS channels (
 	idx INTEGER PRIMARY KEY,
 	name TEXT NOT NULL,
+	key TEXT NOT NULL DEFAULT '',
+	secret TEXT NOT NULL DEFAULT '',
+	private INTEGER NOT NULL DEFAULT 0,
 	stored_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS repeater_sessions (
@@ -118,6 +123,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	status TEXT NOT NULL DEFAULT '',
 	ack_code TEXT NOT NULL DEFAULT '',
 	acknowledged_at TEXT NOT NULL DEFAULT '',
+	receptions TEXT NOT NULL DEFAULT '[]',
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
@@ -157,10 +163,11 @@ func (s *SQLiteStateStore) InsertMessage(ctx context.Context, rec *MessageRecord
 		read = 1
 	}
 	res, err := s.db.ExecContext(ctx, `
-INSERT INTO messages(direction, kind, peer, peer_name, channel, text, txt_type, timestamp, snr, read, status, ack_code, acknowledged_at, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO messages(direction, kind, peer, peer_name, channel, text, txt_type, timestamp, snr, read, status, ack_code, acknowledged_at, receptions, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, rec.Direction, rec.Kind, rec.Peer, rec.PeerName, rec.Channel, rec.Text, int(rec.TxtType),
-		rfc3339(rec.Timestamp), rec.SNR, read, rec.Status, rec.AckCode, rfc3339(rec.AcknowledgedAt), rfc3339(rec.CreatedAt))
+		rfc3339(rec.Timestamp), rec.SNR, read, rec.Status, rec.AckCode, rfc3339(rec.AcknowledgedAt),
+		marshalReceptions(rec.Receptions), rfc3339(rec.CreatedAt))
 	if err != nil {
 		return err
 	}
@@ -173,36 +180,126 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 }
 
 func (s *SQLiteStateStore) SetMessageStatus(ctx context.Context, id int64, status, ackCode string) error {
-	ackedAt := ackTimeFor(status)
 	if ackCode == "" {
-		_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, acknowledged_at = ? WHERE id = ?`, status, ackedAt, id)
+		_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ? WHERE id = ?`, status, id)
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, ack_code = ?, acknowledged_at = ? WHERE id = ?`, status, ackCode, ackedAt, id)
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, ack_code = ? WHERE id = ?`, status, ackCode, id)
 	return err
 }
 
-func (s *SQLiteStateStore) SetMessageStatusByAck(ctx context.Context, ackCode, status string) error {
+// RecordReceivedMessage inserts an incoming message, or appends a reception to
+// an already-heard identical message (same peer, text, timestamp). The provided
+// snr is recorded as this hearing's reception.
+func (s *SQLiteStateStore) RecordReceivedMessage(ctx context.Context, rec *MessageRecord, hearing Reception) (bool, error) {
+	if hearing.At.IsZero() {
+		hearing.At = time.Now().UTC()
+	}
+
+	var id int64
+	var recvJSON string
+	err := s.db.QueryRowContext(ctx, `
+SELECT id, receptions FROM messages
+WHERE direction = ? AND peer = ? AND text = ? AND timestamp = ?
+LIMIT 1
+`, MessageIn, rec.Peer, rec.Text, rfc3339(rec.Timestamp)).Scan(&id, &recvJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		rec.SNR = hearing.SNR
+		rec.Receptions = []Reception{hearing}
+		return true, s.InsertMessage(ctx, rec)
+	}
+	if err != nil {
+		return false, err
+	}
+	receps := append(unmarshalReceptions(recvJSON), hearing)
+	_, err = s.db.ExecContext(ctx, `UPDATE messages SET receptions = ? WHERE id = ?`, marshalReceptions(receps), id)
+	return false, err
+}
+
+// AppendAck records an acknowledgement for outgoing messages with ackCode. Each
+// ack (e.g. confirmed over a different mesh path) is appended; the first marks
+// the message delivered with its timestamp.
+func (s *SQLiteStateStore) AppendAck(ctx context.Context, ackCode string, ack Reception) error {
 	if ackCode == "" {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, acknowledged_at = ? WHERE ack_code = ? AND direction = ?`,
-		status, ackTimeFor(status), ackCode, MessageOut)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, receptions, acknowledged_at FROM messages
+WHERE direction = ? AND ack_code = ?
+`, MessageOut, ackCode)
+	if err != nil {
+		return err
+	}
+	type update struct {
+		id      int64
+		receps  string
+		ackedAt string
+	}
+	var updates []update
+	for rows.Next() {
+		var id int64
+		var recvJSON, ackedAt string
+		if err := rows.Scan(&id, &recvJSON, &ackedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		receps := append(unmarshalReceptions(recvJSON), ack)
+		if ackedAt == "" {
+			ackedAt = rfc3339(ack.At)
+		}
+		updates = append(updates, update{id: id, receps: marshalReceptions(receps), ackedAt: ackedAt})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, u := range updates {
+		if _, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ?, acknowledged_at = ?, receptions = ? WHERE id = ?`,
+			StatusDelivered, u.ackedAt, u.receps, u.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MarkUnconfirmed marks still-pending (sent, not yet delivered) outgoing
+// messages with ackCode as unconfirmed.
+func (s *SQLiteStateStore) MarkUnconfirmed(ctx context.Context, ackCode string) error {
+	if ackCode == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET status = ? WHERE direction = ? AND ack_code = ? AND status = ?`,
+		StatusUnconfirmed, MessageOut, ackCode, StatusSent)
 	return err
 }
 
-// ackTimeFor returns the acknowledgement timestamp to record for a status: the
-// current time when a message is delivered, otherwise empty.
-func ackTimeFor(status string) string {
-	if status == StatusDelivered {
-		return rfc3339(time.Now().UTC())
+func marshalReceptions(r []Reception) string {
+	if len(r) == 0 {
+		return "[]"
 	}
-	return ""
+	b, err := json.Marshal(r)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func unmarshalReceptions(s string) []Reception {
+	if s == "" || s == "[]" {
+		return nil
+	}
+	var out []Reception
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 func (s *SQLiteStateStore) Messages(ctx context.Context, filter MessageFilter) ([]MessageRecord, error) {
 	query := `
-SELECT id, direction, kind, peer, peer_name, channel, text, txt_type, timestamp, snr, read, status, ack_code, acknowledged_at, created_at
+SELECT id, direction, kind, peer, peer_name, channel, text, txt_type, timestamp, snr, read, status, ack_code, acknowledged_at, receptions, created_at
 FROM messages`
 	var conds []string
 	var args []any
@@ -231,15 +328,16 @@ FROM messages`
 	for rows.Next() {
 		var rec MessageRecord
 		var txtType, read int
-		var ts, acked, created string
+		var ts, acked, recvJSON, created string
 		if err := rows.Scan(&rec.ID, &rec.Direction, &rec.Kind, &rec.Peer, &rec.PeerName, &rec.Channel,
-			&rec.Text, &txtType, &ts, &rec.SNR, &read, &rec.Status, &rec.AckCode, &acked, &created); err != nil {
+			&rec.Text, &txtType, &ts, &rec.SNR, &read, &rec.Status, &rec.AckCode, &acked, &recvJSON, &created); err != nil {
 			return nil, err
 		}
 		rec.TxtType = byte(txtType)
 		rec.Read = read != 0
 		rec.Timestamp = parseRFC3339(ts)
 		rec.AcknowledgedAt = parseRFC3339(acked)
+		rec.Receptions = unmarshalReceptions(recvJSON)
 		rec.CreatedAt = parseRFC3339(created)
 		out = append(out, rec)
 	}
@@ -432,10 +530,13 @@ func (s *SQLiteStateStore) UpsertChannels(ctx context.Context, channels []meshco
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO channels(idx, name, stored_at)
-VALUES (?, ?, ?)
+INSERT INTO channels(idx, name, key, secret, private, stored_at)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(idx) DO UPDATE SET
 	name=excluded.name,
+	key=excluded.key,
+	secret=excluded.secret,
+	private=excluded.private,
 	stored_at=excluded.stored_at
 `)
 	if err != nil {
@@ -444,7 +545,15 @@ ON CONFLICT(idx) DO UPDATE SET
 	defer stmt.Close()
 
 	for _, ch := range channels {
-		if _, err := stmt.ExecContext(ctx, ch.Index, ch.Name, now); err != nil {
+		private := 0
+		if isPrivateChannel(ch.Secret) {
+			private = 1
+		}
+		secretHex := ""
+		if len(ch.Secret) > 0 {
+			secretHex = hex.EncodeToString(ch.Secret)
+		}
+		if _, err := stmt.ExecContext(ctx, ch.Index, ch.Name, channelKey(ch.Secret), secretHex, private, now); err != nil {
 			return err
 		}
 	}
@@ -453,7 +562,7 @@ ON CONFLICT(idx) DO UPDATE SET
 
 func (s *SQLiteStateStore) Channels(ctx context.Context) ([]ChannelStateEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT idx, name, stored_at
+SELECT idx, name, key, secret, private, stored_at
 FROM channels
 ORDER BY idx
 `)
@@ -465,11 +574,17 @@ ORDER BY idx
 	var out []ChannelStateEntry
 	for rows.Next() {
 		var ch meshcore.Channel
-		var storedAt string
-		if err := rows.Scan(&ch.Index, &ch.Name, &storedAt); err != nil {
+		var key, secretHex, storedAt string
+		var private int
+		if err := rows.Scan(&ch.Index, &ch.Name, &key, &secretHex, &private, &storedAt); err != nil {
 			return nil, err
 		}
-		out = append(out, ChannelStateEntry{Channel: ch, StoredAt: storedAt})
+		if secretHex != "" {
+			if b, err := hex.DecodeString(secretHex); err == nil {
+				ch.Secret = b
+			}
+		}
+		out = append(out, ChannelStateEntry{Channel: ch, Key: key, Private: private != 0, StoredAt: storedAt})
 	}
 	return out, rows.Err()
 }
