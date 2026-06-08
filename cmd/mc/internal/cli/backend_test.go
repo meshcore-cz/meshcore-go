@@ -17,9 +17,18 @@ func TestPreferIPCBackend(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pa, err := parseArgs(tc.args)
-			if err != nil {
-				t.Fatal(err)
+			pa := parsedArgs{flags: map[string]string{}, bools: map[string]bool{}}
+			for i := 0; i < len(tc.args); i++ {
+				switch tc.args[i] {
+				case "--uri":
+					i++
+					pa.flags["uri"] = tc.args[i]
+				case "--device":
+					i++
+					pa.flags["device"] = tc.args[i]
+				case "--direct":
+					pa.bools["direct"] = true
+				}
 			}
 			if got := preferIPCBackend(&env{args: pa}); got != tc.want {
 				t.Fatalf("preferIPCBackend() = %v, want %v", got, tc.want)

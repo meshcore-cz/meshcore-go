@@ -6,6 +6,8 @@ require (
 	github.com/clipperhouse/displaywidth v0.5.0
 	github.com/creack/pty v1.1.24
 	github.com/reeflective/readline v1.2.2
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.9
 	go.bug.st/serial v1.7.1
 	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -20,6 +22,7 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

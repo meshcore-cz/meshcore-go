@@ -2,15 +2,21 @@ package cli
 
 import "testing"
 
-// Every dispatchable command should have a help entry.
+// Every dispatchable command should be present in the Cobra tree with help text.
 func TestEveryCommandHasHelp(t *testing.T) {
+	root := NewRoot(&App{})
 	commands := []string{
 		"connect", "status", "stats", "doctor", "contacts", "contact", "inbox",
 		"send", "watch", "trace", "channel", "repeater", "use", "device", "session", "state", "config", "raw", "version",
 	}
-	for _, cmd := range commands {
-		if _, ok := commandHelp[cmd]; !ok {
-			t.Errorf("missing help for command %q", cmd)
+	for _, name := range commands {
+		cmd, _, err := root.Find([]string{name})
+		if err != nil || cmd == root {
+			t.Errorf("missing command %q", name)
+			continue
+		}
+		if cmd.Short == "" {
+			t.Errorf("missing short help for command %q", name)
 		}
 	}
 }

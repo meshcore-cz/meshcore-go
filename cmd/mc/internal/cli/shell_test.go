@@ -71,10 +71,7 @@ func TestSplitShellFieldsErrors(t *testing.T) {
 }
 
 func TestInheritShellArgs(t *testing.T) {
-	parent, err := parseArgs([]string{"shell", "--debug", "--json"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	parent := parsedArgs{flags: map[string]string{}, bools: map[string]bool{"debug": true, "json": true}}
 
 	got := inheritShellArgs([]string{"status"}, parent)
 	want := []string{"status", "--debug", "--json"}
@@ -170,17 +167,14 @@ func TestExecuteHelpTrace(t *testing.T) {
 func TestTemporaryBackendLifecycleBlocked(t *testing.T) {
 	for _, sub := range []string{"stop", "restart", "reset", "serve", "start"} {
 		t.Run(sub, func(t *testing.T) {
-			pa, err := parseArgs([]string{"backend", sub})
-			if err != nil {
-				t.Fatal(err)
-			}
+			pa := parsedArgs{flags: map[string]string{}, bools: map[string]bool{}, positionals: []string{"backend", sub}}
 			e := &env{
 				args: pa,
 				rest: pa.positionals[1:],
 				out:  newTestPrinter(),
 				exec: ExecuteOptions{TemporaryShellBackend: true},
 			}
-			err = cmdBackend(context.Background(), e)
+			err := cmdBackend(context.Background(), e)
 			if err == nil || !strings.Contains(err.Error(), "temporary shell backend") {
 				t.Fatalf("cmdBackend(%s) = %v, want temporary backend guard", sub, err)
 			}
@@ -198,10 +192,7 @@ func TestOpenShellSessionUsesExistingBackend(t *testing.T) {
 		defer stop()
 		t.Setenv("MC_BACKEND_SOCKET", socket)
 
-		pa, err := parseArgs([]string{"shell"})
-		if err != nil {
-			t.Fatal(err)
-		}
+		pa := parsedArgs{flags: map[string]string{}, bools: map[string]bool{}, positionals: []string{"shell"}}
 		e := &env{args: pa, out: newTestPrinter(), dbg: newDebug(pa)}
 
 		session, err := openShellSession(context.Background(), e)
@@ -268,10 +259,10 @@ func TestCompletionWords(t *testing.T) {
 	}
 }
 
-func TestFindCommandSpecAlias(t *testing.T) {
-	spec, ok := findCommandSpec(commandRegistry, "s")
-	if !ok || spec.Name != "status" {
-		t.Fatalf("findCommandSpec(s) = %#v, %v", spec, ok)
+func TestFindCobraCommandAlias(t *testing.T) {
+	cmd, ok := findCobraCommand(NewRoot(&App{}), "s")
+	if !ok || cmd.Name() != "status" {
+		t.Fatalf("findCobraCommand(s) = %#v, %v", cmd, ok)
 	}
 }
 
@@ -295,14 +286,11 @@ func TestIsTerminalNoiseLine(t *testing.T) {
 
 func TestRunShellExitReturns(t *testing.T) {
 	in := strings.NewReader("status\nexit\n")
-	parent, err := parseArgs([]string{"shell", "--json"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	parent := parsedArgs{flags: map[string]string{}, bools: map[string]bool{"json": true}, positionals: []string{"shell"}}
 	e := &env{args: parent, out: newTestPrinter(), dbg: newDebug(parent)}
 	session := &shellSession{Profile: "handheld", Socket: "/nonexistent.sock"}
 
-	err = runShell(context.Background(), e, session, in)
+	err := runShell(context.Background(), e, session, in)
 	if err != nil {
 		t.Fatalf("runShell() = %v", err)
 	}

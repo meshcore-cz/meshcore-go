@@ -11,7 +11,14 @@ import (
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 	"github.com/reeflective/readline"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
+
+type CompletionItem struct {
+	Value       string
+	Description string
+}
 
 type shellCompletionCache struct {
 	mu sync.Mutex
@@ -206,23 +213,24 @@ func makeShellCompleter(session *shellSession) func([]rune, int) readline.Comple
 		words := completionWords(input)
 		endsWithSpace := strings.HasSuffix(input, " ") || strings.HasSuffix(input, "\t")
 
+		root := NewRoot(&App{})
 		if len(words) == 0 || (len(words) == 1 && !endsWithSpace) {
-			return completeCommandSpecs(commandRegistry)
+			return completeCobraCommands(root.Commands())
 		}
 
-		spec, ok := findCommandSpec(commandRegistry, words[0])
+		cmd, ok := findCobraCommand(root, words[0])
 		if !ok {
 			return readline.Completions{}
 		}
 
-		return completeForCommand(context.Background(), session, spec, words[1:], input, endsWithSpace)
+		return completeForCobraCommand(context.Background(), session, cmd, words[1:], input, endsWithSpace)
 	}
 }
 
-func completeForCommand(
+func completeForCobraCommand(
 	ctx context.Context,
 	session *shellSession,
-	spec CommandSpec,
+	cmd *cobra.Command,
 	rest []string,
 	input string,
 	endsWithSpace bool,
@@ -230,62 +238,132 @@ func completeForCommand(
 	if len(rest) > 0 {
 		last := rest[len(rest)-1]
 		if strings.HasPrefix(last, "-") {
-			flags := append(append([]FlagSpec(nil), spec.Flags...), globalShellFlags...)
-			return completeFlagSpecs(flags, last)
+			return completeCobraFlags(cmd, last)
 		}
 	}
 
-	if len(spec.Children) > 0 {
+	children := visibleCommands(cmd)
+	if len(children) > 0 {
 		if len(rest) == 0 || (len(rest) == 1 && !endsWithSpace) {
-			return completeCommandSpecs(spec.Children)
+			return completeCobraCommands(children)
 		}
-		child, ok := findCommandSpec(spec.Children, rest[0])
+		child, ok := findCobraCommand(cmd, rest[0])
 		if !ok {
 			return readline.Completions{}
 		}
-		return completeForCommand(ctx, session, child, rest[1:], input, endsWithSpace)
+		return completeForCobraCommand(ctx, session, child, rest[1:], input, endsWithSpace)
 	}
 
-	if spec.Name == "help" {
-		return completionItems(completeHelpItems(rest, endsWithSpace))
-	}
-
-	if spec.CompleteArgs != nil {
-		items := spec.CompleteArgs(ctx, session, rest, endsWithSpace)
+	if items := completeDomainArgs(ctx, session, cmd, rest, endsWithSpace); items != nil {
 		return completionItems(items)
 	}
 
+	if cmd.ValidArgsFunction != nil {
+		prefix := completionPrefix(rest, endsWithSpace)
+		values, _ := cmd.ValidArgsFunction(cmd, rest, prefix)
+		return completionItems(cobraCompletionItems(values, prefix))
+	}
+
+	if cmd.Name() == "help" {
+		return completeCobraCommands(cmd.Root().Commands())
+	}
+
 	if len(rest) == 0 || endsWithSpace {
-		flags := append(append([]FlagSpec(nil), spec.Flags...), globalShellFlags...)
-		return completeFlagSpecs(flags, "--")
+		return completeCobraFlags(cmd, "--")
 	}
 
 	return readline.Completions{}
 }
 
-func completeCommandSpecs(specs []CommandSpec) readline.Completions {
-	values := make([]string, 0, len(specs)*4)
-	for _, spec := range specs {
-		values = append(values, spec.Name, spec.Description)
-		for _, alias := range spec.Aliases {
-			values = append(values, alias, "alias for "+spec.Name)
+func completeDomainArgs(ctx context.Context, session *shellSession, cmd *cobra.Command, rest []string, endsWithSpace bool) []CompletionItem {
+	switch cmd.CommandPath() {
+	case "mc contact show", "mc send", "mc trace":
+		return completeContactsArg(ctx, session, rest, endsWithSpace)
+	case "mc channel show", "mc channel send", "mc channel remove":
+		return completeChannelsArg(ctx, session, rest, endsWithSpace)
+	case "mc use", "mc device show", "mc device remove", "mc session start", "mc session stop", "mc session restart", "mc state show", "mc state purge":
+		return completeDeviceProfilesArg(ctx, session, rest, endsWithSpace)
+	case "mc repeater add", "mc repeater del", "mc repeater status", "mc repeater neighbours", "mc repeater exec":
+		return completeRepeatersArg(ctx, session, rest, endsWithSpace)
+	default:
+		return nil
+	}
+}
+
+func findCobraCommand(parent *cobra.Command, name string) (*cobra.Command, bool) {
+	for _, cmd := range parent.Commands() {
+		if cmd.Hidden {
+			continue
+		}
+		if cmd.Name() == name {
+			return cmd, true
+		}
+		for _, alias := range cmd.Aliases {
+			if alias == name {
+				return cmd, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func visibleCommands(cmd *cobra.Command) []*cobra.Command {
+	var out []*cobra.Command
+	for _, child := range cmd.Commands() {
+		if !child.Hidden {
+			out = append(out, child)
+		}
+	}
+	return out
+}
+
+func completeCobraCommands(commands []*cobra.Command) readline.Completions {
+	values := make([]string, 0, len(commands)*4)
+	for _, cmd := range commands {
+		if cmd.Hidden {
+			continue
+		}
+		values = append(values, cmd.Name(), cmd.Short)
+		for _, alias := range cmd.Aliases {
+			values = append(values, alias, "alias for "+cmd.Name())
 		}
 	}
 	return readline.CompleteValuesDescribed(values...).DisplayList().JustifyDescriptions()
 }
 
-func completeFlagSpecs(flags []FlagSpec, prefix string) readline.Completions {
-	values := make([]string, 0, len(flags)*2)
-	for _, flag := range flags {
-		if prefix != "" && prefix != "--" && !strings.HasPrefix(flag.Name, prefix) {
-			continue
+func completeCobraFlags(cmd *cobra.Command, prefix string) readline.Completions {
+	values := []string{}
+	add := func(flag *pflag.Flag) {
+		name := "--" + flag.Name
+		if prefix != "" && prefix != "--" && !strings.HasPrefix(name, prefix) {
+			return
 		}
-		values = append(values, flag.Name, flag.Description)
+		values = append(values, name, flag.Usage)
+		if flag.Shorthand != "" {
+			short := "-" + flag.Shorthand
+			if prefix == "" || prefix == "--" || strings.HasPrefix(short, prefix) {
+				values = append(values, short, flag.Usage)
+			}
+		}
 	}
+	cmd.InheritedFlags().VisitAll(add)
+	cmd.Flags().VisitAll(add)
 	if len(values) == 0 {
 		return readline.Completions{}
 	}
 	return readline.CompleteValuesDescribed(values...).DisplayList().JustifyDescriptions()
+}
+
+func cobraCompletionItems(values []string, prefix string) []CompletionItem {
+	items := make([]CompletionItem, 0, len(values))
+	for _, value := range values {
+		item, desc, _ := strings.Cut(value, "\t")
+		if prefix != "" && !stringsHasPrefixFold(strings.Trim(item, `"'`), prefix) {
+			continue
+		}
+		items = append(items, CompletionItem{Value: item, Description: desc})
+	}
+	return items
 }
 
 func completionItems(items []CompletionItem) readline.Completions {
