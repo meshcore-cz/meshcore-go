@@ -10,3 +10,9 @@ coverage.out
 # Example binaries
 /send-channel-msg
 /examples/send-channel-msg/send-channel-msg
+
+# WASM packet tool example
+/examples/wasm-packet-tool/web/node_modules/
+/examples/wasm-packet-tool/web/dist/
+/examples/wasm-packet-tool/web/public/meshcore.wasm
+/examples/wasm-packet-tool/web/public/wasm_exec.js

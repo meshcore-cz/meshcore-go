@@ -2,11 +2,11 @@ package meshcore
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/meshcore-cz/meshcore-go/meshpkt"
 	"github.com/meshcore-cz/meshcore-go/protocol"
 	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )
@@ -15,7 +15,8 @@ import (
 const maxChannels = 8
 
 // ChannelSecretLen is the length of a channel pre-shared key.
-const ChannelSecretLen = 16
+// Delegated to meshpkt.ChannelSecretLen for WASM-safe access.
+const ChannelSecretLen = meshpkt.ChannelSecretLen
 
 // ChannelDisplayName returns a channel name for display, ensuring a single
 // leading '#'. Hashtag channels are stored with the '#'; others are shown with
@@ -31,23 +32,21 @@ func ChannelDisplayName(name string) string {
 // channel from its name: the first 16 bytes of SHA-256(name). This lets peers
 // share a channel by agreeing only on a name.
 //
+// The canonical implementation lives in meshpkt.DeriveChannelSecret which is
+// WASM-safe; this function delegates to it so both call sites stay in sync.
+//
 // NOTE: this derivation is firmware-derived and not yet hardware-verified.
 // Confirm interoperability with other MeshCore clients before relying on it.
-func DeriveChannelSecret(name string) []byte {
-	sum := sha256.Sum256([]byte(name))
-	out := make([]byte, ChannelSecretLen)
-	copy(out, sum[:ChannelSecretLen])
-	return out
-}
+func DeriveChannelSecret(name string) []byte { return meshpkt.DeriveChannelSecret(name) }
 
 // ChannelHash returns the 1-byte routing hash the firmware uses to match
 // incoming packets to a channel slot without decrypting every payload:
 // SHA256(secret[:16])[0]. Pass the output of DeriveChannelSecret or the
 // Secret field from a Channel returned by Channels().
-func ChannelHash(secret []byte) byte {
-	sum := sha256.Sum256(secret[:ChannelSecretLen])
-	return sum[0]
-}
+//
+// The canonical implementation lives in meshpkt.ChannelHash which is
+// WASM-safe; this function delegates to it.
+func ChannelHash(secret []byte) byte { return meshpkt.ChannelHash(secret) }
 
 // Channel describes a channel slot on the device.
 type Channel struct {
