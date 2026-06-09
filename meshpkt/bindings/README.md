@@ -29,8 +29,10 @@ Dispatch helpers live in [`call.go`](../call.go) (`meshpkt.CallJSON`).
    cp "$(tinygo env TINYGOROOT)/targets/wasm_exec.js" web/public/
    ```
 
-4. In the browser: load `wasm_exec.js`, `go.run()` the module, call `wasm.exports.call(name, JSON.stringify(args))`.
-   Wrap exports using `meshcoreOpNames` from generated `wasm.gen.ts` (see example app `web/src/lib/wasm.ts`).
+4. In the browser: load `wasm_exec.js`, `go.run()` the module, then call `window.meshpktCall(name, JSON.stringify(args))`.
+   Wrap that using `meshcoreOpNames` from generated `wasm.gen.ts` (see example app `web/src/lib/wasm.ts`).
+
+   Note: TinyGo `//export` cannot return strings to JS (WASM numeric returns only). Use `syscall/js` registration instead.
 
 Byte arrays cross the boundary as lowercase hex strings inside the JSON arg array.
 Each call returns a JSON object: success fields from the op, or `{error: "…"}`.

@@ -1,6 +1,7 @@
 // Template: copy to your project as cmd/meshpkt-wasm-lite/main.go
 //
-// TinyGo browser WASM — one exported call(opName, argsJSON) dispatching meshpkt.Ops.
+// TinyGo browser WASM — registers window.meshpktCall(opName, argsJSON).
+// TinyGo //export cannot return strings to JS; use syscall/js instead.
 // The frontend builds typed wrappers from meshcoreOpNames in generated wasm.gen.ts.
 //
 // Build:
@@ -10,11 +11,19 @@
 //   cp "$(tinygo env TINYGOROOT)/targets/wasm_exec.js" web/public/
 package main
 
-import "github.com/meshcore-cz/meshcore-go/meshpkt"
+import (
+	"syscall/js"
 
-func main() {}
+	"github.com/meshcore-cz/meshcore-go/meshpkt"
+)
 
-//export call
-func call(opName, argsJSON string) string {
-	return meshpkt.CallJSON(opName, argsJSON)
+func main() {
+	js.Global().Set("meshpktCall", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if len(args) < 2 {
+			return js.Global().Get("JSON").Call("parse", `{"error":"meshpktCall: need opName and argsJSON"}`)
+		}
+		out := meshpkt.CallJSON(args[0].String(), args[1].String())
+		return js.Global().Get("JSON").Call("parse", out)
+	}))
+	<-make(chan struct{}) // block forever
 }
