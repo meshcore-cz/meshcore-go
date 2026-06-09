@@ -84,7 +84,8 @@ direct secret   = X25519(myPriv, peerPub)[:16]
 | `advert.go` | ADVERT decode |
 | `keys.go` | X25519 keypair generation, ECDH (`KeyPair`, `Generate`, `SharedSecret`, …) |
 | `ops.go` | `Op` registry — declarative definitions consumed by binding layers |
-| `bindings/` | Copy-paste templates (WASM, TypeScript codegen) — see [`bindings/README.md`](bindings/README.md) |
+| `call.go` | `CallJSON` / `Call` — JSON dispatch for TinyGo and HTTP bindings |
+| `bindings/` | Copy-paste templates (TinyGo WASM, TypeScript codegen) — see [`bindings/README.md`](bindings/README.md) |
 
 ## Usage
 
@@ -129,7 +130,7 @@ type Op struct {
 }
 ```
 
-Copy [`bindings/wasm.main.go.tmpl`](bindings/wasm.main.go.tmpl) into your project as `wasm/main.go` — a ~70-line generic loop over this registry. Optional TypeScript types: [`bindings/gen-ts.main.go.tmpl`](bindings/gen-ts.main.go.tmpl).
+Copy [`bindings/wasm-lite.main.go.tmpl`](bindings/wasm-lite.main.go.tmpl) for TinyGo (~400 KB WASM) or [`bindings/wasm.main.go.tmpl`](bindings/wasm.main.go.tmpl) for full Go `syscall/js`. Optional TypeScript types: [`bindings/gen-ts.main.go.tmpl`](bindings/gen-ts.main.go.tmpl). JSON dispatch: `meshpkt.CallJSON(name, argsJSON)`.
 
 ## Notes
 

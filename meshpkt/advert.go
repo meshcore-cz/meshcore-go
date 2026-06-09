@@ -8,6 +8,58 @@ import (
 	"time"
 )
 
+// EncodeAdvertPayload encodes an Advert to its wire payload bytes.
+//
+// Wire layout: [pubkey:32][ts:4 LE][sig:64][flags:1][lat?:4][lon?:4][name]
+//
+// adv.PublicKey must be exactly 32 bytes. adv.Signature is zero-padded to
+// 64 bytes if shorter. Lat/Lon are encoded as float32 LE when adv.HasGPS is true.
+func EncodeAdvertPayload(adv Advert) ([]byte, error) {
+	if len(adv.PublicKey) != 32 {
+		return nil, fmt.Errorf("meshpkt: ADVERT public key must be 32 bytes, got %d", len(adv.PublicKey))
+	}
+
+	ts := adv.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+
+	// Fixed prefix: pubkey(32) + ts(4) + sig(64)
+	buf := make([]byte, 0, 101+len(adv.Name))
+	buf = append(buf, adv.PublicKey...)
+
+	var tsBytes [4]byte
+	binary.LittleEndian.PutUint32(tsBytes[:], uint32(ts.Unix()))
+	buf = append(buf, tsBytes[:]...)
+
+	var sig [64]byte
+	copy(sig[:], adv.Signature)
+	buf = append(buf, sig[:]...)
+
+	// Appdata: flags byte
+	flags := adv.Flags
+	if adv.HasGPS {
+		flags |= 0x01
+	}
+	buf = append(buf, flags)
+
+	// GPS coordinates (float32 LE)
+	if adv.HasGPS {
+		var latBytes, lonBytes [4]byte
+		binary.LittleEndian.PutUint32(latBytes[:], math.Float32bits(float32(adv.Lat)))
+		binary.LittleEndian.PutUint32(lonBytes[:], math.Float32bits(float32(adv.Lon)))
+		buf = append(buf, latBytes[:]...)
+		buf = append(buf, lonBytes[:]...)
+	}
+
+	// Node name
+	if adv.Name != "" {
+		buf = append(buf, []byte(adv.Name)...)
+	}
+
+	return buf, nil
+}
+
 // Advert holds the decoded content of an ADVERT (node advertisement) packet.
 // ADVERT payloads are unencrypted.
 //

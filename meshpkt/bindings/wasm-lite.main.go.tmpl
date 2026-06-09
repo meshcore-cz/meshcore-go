@@ -1,0 +1,20 @@
+// Template: copy to your project as cmd/meshpkt-wasm-lite/main.go
+//
+// TinyGo browser WASM — one exported call(opName, argsJSON) dispatching meshpkt.Ops.
+// The frontend builds typed wrappers from meshcoreOpNames in generated wasm.gen.ts.
+//
+// Build:
+//   tinygo build -target=wasm -no-debug -opt=z -panic=trap \
+//     -o web/public/meshpkt.wasm ./cmd/meshpkt-wasm-lite
+// Runtime:
+//   cp "$(tinygo env TINYGOROOT)/targets/wasm_exec.js" web/public/
+package main
+
+import "github.com/meshcore-cz/meshcore-go/meshpkt"
+
+func main() {}
+
+//export call
+func call(opName, argsJSON string) string {
+	return meshpkt.CallJSON(opName, argsJSON)
+}
