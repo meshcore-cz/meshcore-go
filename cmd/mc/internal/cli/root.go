@@ -68,6 +68,7 @@ func NewRoot(app *App) *cobra.Command {
 		newConfigCommand(app),
 		newCompletionCommand(app),
 		newRawCommand(app),
+		newPktCommand(app),
 		newVersionCommand(app),
 	)
 	return root
