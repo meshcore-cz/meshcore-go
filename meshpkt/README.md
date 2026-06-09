@@ -2,6 +2,8 @@
 
 Pure Go codec for the MeshCore radio packet wire format. WASM-safe — depends only on the Go standard library.
 
+Key source: [MeshCore packet format](https://github.com/meshcore-dev/MeshCore/blob/main/docs/packet_format.md).
+
 ## Wire format
 
 ```
