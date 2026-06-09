@@ -84,6 +84,7 @@ direct secret   = X25519(myPriv, peerPub)[:16]
 | `advert.go` | ADVERT decode |
 | `keys.go` | X25519 keypair generation, ECDH (`KeyPair`, `Generate`, `SharedSecret`, …) |
 | `ops.go` | `Op` registry — declarative definitions consumed by binding layers |
+| `bindings/` | Copy-paste templates (WASM, TypeScript codegen) — see [`bindings/README.md`](bindings/README.md) |
 
 ## Usage
 
@@ -128,7 +129,7 @@ type Op struct {
 }
 ```
 
-The WASM binding in `examples/wasm-packet-tool/wasm/main.go` is a ~60-line generic loop over this registry.
+Copy [`bindings/wasm.main.go.tmpl`](bindings/wasm.main.go.tmpl) into your project as `wasm/main.go` — a ~70-line generic loop over this registry. Optional TypeScript types: [`bindings/gen-ts.main.go.tmpl`](bindings/gen-ts.main.go.tmpl).
 
 ## Notes
 
