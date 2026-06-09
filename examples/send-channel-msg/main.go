@@ -17,7 +17,6 @@ import (
 	"github.com/brianvoe/gofakeit/v6"
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	"github.com/meshcore-cz/meshcore-go/backend"
-	"github.com/meshcore-cz/meshcore-go/meshkey"
 	"github.com/meshcore-cz/meshcore-go/meshpkt"
 )
 
@@ -29,7 +28,7 @@ var (
 func main() {
 	gofakeit.Seed(0) // 0 = random seed each run
 
-	kp, err := meshkey.Generate()
+	kp, err := meshpkt.Generate()
 	if err != nil {
 		log.Fatalf("generate key: %v", err)
 	}

@@ -18,14 +18,14 @@ type DirectText struct {
 }
 
 // DirectTextPacket builds a flooded TXT_MSG wire packet encrypted with the
-// given 16-byte shared secret (derived from X25519 ECDH — see meshkey.SharedSecret).
+// given 16-byte shared secret (derived from X25519 ECDH — see meshpkt.SharedSecret).
 //
 // destHash and srcHash are the first bytes of the recipient's and sender's
 // public keys respectively, used for lightweight routing.
 //
 // Note: on-air interoperability with real MeshCore devices requires the shared
 // secret to be derived the same way as the firmware (Ed25519 keys converted to
-// Montgomery form then X25519 ECDH); meshkey.SharedSecret performs this derivation.
+// Montgomery form then X25519 ECDH); meshpkt.SharedSecret performs this derivation.
 // Cross-check against firmware Identity::calcSharedSecret before relying on it.
 func DirectTextPacket(shared16 []byte, destHash, srcHash byte, text string, ts time.Time, txtType, attempt byte, opts ...Option) ([]byte, error) {
 	o := &packetOptions{pathHashSize: defaultPathHashSize}
