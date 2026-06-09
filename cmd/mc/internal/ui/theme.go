@@ -39,11 +39,22 @@ func colorEnabled(out io.Writer) bool {
 	if _, ok := os.LookupEnv("NO_COLOR"); ok {
 		return false
 	}
+	return IsTerminal(out)
+}
+
+// IsTerminal reports whether out is connected to a terminal (TTY).
+func IsTerminal(out io.Writer) bool {
 	f, ok := out.(*os.File)
 	if !ok {
 		return false
 	}
 	return term.IsTerminal(int(f.Fd()))
+}
+
+// ColorEnabled reports whether colored ANSI output is appropriate for out:
+// it must be a terminal and NO_COLOR must be unset.
+func ColorEnabled(out io.Writer) bool {
+	return colorEnabled(out)
 }
 
 // StatusWord colors a single status token when color is enabled.

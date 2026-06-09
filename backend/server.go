@@ -13,6 +13,7 @@ import (
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	"github.com/meshcore-cz/meshcore-go/protocol"
 	"github.com/meshcore-cz/meshcore-go/protocol/pathhash"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // DeviceSession owns one long-lived MeshCore client for a single logical
@@ -343,19 +344,10 @@ func (s *DeviceSession) listEntry(isDefault bool) deviceListEntry {
 			SyncedAt: s.channelSyncedAt,
 			Error:    s.channelError,
 		},
-		Transport: transportScheme(s.uri),
+		Transport: transport.Scheme(s.uri),
 		URI:       s.uri,
 		LastError: s.lastError,
 	}
-}
-
-// transportScheme returns the URI scheme (ble, serial, tcp, …) used for
-// fleet-status display.
-func transportScheme(uri string) string {
-	if i := strings.Index(uri, ":"); i >= 0 {
-		return uri[:i]
-	}
-	return ""
 }
 
 // sessionSlug derives a stable, filesystem-free identifier from a transport

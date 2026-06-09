@@ -58,6 +58,7 @@ func NewRoot(app *App) *cobra.Command {
 		newTraceCommand(app),
 		newChannelCommand(app),
 		newAdvertCommand(app),
+		newShareCommand(app),
 		newDiscoverCommand(app),
 		newRepeaterCommand(app),
 		newUseCommand(app),
@@ -423,6 +424,25 @@ func newAdvertCommand(app *App) *cobra.Command {
 		RunE:    runWithEnv(app, nil, cmdAdvert),
 	}
 	cmd.Flags().Bool("flood", false, "flood advert mesh-wide")
+	return cmd
+}
+
+func newShareCommand(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "share",
+		Aliases: []string{"qr"},
+		Short:   "Show a QR code to add this device as a contact",
+		Long: strings.TrimSpace(`
+Print a QR code and meshcore:// link for the connected device so others can scan
+it to add the device as a contact in the MeshCore app.`),
+		Example: strings.TrimSpace(`
+mc share
+mc share --no-qr
+mc share --json`),
+		RunE: runWithEnv(app, nil, cmdShare),
+	}
+	cmd.Flags().Bool("no-qr", false, "print the link only, without the QR code")
+	cmd.Flags().String("type", "", "advert type: 1=companion 2=repeater 3=room 4=sensor (default 1)")
 	return cmd
 }
 

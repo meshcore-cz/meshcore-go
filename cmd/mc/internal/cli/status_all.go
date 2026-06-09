@@ -42,7 +42,7 @@ func statusAllData(ctx context.Context, e *env, cfg *config.Config, entries map[
 		dev := cfg.Devices[name]
 		entry, hasEntry := entries[name]
 		session := "stopped"
-		transport := statusTransportScheme(dev.PrimaryURI())
+		transport := schemeOf(dev.PrimaryURI())
 		if dev.PreferredTransport != "" {
 			transport = dev.PreferredTransport
 		}
@@ -114,13 +114,6 @@ func stateSummaryForProfile(dev config.Device, summaries []localbackend.StateSum
 		}
 	}
 	return localbackend.StateSummary{}, false
-}
-
-func statusTransportScheme(uri string) string {
-	if i := strings.IndexByte(uri, ':'); i >= 0 {
-		return uri[:i]
-	}
-	return ""
 }
 
 func statusAllJSON(data ui.StatusAllData) []map[string]any {

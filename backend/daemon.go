@@ -12,6 +12,7 @@ import (
 	"time"
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // SessionProfile describes a logical device the daemon can run as an isolated
@@ -456,7 +457,7 @@ func (d *Daemon) deviceList() deviceListResult {
 			Default:   id == defID,
 			Session:   "stopped",
 			Connected: false,
-			Transport: transportScheme(p.URI),
+			Transport: transport.Scheme(p.URI),
 			URI:       p.URI,
 		})
 	}

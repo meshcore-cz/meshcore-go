@@ -17,6 +17,7 @@ require (
 	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.52.0
+	rsc.io/qr v0.2.0
 	tinygo.org/x/bluetooth v0.15.0
 )
 

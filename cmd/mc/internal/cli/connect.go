@@ -11,6 +11,7 @@ import (
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
+	"github.com/meshcore-cz/meshcore-go/transport"
 )
 
 // cmdConnect discovers or connects to a radio, verifies it via the handshake
@@ -209,37 +210,22 @@ func promptDefault(label, def string) string {
 	return line
 }
 
-func promptYes(label string, defaultYes bool) bool {
-	def := "Y/n"
-	if !defaultYes {
-		def = "y/N"
-	}
-	fmt.Fprintf(os.Stderr, "%s [%s]: ", label, def)
-	r := bufio.NewReader(os.Stdin)
-	line, _ := r.ReadString('\n')
-	line = strings.ToLower(strings.TrimSpace(line))
-	if line == "" {
-		return defaultYes
-	}
-	return line == "y" || line == "yes"
-}
-
 func defaultProfileName(publicKey, uri string) string {
 	prefix := strings.ToLower(keyPrefix(publicKey))
 	if prefix == "" {
 		prefix = "radio"
 	}
-	if transport := schemeOf(uri); transport != "" {
-		return transport + ":" + prefix
+	if scheme := schemeOf(uri); scheme != "" {
+		return scheme + ":" + prefix
 	}
 	return prefix
 }
 
+// schemeOf returns the URI scheme ("serial", "ble", "tcp", …). It delegates to
+// transport.Scheme; the cli keeps this short alias because "transport" is a
+// common local identifier in this package.
 func schemeOf(uri string) string {
-	if i := strings.IndexByte(uri, ':'); i >= 0 {
-		return uri[:i]
-	}
-	return ""
+	return transport.Scheme(uri)
 }
 
 func keyPrefix(key string) string {

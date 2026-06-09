@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/meshcore-cz/meshcore-go/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,21 +70,12 @@ type Repeater struct {
 // PrimaryURI returns the device's preferred endpoint URI.
 func (d Device) PrimaryURI() string {
 	for _, t := range d.Transports {
-		if d.PreferredTransport == "" || schemeOf(t.URI) == d.PreferredTransport {
+		if d.PreferredTransport == "" || transport.Scheme(t.URI) == d.PreferredTransport {
 			return t.URI
 		}
 	}
 	if len(d.Transports) > 0 {
 		return d.Transports[0].URI
-	}
-	return ""
-}
-
-func schemeOf(uri string) string {
-	for i := 0; i < len(uri); i++ {
-		if uri[i] == ':' {
-			return uri[:i]
-		}
 	}
 	return ""
 }

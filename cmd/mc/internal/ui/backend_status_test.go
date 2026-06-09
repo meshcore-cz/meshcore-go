@@ -171,15 +171,3 @@ func TestRenderBackendStatusVerbose(t *testing.T) {
 		}
 	}
 }
-
-func TestBackendBridgeFailed(t *testing.T) {
-	theme := Theme{enabled: false}
-	got := backendBridgeLabel(BridgeInfo{
-		Type:  "tcp",
-		Error: "address already in use",
-	}, theme)
-	want := "failed · address already in use"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}

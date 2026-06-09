@@ -376,21 +376,6 @@ func backendStatusCmd(ctx context.Context, e *env) error {
 	return e.out.JSONValue(out)
 }
 
-func printDaemonOnlyStatus(e *env, dst localbackend.DaemonStatus) {
-	e.out.Human("Backend:\n")
-	e.out.Human("  State:       running\n")
-	if dst.PID > 0 {
-		e.out.Human("  PID:         %d\n", dst.PID)
-	}
-	if dst.UptimeSec > 0 {
-		e.out.Human("  Uptime:      %s\n", ui.FormatDurationSecs(uint32(dst.UptimeSec)))
-	}
-	if dst.Socket != "" {
-		e.out.Human("  Socket:      %s\n", dst.Socket)
-	}
-	e.out.Human("  No device session connected. Run `mc session start <name>` or `mc status`.\n")
-}
-
 func sessionsSummary(entries map[string]localbackend.DeviceListEntry) (ready, degraded, stopped, freshReplicas int) {
 	for _, en := range entries {
 		switch en.Session {
@@ -406,34 +391,6 @@ func sessionsSummary(entries map[string]localbackend.DeviceListEntry) (ready, de
 		}
 	}
 	return
-}
-
-func printBackendSessionsSummary(e *env, entries map[string]localbackend.DeviceListEntry) {
-	ready, degraded, stopped, fresh := sessionsSummary(entries)
-	e.out.Human("\nSessions:\n")
-	e.out.Human("  Devices:     %d configured\n", len(entries))
-	parts := fmt.Sprintf("%d ready", ready)
-	if degraded > 0 {
-		parts += fmt.Sprintf(", %d degraded", degraded)
-	}
-	if stopped > 0 {
-		parts += fmt.Sprintf(", %d stopped", stopped)
-	}
-	e.out.Human("  Sessions:    %s\n", parts)
-	e.out.Human("  Local state: %d fully synced\n", fresh)
-	e.out.Human("  Run `mc device list` for per-device detail.\n")
-}
-
-func sessionsSummaryJSON(entries map[string]localbackend.DeviceListEntry) map[string]any {
-	ready, degraded, stopped, fresh := sessionsSummary(entries)
-	return map[string]any{
-		"configured":     len(entries),
-		"ready":          ready,
-		"degraded":       degraded,
-		"stopped":        stopped,
-		"local_state_ok": fresh,
-		"fresh_replicas": fresh,
-	}
 }
 
 func backendServe(ctx context.Context, e *env) error {
@@ -546,48 +503,6 @@ func backendStatus(ctx context.Context, e *env) (localbackend.Status, bool) {
 	return st, true
 }
 
-func backendStatusJSON(st localbackend.Status) map[string]any {
-	out := map[string]any{
-		"running":            st.Running,
-		"healthy":            st.Healthy,
-		"state":              st.State,
-		"pid":                st.PID,
-		"started_at":         st.StartedAt,
-		"uptime_sec":         st.UptimeSec,
-		"uri":                st.URI,
-		"transport":          st.Transport,
-		"socket":             st.Socket,
-		"last_seen":          st.LastSeen,
-		"last_error":         st.LastError,
-		"last_error_at":      st.LastErrorAt,
-		"bridges":            st.Bridges,
-		"contacts":           contactStatusJSON(st.Contacts),
-		"channels":           channelStatusJSON(st.Channels),
-		"radio":              radioStatusJSON(st.Radio),
-		"queue_pending":      st.QueuePending,
-		"reconnects":         st.Reconnects,
-		"clients":            st.Clients,
-		"requests_completed": st.RequestsCompleted,
-		"requests_failed":    st.RequestsFailed,
-		"version":            st.Version,
-	}
-	if st.Device.Available() {
-		out["device"] = map[string]any{
-			"name":             st.Device.Name,
-			"public_key":       st.Device.PublicKey,
-			"firmware":         st.Device.Firmware,
-			"firmware_version": st.Device.FirmwareVersion,
-			"protocol":         st.Device.Protocol,
-			"capabilities":     st.Device.Capabilities,
-		}
-	}
-	if st.StatsOK {
-		out["stats"] = st.Stats
-		out["stats_at"] = st.StatsAt
-	}
-	return out
-}
-
 func contactStatusJSON(cs localbackend.ContactStatus) map[string]any {
 	out := map[string]any{
 		"syncing":   cs.Syncing,
@@ -613,16 +528,6 @@ func contactSyncPercent(received, total int) int {
 		return 100
 	}
 	return received * 100 / total
-}
-
-func formatContactSyncStatus(cs localbackend.ContactStatus) string {
-	if cs.SyncTotal > 0 {
-		return fmt.Sprintf("replicating %d%% (%d/%d)", contactSyncPercent(cs.SyncReceived, cs.SyncTotal), cs.SyncReceived, cs.SyncTotal)
-	}
-	if cs.SyncReceived > 0 {
-		return fmt.Sprintf("replicating (%d/?)", cs.SyncReceived)
-	}
-	return "replicating"
 }
 
 func printBackendStartSummary(e *env, st localbackend.DaemonStatus) {
@@ -724,40 +629,6 @@ func channelStatusJSON(cs localbackend.ChannelStatus) map[string]any {
 		"synced_at": cs.SyncedAt,
 		"error":     cs.Error,
 	}
-}
-
-func radioStatusJSON(r localbackend.RadioStatus) map[string]any {
-	out := map[string]any{
-		"active": r.Active,
-		"idle":   r.Idle || !r.Active,
-	}
-	if r.Method != "" {
-		out["method"] = r.Method
-	}
-	if !r.Since.IsZero() {
-		out["since"] = r.Since
-	}
-	if r.DurationMs > 0 {
-		out["duration_ms"] = r.DurationMs
-	}
-	if !r.LastAt.IsZero() {
-		out["last_at"] = r.LastAt
-	}
-	if r.LastMethod != "" {
-		out["last_method"] = r.LastMethod
-	}
-	if r.LastDurationMs > 0 {
-		out["last_duration_ms"] = r.LastDurationMs
-	}
-	return out
-}
-
-func configuredBridges() ([]localbackend.BridgeConfig, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	return bridgesFromConfig(cfg), nil
 }
 
 func bridgesFromConfig(cfg *config.Config) []localbackend.BridgeConfig {
