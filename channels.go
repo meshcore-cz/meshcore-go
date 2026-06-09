@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/meshcore-cz/meshcore-go/meshpkt"
+	"github.com/meshcore-cz/meshpkt"
 	"github.com/meshcore-cz/meshcore-go/protocol"
 	"github.com/meshcore-cz/meshcore-go/protocol/companion"
 )

@@ -17,7 +17,7 @@ import (
 	"github.com/brianvoe/gofakeit/v6"
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	"github.com/meshcore-cz/meshcore-go/backend"
-	"github.com/meshcore-cz/meshcore-go/meshpkt"
+	"github.com/meshcore-cz/meshpkt"
 )
 
 var (
