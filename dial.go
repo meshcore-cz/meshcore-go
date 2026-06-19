@@ -6,6 +6,7 @@ import (
 	"github.com/meshcore-cz/meshcore-go/transport"
 	"github.com/meshcore-cz/meshcore-go/transport/ble"
 	"github.com/meshcore-cz/meshcore-go/transport/serial"
+	"github.com/meshcore-cz/meshcore-go/transport/tcp"
 )
 
 // DialOption configures Dial.
@@ -32,7 +33,8 @@ func DefaultRegistry() *transport.Registry {
 	r := transport.NewRegistry()
 	r.Register("serial", serial.NewDialer())
 	r.Register("ble", ble.NewDialer())
-	// tcp and ws dialers register here as later phases land.
+	r.Register("tcp", tcp.NewDialer())
+	// ws dialers register here as later phases land.
 	return r
 }
 

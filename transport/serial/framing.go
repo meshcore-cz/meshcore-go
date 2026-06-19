@@ -2,9 +2,9 @@ package serial
 
 import (
 	"bufio"
-	"encoding/binary"
-	"fmt"
 	"io"
+
+	"github.com/meshcore-cz/meshcore-go/transport/internal/streamframe"
 )
 
 // MeshCore companion "serial V3" framing. Each logical packet is wrapped with a
@@ -15,11 +15,11 @@ import (
 //
 // (Verified against MeshCore firmware v1.15 on Heltec V3 hardware.)
 const (
-	frameToDevice byte = '<' // 0x3c
-	frameToHost   byte = '>' // 0x3e
+	frameToDevice = streamframe.ToDevice
+	frameToHost   = streamframe.ToHost
 
 	// maxFrameLen guards against runaway lengths from a desynchronised stream.
-	maxFrameLen = 8192
+	maxFrameLen = streamframe.MaxLen
 )
 
 // WriteHostFrame writes a host->device frame for payload.
@@ -56,16 +56,7 @@ func writeFrame(w io.Writer, payload []byte) error {
 }
 
 func writeFrameWithMarker(w io.Writer, marker byte, payload []byte) error {
-	if len(payload) > maxFrameLen {
-		return fmt.Errorf("serial: payload too large (%d bytes)", len(payload))
-	}
-	hdr := [3]byte{marker, 0, 0}
-	binary.LittleEndian.PutUint16(hdr[1:], uint16(len(payload)))
-	if _, err := w.Write(hdr[:]); err != nil {
-		return err
-	}
-	_, err := w.Write(payload)
-	return err
+	return streamframe.Write(w, marker, payload)
 }
 
 // readFrame reads the next device->host frame, resynchronising on the '>'
@@ -83,32 +74,8 @@ func readFrameWithMarkerResync(r *bufio.Reader, marker byte) ([]byte, error) {
 }
 
 func readFrameWithMarkerMode(r *bufio.Reader, marker byte, resyncBadLength bool) ([]byte, error) {
-	// Resynchronise to the next inbound marker.
-	for {
-		b, err := r.ReadByte()
-		if err != nil {
-			return nil, err
-		}
-		if b == marker {
-			break
-		}
+	if resyncBadLength {
+		return streamframe.ReadResync(r, marker)
 	}
-
-	var lenBuf [2]byte
-	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-		return nil, err
-	}
-	n := int(binary.LittleEndian.Uint16(lenBuf[:]))
-	if n > maxFrameLen {
-		if resyncBadLength {
-			return readFrameWithMarkerMode(r, marker, true)
-		}
-		return nil, fmt.Errorf("serial: frame length %d exceeds maximum", n)
-	}
-
-	payload := make([]byte, n)
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
+	return streamframe.Read(r, marker)
 }
