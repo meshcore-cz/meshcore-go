@@ -278,6 +278,26 @@ go install github.com/meshcore-cz/meshcore-go/cmd/mc@latest
 
 `mc version` reports the build version and commit. `make dist` cross-builds every release platform into `dist/` (run it on macOS to include the cgo darwin binaries).
 
+### Docker
+
+Multi-arch (`amd64`/`arm64`) images are published to GitHub Container Registry on every tagged release:
+
+```sh
+docker run --rm ghcr.io/meshcore-cz/mc:latest version
+```
+
+Tags follow the release: `latest`, the full version (`0.2.0`), and the minor series (`0.2`).
+
+The image entrypoint is `mc`, so pass subcommands directly. A TCP radio is the most container-friendly transport:
+
+```sh
+docker run --rm -it \
+  -v mc-state:/root/.local/state/mc \
+  ghcr.io/meshcore-cz/mc:latest connect tcp://10.0.0.30:5000
+```
+
+Serial and Bluetooth radios need host access (`--device /dev/ttyUSB0`, or `--privileged` plus a D-Bus mount for BLE), so for those a native install is usually simpler.
+
 ### Cutting a release
 
 Tag a clean `main` and let CI build and publish the binaries:

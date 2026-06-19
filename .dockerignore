@@ -1,0 +1,12 @@
+.git
+.github
+bin
+dist
+coverage.out
+/mc
+/send-channel-msg
+examples/send-channel-msg/send-channel-msg
+examples/wasm-packet-tool/web/node_modules
+examples/wasm-packet-tool/web/dist
+*.swp
+.DS_Store
