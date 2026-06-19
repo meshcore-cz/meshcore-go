@@ -253,7 +253,13 @@ See [`cmd/mc/README.md`](./cmd/mc/README.md) for installation and usage.
 
 ### Install `mc`
 
-Download a prebuilt binary for your platform from the [Releases page](https://github.com/meshcore-cz/meshcore-go/releases), verify it against `SHA256SUMS`, and put it on your `PATH`:
+Homebrew (macOS and Linux):
+
+```sh
+brew install meshcore-cz/tap/mc
+```
+
+Or download a prebuilt binary for your platform from the [Releases page](https://github.com/meshcore-cz/meshcore-go/releases), verify it against `SHA256SUMS`, and put it on your `PATH`:
 
 ```sh
 tar -xzf mc_v0.2.0_darwin_arm64.tar.gz
@@ -280,7 +286,9 @@ Tag a clean `main` and let CI build and publish the binaries:
 make release VERSION=v0.2.0
 ```
 
-The target verifies the tree, runs `make check`, then creates and pushes the annotated tag. Pushing a `v*` tag triggers the `Release` workflow, which builds `mc` for every platform and attaches the archives plus `SHA256SUMS` to the GitHub Release.
+The target verifies the tree, runs `make check`, then creates and pushes the annotated tag. Pushing a `v*` tag triggers the `Release` workflow, which builds `mc` for every platform, attaches the archives plus `SHA256SUMS` to the GitHub Release, and updates the `mc` formula in [`meshcore-cz/homebrew-tap`](https://github.com/meshcore-cz/homebrew-tap).
+
+> The tap update needs a `HOMEBREW_TAP_TOKEN` repository secret — a token with `contents:write` on `meshcore-cz/homebrew-tap`. Without it, the release still publishes; only the Homebrew bump is skipped.
 
 ## Optional local backend
 

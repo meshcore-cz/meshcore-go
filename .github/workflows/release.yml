@@ -113,3 +113,47 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/SHA256SUMS
+
+  update-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mc-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+
+      - uses: actions/checkout@v4
+        with:
+          repository: meshcore-cz/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Render formula
+        env:
+          FORMULA_NAME: mc
+          CLASS: Mc
+          BIN: mc
+          DESC: MeshCore terminal client
+          REPO: meshcore-cz/meshcore-go
+          SUMS_FILE: ${{ github.workspace }}/dist/SHA256SUMS
+          OUT_DIR: ${{ github.workspace }}/tap/Formula
+          TEST_BODY: system bin/"mc", "version"
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          export VERSION="${TAG#v}"
+          bash tap/scripts/render-formula.sh
+
+      - name: Commit and push
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/mc.rb
+          if git diff --cached --quiet; then echo "formula unchanged"; exit 0; fi
+          git commit -m "mc ${{ github.event.inputs.tag || github.ref_name }}"
+          git push
