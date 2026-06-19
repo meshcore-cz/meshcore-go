@@ -44,6 +44,7 @@ The same SDK can be reused by small scripts, long-running services, Home Assista
 | [`transport/`](./transport)               | Packet-oriented transport interfaces, registry, and endpoint discovery         |
 | [`transport/serial/`](./transport/serial) | USB serial transport                                                           |
 | [`transport/ble/`](./transport/ble)       | Bluetooth Low Energy transport                                                 |
+| [`transport/tcp/`](./transport/tcp)       | MeshCore companion stream transport over TCP                                   |
 | [`backend/`](./backend)                   | Optional multi-session backend daemon, storage, device sessions, and bridges   |
 | [`cmd/mc/`](./cmd/mc)                     | Practical command-line client built on top of the SDK                          |
 | [`examples/`](./examples)                 | Minimal runnable examples                                                      |
@@ -136,6 +137,7 @@ Discovery returns candidate endpoints. The protocol handshake performed by `mesh
 | USB serial | `serial:///dev/ttyACM0`   | Built in            |
 | USB serial | `serial:///dev/ttyUSB0`   | Built in            |
 | BLE        | `ble://C4:20:12:34:56:78` | Built in            |
+| TCP        | `tcp://192.168.1.20:5000` | Built in            |
 | Custom     | `your-scheme://...`       | Register externally |
 
 Transports expose complete companion-protocol packets through a small interface:
