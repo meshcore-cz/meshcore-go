@@ -251,6 +251,37 @@ The CLI adds user-facing concerns such as saved profiles, local state, terminal 
 
 See [`cmd/mc/README.md`](./cmd/mc/README.md) for installation and usage.
 
+### Install `mc`
+
+Download a prebuilt binary for your platform from the [Releases page](https://github.com/meshcore-cz/meshcore-go/releases), verify it against `SHA256SUMS`, and put it on your `PATH`:
+
+```sh
+tar -xzf mc_v0.2.0_darwin_arm64.tar.gz
+install -m 755 mc /usr/local/bin/mc
+```
+
+Releases include Linux (`amd64`/`arm64`), macOS (`amd64`/`arm64`), and Windows (`amd64`).
+
+Or build from source with the version stamped in:
+
+```sh
+make build          # -> bin/mc
+make install        # -> $GOBIN/mc
+go install github.com/meshcore-cz/meshcore-go/cmd/mc@latest
+```
+
+`mc version` reports the build version and commit. `make dist` cross-builds every release platform into `dist/` (run it on macOS to include the cgo darwin binaries).
+
+### Cutting a release
+
+Tag a clean `main` and let CI build and publish the binaries:
+
+```sh
+make release VERSION=v0.2.0
+```
+
+The target verifies the tree, runs `make check`, then creates and pushes the annotated tag. Pushing a `v*` tag triggers the `Release` workflow, which builds `mc` for every platform and attaches the archives plus `SHA256SUMS` to the GitHub Release.
+
 ## Optional local backend
 
 The [`backend`](./backend) package supports longer-running local workflows where repeatedly opening a radio connection for every operation would be wasteful.

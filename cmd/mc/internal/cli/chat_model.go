@@ -99,8 +99,8 @@ func formatChatMentions(text string) string {
 
 // chatModel is the bubbletea model backing `mc chat`.
 type chatModel struct {
-	ctx     context.Context
-	session chatSession
+	ctx      context.Context
+	session  chatSession
 	target   chatTarget
 	selfName string
 

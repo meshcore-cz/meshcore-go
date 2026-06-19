@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build, e.g. v0.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            cgo: 0
+          - name: linux-arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            cgo: 0
+          - name: windows-amd64
+            runner: ubuntu-latest
+            goos: windows
+            goarch: amd64
+            cgo: 0
+            ext: .exe
+          # darwin needs cgo for CoreBluetooth, so build on a macOS runner.
+          - name: darwin-arm64
+            runner: macos-14
+            goos: darwin
+            goarch: arm64
+            cgo: 1
+          - name: darwin-amd64
+            runner: macos-14
+            goos: darwin
+            goarch: amd64
+            cgo: 1
+            cc: clang -arch x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Build mc
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+          CC: ${{ matrix.cc }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          PKG=github.com/meshcore-cz/meshcore-go/cmd/mc/internal/cli
+          BACKEND=github.com/meshcore-cz/meshcore-go/backend
+          LDFLAGS="-s -w -X ${PKG}.Version=${TAG} -X ${PKG}.Commit=${COMMIT} -X ${BACKEND}.Version=${TAG}"
+
+          BIN="mc${{ matrix.ext }}"
+          go build -trimpath -ldflags "$LDFLAGS" -o "$BIN" ./cmd/mc
+
+          BASE="mc_${TAG}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "${BASE}.zip" "$BIN"
+          else
+            tar -czf "${BASE}.tar.gz" "$BIN"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mc-${{ matrix.name }}
+          path: |
+            *.tar.gz
+            *.zip
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mc-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS

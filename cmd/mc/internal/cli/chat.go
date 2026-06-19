@@ -90,8 +90,8 @@ func chatChannelKeyPrefix(ch meshcore.Channel) string {
 func resolveChatTarget(ctx context.Context, r targetResolver, query string) (chatTarget, error) {
 	if ct, err := r.Contact(ctx, query); err == nil && ct.PublicKey != "" {
 		return chatTarget{
-			name:    ct.Name,
-			peerKey: ct.PublicKey,
+			name:      ct.Name,
+			peerKey:   ct.PublicKey,
 			keyPrefix: chatKeyPrefix(ct.PublicKey),
 		}, nil
 	}
@@ -256,13 +256,13 @@ func chatMessageFromRecord(rec localbackend.MessageRecord, tgt chatTarget) chatM
 // the backend's event watch. The store is read exactly once (load); thereafter
 // new messages and acks arrive on the watch stream, never by re-querying.
 type ipcChatSession struct {
-	client   *localbackend.Client
-	target   chatTarget
-	self     string
-	filter   localbackend.MessageFilter
-	ctx      context.Context
-	cancel   context.CancelFunc
-	ch       chan chatStreamEvent
+	client *localbackend.Client
+	target chatTarget
+	self   string
+	filter localbackend.MessageFilter
+	ctx    context.Context
+	cancel context.CancelFunc
+	ch     chan chatStreamEvent
 }
 
 func newIPCChatSession(ctx context.Context, client *localbackend.Client, tgt chatTarget, selfName string) *ipcChatSession {
@@ -289,8 +289,8 @@ func newIPCChatSession(ctx context.Context, client *localbackend.Client, tgt cha
 	return s
 }
 
-func (s *ipcChatSession) info() chatTarget  { return s.target }
-func (s *ipcChatSession) selfName() string  { return s.self }
+func (s *ipcChatSession) info() chatTarget { return s.target }
+func (s *ipcChatSession) selfName() string { return s.self }
 
 func (s *ipcChatSession) load(ctx context.Context) ([]chatMessage, error) {
 	records, err := s.client.Messages(ctx, s.filter)
