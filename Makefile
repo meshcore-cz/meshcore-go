@@ -24,6 +24,12 @@ build: ## Build the mc binary into bin/
 install: ## Install mc into $GOBIN
 	go install -ldflags "$(LDFLAGS)" $(CMD)
 
+WEBDIR := backend/web/frontend
+
+.PHONY: web
+web: ## Rebuild the embedded web dashboard (requires Node/npm); commit backend/web/frontend/build
+	cd $(WEBDIR) && npm ci && npm run build
+
 .PHONY: test
 test: ## Run the unit test suite
 	go test ./...

@@ -1,0 +1,4 @@
+node_modules
+.svelte-kit
+.DS_Store
+# build/ is intentionally committed: it is embedded into the mc binary.

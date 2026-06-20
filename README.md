@@ -323,11 +323,40 @@ It provides reusable building blocks for:
 * one persistent local-state database per device (`backend.SQLiteStateStore`), keyed and validated by the device's full public key at `~/.local/state/mc/devices/<public-key-prefix>.db`, holding contacts, channels, repeater sessions, and message history;
 * backend-driven inbox draining (`Client.DrainMessages`): the backend is the sole inbox consumer, persisting each message before broadcasting it;
 * per-device autostart and lifecycle control;
-* optional per-device TCP and PTY bridge endpoints.
+* optional per-device TCP and PTY bridge endpoints;
+* an optional embedded web dashboard (see below).
 
 Device-local state is not a cache: it may be stale, incomplete, or locally enriched, and is never silently reused across a changed device identity.
 
 The backend is useful for CLI workflows and integrations, but it remains separate from the core SDK.
+
+### Web dashboard
+
+The daemon can serve an optional embedded web dashboard (a SvelteKit static app built
+into the `mc` binary) for monitoring and basic control: device status, session
+start/stop/restart, sending direct and channel messages, triggering adverts, sending
+raw packets, and live log views: a **Companion Log** of companion frames in both
+directions (host↔radio) and an **RF Log** of over-the-air packets — received (with
+SNR/RSSI) and transmitted by us — decoded with meshpkt. It is opt-in via the config
+file:
+
+```yaml
+backend:
+  http:
+    enabled: true
+    port: 8080         # default 8080
+    host: 127.0.0.1    # default 127.0.0.1 (loopback only); set 0.0.0.0 to expose on the LAN
+```
+
+With it enabled, `mc backend start` brings up the dashboard at `http://127.0.0.1:8080`.
+The server reuses the daemon's IPC surface (the same one the CLI uses) and serves no
+radio state of its own; live updates (incoming messages, adverts, status) stream over a
+WebSocket. There is no authentication, so the loopback default is recommended unless the
+host is otherwise protected.
+
+The frontend sources live under [`backend/web/frontend`](./backend/web/frontend); the
+built output in `backend/web/frontend/build` is committed and embedded, so `go build`
+needs no Node toolchain. After changing the frontend, run `make web` to rebuild it.
 
 ## Examples
 

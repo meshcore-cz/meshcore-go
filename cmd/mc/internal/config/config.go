@@ -24,8 +24,37 @@ type Config struct {
 
 // Backend configures the local backend process.
 type Backend struct {
-	LogRequests bool     `yaml:"log_requests,omitempty"`
-	Bridges     []Bridge `yaml:"bridges,omitempty"`
+	LogRequests bool       `yaml:"log_requests,omitempty"`
+	Bridges     []Bridge   `yaml:"bridges,omitempty"`
+	HTTP        HTTPConfig `yaml:"http,omitempty"`
+}
+
+// HTTPConfig configures the optional embedded web dashboard served by the
+// backend daemon.
+type HTTPConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port,omitempty"` // listen port, default 8080 when enabled
+	Host    string `yaml:"host,omitempty"` // bind address, default 127.0.0.1
+}
+
+// DefaultHTTPHost is the loopback bind address used when HTTPConfig.Host is
+// unset. Set Host to 0.0.0.0 to expose the dashboard on the LAN.
+const DefaultHTTPHost = "127.0.0.1"
+
+// DefaultHTTPPort is the listen port used when HTTPConfig.Port is unset.
+const DefaultHTTPPort = 8080
+
+// Addr returns the host:port the dashboard should bind, applying defaults.
+func (h HTTPConfig) Addr() string {
+	host := h.Host
+	if host == "" {
+		host = DefaultHTTPHost
+	}
+	port := h.Port
+	if port == 0 {
+		port = DefaultHTTPPort
+	}
+	return fmt.Sprintf("%s:%d", host, port)
 }
 
 // Bridge configures one local bridge listener exposed by the backend.

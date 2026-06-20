@@ -3,8 +3,10 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 
 	meshcore "github.com/meshcore-cz/meshcore-go"
 	localbackend "github.com/meshcore-cz/meshcore-go/backend"
+	"github.com/meshcore-cz/meshcore-go/backend/web"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/config"
 	"github.com/meshcore-cz/meshcore-go/cmd/mc/internal/ui"
 )
@@ -471,6 +474,25 @@ func backendServe(ctx context.Context, e *env) error {
 	if cfg.Backend.LogRequests {
 		localbackend.Logf("ipc request logging enabled")
 	}
+
+	// Optional embedded web dashboard. It runs in-process and proxies the same
+	// IPC surface as the CLI via the daemon's own socket.
+	if cfg.Backend.HTTP.Enabled {
+		addr := cfg.Backend.HTTP.Addr()
+		srv := web.New(web.Options{Socket: daemon.Socket(), Addr: addr})
+		go func() {
+			localbackend.Logf("web dashboard on http://%s", addr)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				localbackend.Logf("web server stopped: %v", err)
+			}
+		}()
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(ctx)
+		}()
+	}
+
 	localbackend.Logf("daemon ready on %s", daemon.Socket())
 	return daemon.Serve()
 }

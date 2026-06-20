@@ -518,6 +518,12 @@ func (c *Client) WatchRF(ctx context.Context) (<-chan meshcore.RFPacketReceived,
 	return stream[meshcore.RFPacketReceived](ctx, c, "watch_rf", nil)
 }
 
+// WatchRFLog streams the unified over-the-air RF log (received and transmitted
+// packets) until ctx is cancelled or the backend closes the stream.
+func (c *Client) WatchRFLog(ctx context.Context) (<-chan meshcore.RFPacket, error) {
+	return stream[meshcore.RFPacket](ctx, c, "watch_rf_log", nil)
+}
+
 func stream[T any](ctx context.Context, c *Client, method string, params any) (<-chan T, error) {
 	d := net.Dialer{Timeout: dialTimeout}
 	conn, err := d.DialContext(ctx, "unix", c.socket)

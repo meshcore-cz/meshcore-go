@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/clipperhouse/displaywidth v0.9.0
+	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/meshcore-cz/meshpkt v0.0.0-20260609014001-a2bb9b2a238a
 	github.com/reeflective/readline v1.2.2

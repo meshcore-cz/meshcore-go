@@ -230,7 +230,7 @@ func (s *DeviceSession) serve(conn net.Conn, req request, enc *json.Encoder, sta
 	s.trackIPCClient(1)
 	defer s.trackIPCClient(-1)
 
-	streaming := req.Method == "watch" || req.Method == "watch_raw" || req.Method == "watch_rf" || req.Method == "discover"
+	streaming := req.Method == "watch" || req.Method == "watch_raw" || req.Method == "watch_rf" || req.Method == "watch_rf_log" || req.Method == "discover"
 	if req.Method == "watch" {
 		if !s.healthy() {
 			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
@@ -259,6 +259,16 @@ func (s *DeviceSession) serve(conn net.Conn, req request, enc *json.Encoder, sta
 		}
 		s.trackRequestOK()
 		s.watchRF(conn, req.ID)
+		return false
+	}
+	if req.Method == "watch_rf_log" {
+		if !s.healthy() {
+			_ = enc.Encode(response{ID: req.ID, OK: false, Error: "backend radio unavailable: " + s.lastErr()})
+			s.trackRequestFailed()
+			return false
+		}
+		s.trackRequestOK()
+		s.watchRFLog(conn, req.ID)
 		return false
 	}
 	if req.Method == "discover" {
@@ -393,6 +403,16 @@ func (s *DeviceSession) watchRF(conn net.Conn, id uint64) {
 			rf, ok := ev.(meshcore.RFPacketReceived)
 			return rf, ok
 		},
+	)
+}
+
+// watchRFLog streams the unified over-the-air RF log (received + transmitted).
+func (s *DeviceSession) watchRFLog(conn net.Conn, id uint64) {
+	serveSessionStream(conn, id, s,
+		func(client *meshcore.Client) (<-chan meshcore.RFPacket, func()) {
+			return client.SubscribeRFPackets(256)
+		},
+		passStreamItem[meshcore.RFPacket],
 	)
 }
 

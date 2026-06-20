@@ -16,3 +16,7 @@ coverage.out
 /examples/wasm-packet-tool/web/dist/
 /examples/wasm-packet-tool/web/public/meshcore.wasm
 /examples/wasm-packet-tool/web/public/wasm_exec.js
+
+# Web dashboard frontend (build/ is committed and embedded; everything else is generated)
+/backend/web/frontend/node_modules/
+/backend/web/frontend/.svelte-kit/

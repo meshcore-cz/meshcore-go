@@ -88,6 +88,30 @@ type RFPacketReceived struct {
 	Bytes     []byte    `json:"bytes"`
 }
 
+// RF packet directions for RFPacket.Direction.
+const (
+	RFRx = "rx" // received over the air (carries SNR/RSSI)
+	RFTx = "tx" // transmitted by us (carries the send Priority)
+)
+
+// RFPacket is one over-the-air MeshCore packet seen by the local radio. It forms
+// the SDK's unified RF log: received packets (Direction RFRx, from the companion
+// 0x88 RF log, with the radio's measured SNR/RSSI) and packets we transmit
+// (Direction RFTx, from SendMeshPacket, with the send Priority). Bytes holds the
+// raw over-the-air packet. Subscribe via Client.SubscribeRFPackets.
+//
+// Only host-originated raw transmissions (SendMeshPacket) appear as RFTx; the
+// firmware builds and encrypts higher-level sends itself and does not report
+// their on-air bytes.
+type RFPacket struct {
+	Timestamp time.Time `json:"timestamp"`
+	Direction string    `json:"direction"` // RFRx | RFTx
+	SNR       float64   `json:"snr,omitempty"`
+	RSSI      int       `json:"rssi,omitempty"`
+	Priority  byte      `json:"priority,omitempty"`
+	Bytes     []byte    `json:"bytes"`
+}
+
 // RawPacket is an inbound companion-protocol packet observed before the client
 // routes it as a response or asynchronous event.
 type RawPacket struct {

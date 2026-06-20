@@ -37,6 +37,7 @@ type Client struct {
 	queue  *queue.Queue
 	events *dispatcher.Dispatcher[Event]
 	raw    *dispatcher.Dispatcher[RawPacket]
+	rf     *dispatcher.Dispatcher[RFPacket] // unified over-the-air RF log (rx+tx)
 
 	timeout time.Duration
 	log     *slog.Logger
@@ -106,6 +107,7 @@ func New(conn transport.PacketConn, opts ...Option) *Client {
 		queue:       queue.New(),
 		events:      dispatcher.New[Event](64),
 		raw:         dispatcher.New[RawPacket](256),
+		rf:          dispatcher.New[RFPacket](256),
 		timeout:     DefaultTimeout,
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		acks:        make(chan uint32, 16),
@@ -182,6 +184,7 @@ func (c *Client) readLoop(ctx context.Context) {
 			}
 			c.events.Close()
 			c.raw.Close()
+			c.rf.Close()
 			return
 		}
 		msg, err := c.proto.Decode(pkt)
@@ -202,6 +205,7 @@ func (c *Client) readLoop(ctx context.Context) {
 				c.emitEvent(Disconnected{Err: err})
 				c.events.Close()
 				c.raw.Close()
+				c.rf.Close()
 				return
 			}
 		} else if !delivered {
@@ -260,6 +264,17 @@ func (c *Client) syncLoop(ctx context.Context) {
 }
 
 func (c *Client) emitEvent(ev Event) {
+	// Mirror received RF log packets into the unified RF stream so subscribers
+	// see a single rx+tx log (tx is fed by SendMeshPacket).
+	if rf, ok := ev.(RFPacketReceived); ok {
+		c.rf.Emit(RFPacket{
+			Timestamp: rf.Timestamp,
+			Direction: RFRx,
+			SNR:       rf.SNR,
+			RSSI:      rf.RSSI,
+			Bytes:     rf.Bytes,
+		})
+	}
 	if c.eventHook != nil {
 		c.eventHook(ev)
 	}
@@ -304,6 +319,25 @@ func rawPacket(pkt []byte, msg protocol.Message, decodeErr error) RawPacket {
 	return out
 }
 
+// emitOutbound publishes a host→radio frame to the raw-packet stream so that
+// observers (e.g. the web dashboard's Tx log) see traffic in both directions.
+// The read loop publishes inbound frames; writers call this before the wire
+// write so a frame appears even if the write subsequently fails.
+func (c *Client) emitOutbound(pkt []byte) {
+	out := RawPacket{
+		Timestamp: time.Now(),
+		Direction: "out",
+		Bytes:     append([]byte(nil), pkt...),
+	}
+	if len(pkt) > 0 {
+		out.Type = pkt[0]
+		// Outbound frames aren't decoded back into typed commands; label them by
+		// opcode name so the log is readable (e.g. CMD_GET_CONTACTS).
+		out.DecodedType = companion.CommandName(pkt[0])
+	}
+	c.raw.Emit(out)
+}
+
 // request sends a command and waits for the matching response, bounded by the
 // per-request timeout and the supplied context.
 func (c *Client) request(ctx context.Context, cmd protocol.Command) (protocol.Message, error) {
@@ -322,6 +356,7 @@ func (c *Client) request(ctx context.Context, cmd protocol.Command) (protocol.Me
 	}
 	c.log.Debug("radio send", "cmd", cmdHex, "op", cmdName, "bytes", len(raw), "hex", hexPreview(raw))
 	v, err := c.queue.Do(tctx, func() error {
+		c.emitOutbound(raw)
 		return c.conn.WritePacket(tctx, raw)
 	})
 	if err != nil {
@@ -345,6 +380,7 @@ func (c *Client) requestStream(ctx context.Context, raw []byte, collect func(pro
 	c.log.Debug("request stream", "bytes", len(raw))
 	var streamErr error
 	err := c.queue.DoStream(ctx, func() error {
+		c.emitOutbound(raw)
 		return c.conn.WritePacket(ctx, raw)
 	}, func(v any) bool {
 		msg := v.(protocol.Message)
@@ -372,6 +408,7 @@ func (c *Client) RawSend(ctx context.Context, payload []byte) (protocol.Message,
 	defer cancel()
 	c.log.Debug("raw send", "bytes", len(payload))
 	v, err := c.queue.Do(tctx, func() error {
+		c.emitOutbound(payload)
 		return c.conn.WritePacket(tctx, payload)
 	})
 	if err != nil {
@@ -401,6 +438,14 @@ func (c *Client) RawPackets() <-chan RawPacket {
 // SubscribeRawPackets registers an additional raw-packet consumer.
 func (c *Client) SubscribeRawPackets(buffer int) (<-chan RawPacket, func()) {
 	return c.raw.Subscribe(buffer)
+}
+
+// SubscribeRFPackets registers a consumer of the unified over-the-air RF log:
+// received packets (Direction RFRx, with SNR/RSSI) and host-transmitted raw
+// packets (Direction RFTx, from SendMeshPacket). The channel closes when the
+// connection ends.
+func (c *Client) SubscribeRFPackets(buffer int) (<-chan RFPacket, func()) {
+	return c.rf.Subscribe(buffer)
 }
 
 // Close shuts down the read loop and the transport.

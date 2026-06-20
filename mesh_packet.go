@@ -3,6 +3,7 @@ package meshcore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/meshcore-cz/meshcore-go/protocol"
 	"github.com/meshcore-cz/meshcore-go/protocol/companion"
@@ -26,6 +27,13 @@ func (c *Client) SendMeshPacket(ctx context.Context, priority byte, pkt []byte) 
 	}
 	switch m := msg.(type) {
 	case companion.OK:
+		// Record the transmission in the unified RF log (Direction tx).
+		c.rf.Emit(RFPacket{
+			Timestamp: time.Now(),
+			Direction: RFTx,
+			Priority:  priority,
+			Bytes:     append([]byte(nil), pkt...),
+		})
 		return nil
 	case companion.Err:
 		return fmt.Errorf("meshcore: device rejected mesh packet (error code %d)", m.Code)
